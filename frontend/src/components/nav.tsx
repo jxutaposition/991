@@ -9,6 +9,7 @@ const links = [
   { href: "/agent-prs", label: "Agent PRs" },
   { href: "/observe", label: "Observe" },
   { href: "/data-viewer", label: "Data" },
+  { href: "/testing", label: "Testing" },
 ];
 
 export function Nav() {

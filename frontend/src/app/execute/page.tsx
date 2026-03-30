@@ -33,8 +33,20 @@ export default function ExecutePage() {
   const [request, setRequest] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [models, setModels] = useState<{ id: string; name: string; description: string }[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((data) => {
+        setModels(data.models ?? []);
+        setSelectedModel(data.default ?? "");
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/execute/sessions")
@@ -54,7 +66,7 @@ export default function ExecutePage() {
       const res = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request_text: request }),
+        body: JSON.stringify({ request_text: request, model: selectedModel || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -86,13 +98,28 @@ export default function ExecutePage() {
 
         {error && <p className="text-danger text-sm">{error}</p>}
 
-        <button
-          onClick={handleSubmit}
-          disabled={loading || !request.trim()}
-          className="bg-brand text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? "Planning\u2026" : "Build plan \u2192"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !request.trim()}
+            className="bg-brand text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? "Planning\u2026" : "Build plan \u2192"}
+          </button>
+          {models.length > 0 && (
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="bg-page border border-rim rounded-lg px-3 py-2 text-xs text-ink-2 focus:outline-none focus:border-brand"
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="mt-10">

@@ -159,7 +159,7 @@ pub fn plan_to_execution_nodes(
             model: agent
                 .model
                 .clone()
-                .unwrap_or_else(|| "claude-opus-4-6".to_string()),
+                .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string()),
             skip_judge: agent.skip_judge,
             variant_group: None,
             variant_label: None,

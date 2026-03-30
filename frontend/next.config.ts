@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: "http://localhost:3001/api/:path*",
       },
+      {
+        source: "/mock-gtm/:path*",
+        destination: "http://localhost:4000/:path*",
+      },
     ];
   },
 };

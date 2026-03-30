@@ -84,8 +84,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Build router
     let app = Router::new()
-        // Health
+        // Health & config
         .route("/health", get(routes::health))
+        .route("/api/models", get(routes::models_list))
         // Agent catalog
         .route("/api/catalog", get(routes::catalog_list))
         .route("/api/catalog/:slug", get(routes::catalog_get))
@@ -112,7 +113,9 @@ async fn main() -> anyhow::Result<()> {
         // Data Viewer
         .route("/api/data/schemas", get(routes::data_schemas))
         .route("/api/data/query", post(routes::data_query))
-        .route("/api/data/tables/:table/rows", get(routes::data_table_rows));
+        .route("/api/data/tables/:table/rows", get(routes::data_table_rows))
+        // Demo
+        .route("/api/demo/run", post(routes::demo_run));
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]

@@ -38,11 +38,12 @@ pub struct PriorNarration {
 
 pub struct Narrator {
     api_key: String,
+    model: String,
 }
 
 impl Narrator {
-    pub fn new(api_key: String) -> Self {
-        Self { api_key }
+    pub fn new(api_key: String, model: String) -> Self {
+        Self { api_key, model }
     }
 
     /// Narrate a batch of events given prior context.
@@ -53,7 +54,7 @@ impl Narrator {
     ) -> anyhow::Result<String> {
         let client = AnthropicClient::new(
             self.api_key.clone(),
-            "claude-haiku-4-5-20251001".to_string(),
+            self.model.clone(),
         );
 
         let prior_context = build_prior_context(prior_narrations);

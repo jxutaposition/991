@@ -31,6 +31,18 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     }))
 }
 
+/// GET /api/models — list available models and the current default.
+pub async fn models_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(json!({
+        "default": state.settings.anthropic_model,
+        "models": [
+            {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "description": "Fastest, lowest cost. Good for most tasks."},
+            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Balanced speed and quality."},
+            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Highest quality, slowest. Best for complex planning."},
+        ]
+    }))
+}
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -84,6 +96,7 @@ pub async fn catalog_get(
 pub struct CreateExecutionRequest {
     pub request_text: String,
     pub customer_id: Option<String>,
+    pub model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -114,7 +127,8 @@ pub async fn execution_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateExecutionRequest>,
 ) -> Result<Json<CreateExecutionResponse>, (StatusCode, Json<Value>)> {
-    info!(request = %body.request_text, "creating execution session");
+    let model = body.model.as_deref().unwrap_or(&state.settings.anthropic_model);
+    info!(request = %body.request_text, model = %model, "creating execution session");
 
     let catalog_summary = state.catalog.catalog_summary();
 
@@ -123,7 +137,7 @@ pub async fn execution_create(
         &body.request_text,
         &catalog_summary,
         &state.settings.anthropic_api_key,
-        &state.settings.anthropic_model,
+        model,
     )
     .await
     .map_err(|e| {
@@ -459,12 +473,13 @@ pub async fn observe_session_events(
     {
         let db = state.db.clone();
         let api_key = state.settings.anthropic_api_key.clone();
+        let model = state.settings.anthropic_model.clone();
         let events = body.events.clone();
         let session_id_clone = session_id.clone();
         let event_bus = state.event_bus.clone();
 
         tokio::spawn(async move {
-            narrate_batch(&db, &api_key, &session_id_clone, &events, &event_bus).await;
+            narrate_batch(&db, &api_key, &model, &session_id_clone, &events, &event_bus).await;
         });
     }
 
@@ -474,6 +489,7 @@ pub async fn observe_session_events(
 async fn narrate_batch(
     db: &crate::pg::PgClient,
     api_key: &str,
+    model: &str,
     session_id: &str,
     events: &[CapturedEvent],
     event_bus: &crate::session::EventBus,
@@ -491,12 +507,12 @@ async fn narrate_batch(
     let max_seq = meaningful.iter().map(|e| e.sequence_number).max().unwrap_or(0);
     let prior = narrator::load_prior_narrations(db, session_id, 5).await;
 
-    let narr = narrator::Narrator::new(api_key.to_string());
+    let narr = narrator::Narrator::new(api_key.to_string(), model.to_string());
     let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
 
     match narr.narrate(&meaningful_owned, &prior).await {
         Ok(text) => {
-            let _ = narrator::persist_narration(db, session_id, max_seq, &text, "claude-haiku-4-5-20251001").await;
+            let _ = narrator::persist_narration(db, session_id, max_seq, &text, model).await;
 
             // Broadcast to any connected side panel via SSE
             event_bus.send(
@@ -612,6 +628,7 @@ pub async fn observe_session_end(
         let db = state.db.clone();
         let catalog = state.catalog.clone();
         let api_key = state.settings.anthropic_api_key.clone();
+        let model = state.settings.anthropic_model.clone();
         let agents_dir = state.settings.agents_dir.display().to_string();
         let session_id_clone = session_id.clone();
 
@@ -621,7 +638,7 @@ pub async fn observe_session_end(
                 &db,
                 &catalog,
                 &api_key,
-                "claude-sonnet-4-6",
+                &model,
                 &session_id_clone,
                 &agents_dir,
             ).await {
@@ -895,5 +912,150 @@ pub async fn data_table_rows(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("{e}")})),
         )),
+    }
+}
+
+// ── Demo ─────────────────────────────────────────────────────────────────────
+
+/// POST /api/demo/run — run a scripted demo session through the full pipeline.
+/// Creates an observation session, sends 3 batches of realistic events,
+/// ends the session (triggering extraction). Returns session_id immediately.
+pub async fn demo_run(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let session_id = Uuid::new_v4();
+    let expert_id = Uuid::new_v4();
+
+    // Create observation session
+    let sql = format!(
+        "INSERT INTO observation_sessions (id, expert_id, started_at, status) VALUES ('{session_id}', '{expert_id}', NOW(), 'recording')"
+    );
+    if let Err(e) = state.db.execute(&sql).await {
+        return Json(json!({"error": format!("Failed to create session: {e}")}));
+    }
+
+    // Create SSE channel
+    state.event_bus.create_channel(&session_id.to_string()).await;
+
+    info!(session = %session_id, "demo session started");
+
+    // Spawn background task that sends events and runs pipeline
+    let db = state.db.clone();
+    let api_key = state.settings.anthropic_api_key.clone();
+    let model = state.settings.anthropic_model.clone();
+    let catalog = state.catalog.clone();
+    let event_bus = state.event_bus.clone();
+    let agents_dir = state.settings.agents_dir.display().to_string();
+    let sid = session_id.to_string();
+
+    tokio::spawn(async move {
+        let ts = chrono::Utc::now().timestamp_millis();
+
+        // Batch 1: ICP definition on Sales Navigator
+        let batch1 = serde_json::json!([
+            {"event_type": "navigation", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"page_title": "Sales Navigator - Lead Search"}, "sequence_number": 1, "timestamp": ts},
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Industry: Financial Technology", "class": "search-filter-btn"}, "sequence_number": 2, "timestamp": ts + 1},
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Company size: 51-200 employees", "class": "search-filter-btn"}, "sequence_number": 3, "timestamp": ts + 2},
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Funding: Series A, Series B", "class": "search-filter-btn"}, "sequence_number": 4, "timestamp": ts + 3}
+        ]);
+        ingest_demo_events(&db, &sid, &batch1).await;
+        run_narrator(&db, &api_key, &model, &sid, &batch1, &event_bus).await;
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+
+        // Batch 2: Company research
+        let batch2 = serde_json::json!([
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "a", "text": "Sarah Chen - VP Engineering at FinFlow", "class": "result-lockup__name"}, "sequence_number": 5, "timestamp": ts + 10000},
+            {"event_type": "navigation", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"page_title": "FinFlow - Crunchbase"}, "sequence_number": 6, "timestamp": ts + 10001},
+            {"event_type": "click", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"element": "div", "text": "Series B: $45M led by Sequoia Capital", "section": "funding_rounds"}, "sequence_number": 7, "timestamp": ts + 10002},
+            {"event_type": "click", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"element": "span", "text": "Salesforce CRM", "class": "tech-item"}, "sequence_number": 8, "timestamp": ts + 10003}
+        ]);
+        ingest_demo_events(&db, &sid, &batch2).await;
+        run_narrator(&db, &api_key, &model, &sid, &batch2, &event_bus).await;
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+
+        // Batch 3: Contact finding + email
+        let batch3 = serde_json::json!([
+            {"event_type": "navigation", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"page_title": "Sarah Chen | Sales Navigator"}, "sequence_number": 9, "timestamp": ts + 20000},
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"element": "button", "text": "Save to list", "class": "save-lead-btn"}, "sequence_number": 10, "timestamp": ts + 20001},
+            {"event_type": "click", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"element": "button", "text": "Copy email", "class": "copy-email-btn", "data-email": "sarah.chen@finflow.com"}, "sequence_number": 11, "timestamp": ts + 20002},
+            {"event_type": "navigation", "url": "http://localhost:4000/gmail/compose", "dom_context": {"page_title": "Gmail - Compose"}, "sequence_number": 12, "timestamp": ts + 20003},
+            {"event_type": "form_submit", "url": "http://localhost:4000/gmail/compose", "dom_context": {"form_data": {"to": "sarah.chen@finflow.com", "subject": "scaling eng at FinFlow", "body_preview": "Saw your post about growing the eng team post-Series B..."}}, "sequence_number": 13, "timestamp": ts + 20004}
+        ]);
+        ingest_demo_events(&db, &sid, &batch3).await;
+        run_narrator(&db, &api_key, &model, &sid, &batch3, &event_bus).await;
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+
+        // End session + trigger extraction
+        let coverage = crate::narrator::compute_coverage_score(&db, &sid).await;
+        let _ = db.execute(&format!(
+            "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = {coverage} WHERE id = '{sid}'"
+        )).await;
+
+        info!(session = %sid, "demo session ended, starting extraction");
+
+        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid, &agents_dir).await {
+            tracing::warn!(session = %sid, error = %e, "demo extraction failed");
+        }
+
+        info!(session = %sid, "demo pipeline complete");
+    });
+
+    Json(json!({
+        "session_id": session_id.to_string(),
+        "estimated_seconds": 90,
+    }))
+}
+
+/// Ingest demo events into action_events table.
+async fn ingest_demo_events(db: &crate::pg::PgClient, session_id: &str, events: &Value) {
+    let events_arr = events.as_array().unwrap();
+    for event in events_arr {
+        let url = event.get("url").and_then(Value::as_str).unwrap_or("").replace('\'', "''");
+        let domain = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
+        let dom_ctx = event.get("dom_context").map(|v| v.to_string().replace('\'', "''")).unwrap_or_else(|| "null".to_string());
+        let event_type = event.get("event_type").and_then(Value::as_str).unwrap_or("").replace('\'', "''");
+        let seq = event.get("sequence_number").and_then(Value::as_i64).unwrap_or(0);
+
+        let sql = format!(
+            "INSERT INTO action_events (session_id, sequence_number, event_type, url, domain, dom_context, created_at) VALUES ('{session_id}', {seq}, '{event_type}', '{url}', '{domain}', '{dom_ctx}'::jsonb, NOW()) ON CONFLICT (session_id, sequence_number) DO NOTHING"
+        );
+        let _ = db.execute(&sql).await;
+    }
+    let _ = db.execute(&format!(
+        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = '{session_id}') WHERE id = '{session_id}'"
+    )).await;
+}
+
+/// Run narrator on a batch of events.
+async fn run_narrator(
+    db: &crate::pg::PgClient,
+    api_key: &str,
+    model: &str,
+    session_id: &str,
+    events: &Value,
+    event_bus: &crate::session::EventBus,
+) {
+    use crate::narrator::{self, CapturedEvent};
+
+    let captured: Vec<CapturedEvent> = events.as_array().unwrap().iter().filter_map(|e| {
+        serde_json::from_value(e.clone()).ok()
+    }).collect();
+
+    if captured.is_empty() { return; }
+
+    let meaningful: Vec<&CapturedEvent> = captured.iter().filter(|e| e.event_type != "heartbeat").collect();
+    if meaningful.is_empty() { return; }
+
+    let max_seq = meaningful.iter().map(|e| e.sequence_number).max().unwrap_or(0);
+    let prior = narrator::load_prior_narrations(db, session_id, 5).await;
+    let narr = narrator::Narrator::new(api_key.to_string(), model.to_string());
+    let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
+
+    match narr.narrate(&meaningful_owned, &prior).await {
+        Ok(text) => {
+            let _ = narrator::persist_narration(db, session_id, max_seq, &text, model).await;
+            event_bus.send(session_id, serde_json::json!({"type": "narration_chunk", "text": &text, "sequence_ref": max_seq})).await;
+        }
+        Err(e) => tracing::warn!(session = %session_id, error = %e, "demo narrator failed"),
     }
 }

@@ -49,7 +49,7 @@ impl Settings {
             database_url: env::var("DATABASE_URL").unwrap_or_default(),
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
             anthropic_model: env::var("ANTHROPIC_MODEL")
-                .unwrap_or_else(|_| "claude-opus-4-6".to_string()),
+                .unwrap_or_else(|_| "claude-haiku-4-5-20251001".to_string()),
             skip_judge: env::var("SKIP_JUDGE")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
                 .unwrap_or(false),
