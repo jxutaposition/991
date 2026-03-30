@@ -89,8 +89,8 @@ impl AgentRunner {
         );
 
         let model = &plan_node.model;
-        let mut executor_output: Option<Value> = None;
-        let mut executor_summary = String::new();
+        let mut executor_output: Option<Value>;
+        let mut executor_summary: String;
         let mut judge_feedback_for_retry = String::new();
 
         for attempt in 0..=MAX_JUDGE_RETRIES {
@@ -199,7 +199,7 @@ impl AgentRunner {
                         node_uid: uid_str,
                         status: NodeStatus::Failed,
                         judge_score: Some(score),
-                        judge_feedback: Some(feedback),
+                        judge_feedback: Some(feedback.clone()),
                         final_summary: Some(executor_summary),
                         output: executor_output,
                         error: Some(format!("Judge hard-rejected: {feedback}")),
@@ -371,8 +371,8 @@ impl AgentRunner {
         {
             Ok(r) => r,
             Err(e) => {
-                warn!(error = %e, "critic LLM call failed");
-                return json!({"overall_pass": true, "items": [], "summary": "critic unavailable"});
+                warn!(error = %e, "critic LLM call failed — treating as fail");
+                return json!({"overall_pass": false, "items": [], "summary": "critic unavailable — LLM call failed"});
             }
         };
 
@@ -385,7 +385,8 @@ impl AgentRunner {
             .trim();
 
         serde_json::from_str(cleaned).unwrap_or_else(|_| {
-            json!({"overall_pass": true, "items": [], "summary": "critic parse error"})
+            warn!("critic returned unparseable JSON — treating as fail");
+            json!({"overall_pass": false, "items": [], "summary": "critic parse error — could not validate output"})
         })
     }
 
@@ -428,8 +429,8 @@ impl AgentRunner {
         {
             Ok(r) => r,
             Err(e) => {
-                warn!(error = %e, "judge LLM call failed — defaulting to pass");
-                return json!({"verdict": "pass", "score": 7.0, "feedback": "judge unavailable"});
+                warn!(error = %e, "judge LLM call failed — defaulting to fail");
+                return json!({"verdict": "fail", "score": 0.0, "feedback": "judge unavailable — LLM call failed"});
             }
         };
 
@@ -442,7 +443,8 @@ impl AgentRunner {
             .trim();
 
         serde_json::from_str(cleaned).unwrap_or_else(|_| {
-            json!({"verdict": "pass", "score": 7.0, "feedback": "judge parse error"})
+            warn!("judge returned unparseable JSON — treating as fail");
+            json!({"verdict": "fail", "score": 0.0, "feedback": "judge parse error — could not evaluate output"})
         })
     }
 }
@@ -476,6 +478,11 @@ fn build_system_prompt(
                 ex.output
             ));
         }
+    }
+
+    if !upstream_context.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(upstream_context);
     }
 
     prompt

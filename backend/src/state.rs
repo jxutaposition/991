@@ -11,4 +11,6 @@ pub struct AppState {
     pub db: PgClient,
     pub event_bus: EventBus,
     pub catalog: Arc<AgentCatalog>,
+    #[cfg(feature = "slack")]
+    pub slack: Option<Arc<crate::slack::SlackClient>>,
 }

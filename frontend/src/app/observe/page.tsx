@@ -13,10 +13,10 @@ interface ObservationSession {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  recording:  "bg-red-900/40 text-red-400",
-  completed:  "bg-green-900/40 text-green-400",
-  flagged:    "bg-amber-900/40 text-amber-400",
-  archived:   "bg-zinc-800 text-zinc-500",
+  recording:  "bg-red-100 text-red-700",
+  completed:  "bg-green-100 text-green-700",
+  flagged:    "bg-amber-100 text-amber-700",
+  archived:   "bg-surface text-ink-3",
 };
 
 export default function ObservePage() {
@@ -33,16 +33,16 @@ export default function ObservePage() {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Observation Sessions</h1>
-        <p className="text-zinc-400 text-sm mt-1">Expert GTM sessions captured by the browser extension</p>
+        <h1 className="text-2xl font-bold text-ink">Observation Sessions</h1>
+        <p className="text-ink-2 text-sm mt-1">Expert GTM sessions captured by the browser extension</p>
       </div>
 
       {loading ? (
-        <div className="text-zinc-500 text-sm">Loading...</div>
+        <div className="text-ink-3 text-sm">Loading...</div>
       ) : sessions.length === 0 ? (
-        <div className="text-center py-16 text-zinc-600">
-          <p className="text-3xl mb-3">🔭</p>
-          <p className="text-sm font-medium text-zinc-500 mb-1">No sessions yet</p>
+        <div className="text-center py-16 text-ink-3">
+          <p className="text-3xl mb-3">{"\uD83D\uDD2D"}</p>
+          <p className="text-sm font-medium text-ink-2 mb-1">No sessions yet</p>
           <p className="text-xs">Install the Chrome extension to start capturing expert behavior</p>
         </div>
       ) : (
@@ -55,15 +55,15 @@ export default function ObservePage() {
               <Link
                 key={session.id}
                 href={`/observe/${session.id}`}
-                className="flex items-center gap-4 border border-zinc-800 rounded-xl px-5 py-4 hover:border-zinc-600 transition-colors bg-zinc-950"
+                className="flex items-center gap-4 border border-rim rounded-xl px-5 py-4 hover:border-rim-strong transition-colors bg-page"
               >
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[session.status] ?? "bg-zinc-800 text-zinc-400"}`}>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[session.status] ?? "bg-surface text-ink-2"}`}>
                   {session.status}
                 </span>
-                <span className="text-sm text-zinc-300 flex-1">
+                <span className="text-sm text-ink flex-1">
                   {new Date(session.started_at).toLocaleString()}
                 </span>
-                <div className="flex items-center gap-4 text-xs text-zinc-600 shrink-0">
+                <div className="flex items-center gap-4 text-xs text-ink-3 shrink-0">
                   <span>{session.event_count} events</span>
                   <span>{session.distillation_count} narrations</span>
                   {session.coverage_score != null && (

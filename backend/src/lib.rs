@@ -12,3 +12,12 @@ pub mod session;
 pub mod state;
 pub mod tools;
 pub mod work_queue;
+
+#[cfg(feature = "slack")]
+pub mod slack;
+#[cfg(feature = "slack")]
+pub mod slack_messages;
+#[cfg(feature = "slack")]
+pub mod slack_notifier;
+#[cfg(feature = "slack")]
+pub mod slack_routes;

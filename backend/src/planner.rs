@@ -134,9 +134,8 @@ pub fn plan_to_execution_nodes(
 
         let requires: Vec<Uuid> = planned.depends_on.iter().map(|&dep| uids[dep]).collect();
 
-        // A node is ready immediately if it has no dependencies; otherwise waiting.
         let status = if requires.is_empty() {
-            NodeStatus::Ready
+            NodeStatus::Pending
         } else {
             NodeStatus::Waiting
         };
@@ -162,6 +161,9 @@ pub fn plan_to_execution_nodes(
                 .clone()
                 .unwrap_or_else(|| "claude-opus-4-6".to_string()),
             skip_judge: agent.skip_judge,
+            variant_group: None,
+            variant_label: None,
+            variant_selected: None,
         });
     }
 

@@ -164,6 +164,10 @@ pub struct ExecutionPlanNode {
     pub max_iterations: u32,
     pub model: String,
     pub skip_judge: bool,
+    // Branching variant support
+    pub variant_group: Option<uuid::Uuid>,
+    pub variant_label: Option<String>,
+    pub variant_selected: Option<bool>,
 }
 
 // ── Catalog ───────────────────────────────────────────────────────────────────

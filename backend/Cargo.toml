@@ -25,6 +25,14 @@ uuid = { version = "1", features = ["v4", "serde"] }
 toml = "0.8"
 url = "2"
 walkdir = "2"
+slack-morphism = { version = "2.19", features = ["axum"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+
+[features]
+default = ["slack"]
+slack = ["dep:slack-morphism", "dep:hmac", "dep:sha2", "dep:hex"]
 
 [dev-dependencies]
 http-body-util = "0.1"

@@ -43,25 +43,25 @@ export default function PRDetailPage() {
     router.push("/agent-prs");
   };
 
-  if (loading) return <div className="p-8 text-zinc-500 text-sm">Loading...</div>;
-  if (!pr) return <div className="p-8 text-zinc-500 text-sm">PR not found.</div>;
+  if (loading) return <div className="p-8 text-ink-3 text-sm">Loading...</div>;
+  if (!pr) return <div className="p-8 text-ink-3 text-sm">PR not found.</div>;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
-      <Link href="/agent-prs" className="text-zinc-500 text-sm hover:text-zinc-300 mb-4 inline-block">
-        ← Back to PRs
+      <Link href="/agent-prs" className="text-ink-3 text-sm hover:text-ink-2 mb-4 inline-block">
+        {"\u2190"} Back to PRs
       </Link>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-white">
+          <h1 className="text-xl font-bold text-ink">
             {pr.pr_type.replace(/_/g, " ")} — <span className="font-mono">{pr.target_agent_slug ?? pr.proposed_slug}</span>
           </h1>
-          <p className="text-zinc-400 text-sm mt-1">{pr.gap_summary}</p>
-          <div className="flex items-center gap-3 mt-2 text-xs text-zinc-600">
+          <p className="text-ink-2 text-sm mt-1">{pr.gap_summary}</p>
+          <div className="flex items-center gap-3 mt-2 text-xs text-ink-3">
             <span>{Math.round((pr.confidence ?? 0) * 100)}% confidence</span>
-            <span>·</span>
+            <span>{"\u00B7"}</span>
             <span>{pr.evidence_count} evidence tasks</span>
-            <span>·</span>
+            <span>{"\u00B7"}</span>
             <span>{new Date(pr.created_at).toLocaleDateString()}</span>
           </div>
         </div>
@@ -70,14 +70,14 @@ export default function PRDetailPage() {
             <button
               onClick={() => action("reject")}
               disabled={actioning}
-              className="border border-zinc-700 text-zinc-400 px-3 py-1.5 rounded-lg text-sm hover:border-zinc-500 disabled:opacity-50"
+              className="border border-rim text-ink-2 px-3 py-1.5 rounded-lg text-sm hover:border-rim-strong disabled:opacity-50"
             >
               Reject
             </button>
             <button
               onClick={() => action("approve")}
               disabled={actioning}
-              className="bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 disabled:opacity-50"
+              className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
             >
               Approve & Merge
             </button>
@@ -86,21 +86,21 @@ export default function PRDetailPage() {
       </div>
 
       <div className="space-y-6">
-        <div className="bg-zinc-900 rounded-xl p-4">
-          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">Analysis</h3>
-          <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{pr.reasoning}</p>
+        <div className="bg-surface rounded-xl p-4 border border-rim">
+          <h3 className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-3">Analysis</h3>
+          <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">{pr.reasoning}</p>
         </div>
 
         <div>
-          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">File Changes</h3>
+          <h3 className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-3">File Changes</h3>
           {pr.file_diffs.map((diff, i) => (
-            <div key={i} className="border border-zinc-800 rounded-xl overflow-hidden mb-3">
-              <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center justify-between">
-                <span className="text-xs font-mono text-zinc-400">{diff.file_path}</span>
-                <span className="text-xs text-zinc-600">{diff.old_content ? "modified" : "new file"}</span>
+            <div key={i} className="border border-rim rounded-xl overflow-hidden mb-3">
+              <div className="bg-surface px-4 py-2 border-b border-rim flex items-center justify-between">
+                <span className="text-xs font-mono text-ink-2">{diff.file_path}</span>
+                <span className="text-xs text-ink-3">{diff.old_content ? "modified" : "new file"}</span>
               </div>
               <div className="overflow-auto max-h-80">
-                <pre className="text-xs text-zinc-300 p-4 whitespace-pre-wrap leading-relaxed">
+                <pre className="text-xs text-ink-2 p-4 whitespace-pre-wrap leading-relaxed">
                   {diff.new_content}
                 </pre>
               </div>

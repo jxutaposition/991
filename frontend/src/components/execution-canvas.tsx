@@ -1,129 +1,470 @@
 "use client";
-import { useMemo } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  Node,
-  Edge,
-  BackgroundVariant,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
-import dagre from "dagre";
 
-interface ExecutionNode {
+import {
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  useMemo,
+  useCallback,
+  useLayoutEffect,
+  useState,
+} from "react";
+import { ArrowDown, GitBranch } from "lucide-react";
+import {
+  TransformWrapper,
+  TransformComponent,
+  type ReactZoomPanPinchRef,
+} from "react-zoom-pan-pinch";
+
+export interface ExecutionNode {
   id: string;
   agent_slug: string;
   task_description: string;
   status: string;
-  requires: string[];
+  requires: string[] | null;
   judge_score: number | null;
+  judge_feedback: string | null;
   attempt_count: number;
+  parent_uid?: string | null;
+  model?: string | null;
+  max_iterations?: number | null;
+  skip_judge?: boolean | null;
+  judge_config?: unknown;
+  input?: unknown;
+  started_at?: string | null;
+  completed_at?: string | null;
+  // Branching variant support
+  variant_group?: string | null;
+  variant_label?: string | null;
+  variant_selected?: boolean | null;
 }
 
-const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
-  pending:  { border: "#3f3f46", bg: "#18181b", text: "#71717a" },
-  waiting:  { border: "#3f3f46", bg: "#18181b", text: "#71717a" },
-  ready:    { border: "#3b82f6", bg: "#1e3a5f", text: "#93c5fd" },
-  running:  { border: "#3b82f6", bg: "#1e3a5f", text: "#60a5fa" },
-  passed:   { border: "#22c55e", bg: "#14532d", text: "#86efac" },
-  failed:   { border: "#ef4444", bg: "#450a0a", text: "#fca5a5" },
-  skipped:  { border: "#6b7280", bg: "#111827", text: "#6b7280" },
-};
-
-function layoutGraph(nodes: ExecutionNode[]): { nodes: Node[]; edges: Edge[] } {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "LR", nodesep: 60, ranksep: 100 });
-
-  nodes.forEach((n) => g.setNode(n.id, { width: 190, height: 80 }));
-  nodes.forEach((n) =>
-    n.requires.forEach((dep) => g.setEdge(dep, n.id))
-  );
-
-  dagre.layout(g);
-
-  const flowNodes: Node[] = nodes.map((n) => {
-    const pos = g.node(n.id);
-    const style = STATUS_STYLES[n.status] ?? STATUS_STYLES.pending;
-    return {
-      id: n.id,
-      position: { x: pos.x - 95, y: pos.y - 40 },
-      data: {
-        label: (
-          <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-            <div style={{ fontWeight: 600, marginBottom: 2 }}>{n.agent_slug}</div>
-            <div style={{ opacity: 0.6, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 155 }}>
-              {n.task_description}
-            </div>
-            {n.judge_score != null && (
-              <div style={{ marginTop: 3, fontSize: 10, opacity: 0.8 }}>
-                score: {n.judge_score.toFixed(1)}
-              </div>
-            )}
-          </div>
-        ),
-      },
-      style: {
-        background: style.bg,
-        border: `1px solid ${style.border}`,
-        borderRadius: 10,
-        padding: "8px 12px",
-        width: 190,
-        color: style.text,
-      },
-    };
-  });
-
-  const flowEdges: Edge[] = [];
-  nodes.forEach((n) =>
-    n.requires.forEach((dep) => {
-      flowEdges.push({
-        id: `${dep}-${n.id}`,
-        source: dep,
-        target: n.id,
-        style: { stroke: "#3f3f46", strokeWidth: 1.5 },
-        animated: n.status === "running",
-      });
-    })
-  );
-
-  return { nodes: flowNodes, edges: flowEdges };
+export interface CanvasHandle {
+  resetTransform: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
 }
 
-export function ExecutionCanvas({
-  nodes,
-  sessionStatus,
-}: {
+interface ExecutionCanvasProps {
   nodes: ExecutionNode[];
   sessionStatus: string;
-}) {
-  const { nodes: flowNodes, edges: flowEdges } = useMemo(
-    () => layoutGraph(nodes),
-    [nodes]
-  );
+  selectedNodeId: string | null;
+  onNodeClick?: (id: string) => void;
+  onZoomChange?: (scale: number) => void;
+}
 
-  if (nodes.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-zinc-600 text-sm">
-        {sessionStatus === "planning" ? "Building plan..." : "No nodes in plan"}
+type NodeStatus = string;
+
+const NODE_BG: Record<string, string> = {
+  passed:  "bg-green-50 border-green-300 text-green-700",
+  running: "bg-blue-50 border-blue-400 text-blue-700 shadow-lg shadow-blue-100",
+  ready:   "bg-blue-50 border-blue-200 text-blue-600",
+  waiting: "bg-amber-50 border-amber-300 text-amber-700",
+  failed:  "bg-red-50 border-red-400 text-red-700",
+  skipped: "bg-surface border-rim text-ink-3 line-through",
+  pending: "bg-surface border-rim text-ink-3",
+};
+
+const DOT: Record<string, string> = {
+  passed:  "bg-green-500",
+  running: "bg-blue-500 animate-pulse",
+  ready:   "bg-blue-400",
+  waiting: "bg-amber-400",
+  failed:  "bg-red-500",
+  skipped: "bg-gray-300",
+  pending: "bg-gray-300",
+};
+
+function truncate(s: string, max: number) {
+  return s.length > max ? s.slice(0, max) + "\u2026" : s;
+}
+
+function NodeBox({
+  node,
+  isSelected,
+  isChild,
+  onClick,
+}: {
+  node: ExecutionNode;
+  isSelected: boolean;
+  isChild: boolean;
+  onClick: () => void;
+}) {
+  const status = node.status as NodeStatus;
+  const name = node.agent_slug || node.id.slice(0, 8);
+  const desc = node.task_description?.trim();
+  const score =
+    node.judge_score != null ? Number(node.judge_score).toFixed(1) : null;
+  const isVariantAlt = node.variant_group != null && node.variant_selected === false;
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={`relative rounded-xl border-2 px-5 py-4
+        ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[340px]"}
+        ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_BG[status] ?? NODE_BG.pending}
+        ${isSelected ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-white" : ""}
+        flex flex-col items-start gap-1.5 transition-all hover:scale-[1.03] cursor-pointer hover:shadow-lg`}
+    >
+      <div
+        className={`absolute top-2.5 right-2.5 w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : DOT[status] ?? DOT.pending}`}
+      />
+
+      {isChild && (
+        <GitBranch className="absolute top-2.5 left-2.5 w-3 h-3 text-purple-400" />
+      )}
+
+      {node.variant_label && (
+        <div className={`text-[9px] font-medium ${isVariantAlt ? "text-gray-400" : "text-purple-500"}`}>
+          {node.variant_selected ? "\u2713 " : ""}{node.variant_label}
+        </div>
+      )}
+
+      <div
+        className={`text-sm font-semibold truncate w-full ${isChild ? "pl-4" : ""} pr-4`}
+      >
+        {name}
       </div>
+
+      {desc && (
+        <div className={`text-[11px] leading-snug line-clamp-2 w-full text-left ${isVariantAlt ? "text-gray-400" : "text-ink-2"}`}>
+          {truncate(desc, 100)}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 text-xs opacity-70">
+        <span className="capitalize">{isVariantAlt ? "alternative" : status}</span>
+        {score && (
+          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px] font-mono">
+            {score}/10
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+type DagNode = {
+  node: ExecutionNode;
+  children: DagNode[];
+};
+
+function parseRequires(requires: string[] | string | null): string[] {
+  if (!requires) return [];
+  if (Array.isArray(requires)) return requires;
+  if (typeof requires === "string") {
+    try {
+      const parsed = JSON.parse(requires);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function buildDag(nodes: ExecutionNode[]) {
+  const byId = new Map<string, ExecutionNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const childrenOf = new Map<string, ExecutionNode[]>();
+  const topLevel: ExecutionNode[] = [];
+
+  for (const n of nodes) {
+    if (n.parent_uid && byId.has(n.parent_uid)) {
+      const list = childrenOf.get(n.parent_uid) ?? [];
+      list.push(n);
+      childrenOf.set(n.parent_uid, list);
+    } else {
+      topLevel.push(n);
+    }
+  }
+
+  const requiresMap = new Map<string, string[]>();
+  for (const n of topLevel) {
+    const reqs = parseRequires(n.requires);
+    if (reqs.length > 0) requiresMap.set(n.id, reqs);
+  }
+
+  const inDegree = new Map<string, number>();
+  for (const n of topLevel) inDegree.set(n.id, 0);
+  for (const [uid, reqs] of requiresMap) {
+    inDegree.set(
+      uid,
+      reqs.filter((r) => topLevel.some((t) => t.id === r)).length
     );
   }
 
+  const layers: ExecutionNode[][] = [];
+  const assigned = new Set<string>();
+
+  while (assigned.size < topLevel.length) {
+    const layer: ExecutionNode[] = [];
+    for (const n of topLevel) {
+      if (!assigned.has(n.id) && (inDegree.get(n.id) ?? 0) === 0)
+        layer.push(n);
+    }
+    if (layer.length === 0) break;
+    layers.push(layer);
+    for (const n of layer) {
+      assigned.add(n.id);
+      for (const [uid, reqs] of requiresMap) {
+        if (reqs.includes(n.id))
+          inDegree.set(uid, (inDegree.get(uid) ?? 1) - 1);
+      }
+    }
+  }
+
+  const edges: Array<{ from: string; to: string }> = [];
+  for (const [uid, reqs] of requiresMap) {
+    for (const req of reqs) {
+      if (topLevel.some((t) => t.id === req))
+        edges.push({ from: req, to: uid });
+    }
+  }
+
+  function buildTree(n: ExecutionNode): DagNode {
+    const kids = (childrenOf.get(n.id) ?? []).map(buildTree);
+    return { node: n, children: kids };
+  }
+
+  const dagTrees = new Map<string, DagNode>();
+  for (const n of topLevel) dagTrees.set(n.id, buildTree(n));
+
+  return { layers, edges, dagTrees };
+}
+
+function ChildTree({
+  tree,
+  selectedNodeId,
+  onNodeClick,
+}: {
+  tree: DagNode;
+  selectedNodeId: string | null;
+  onNodeClick?: (id: string) => void;
+}) {
+  if (tree.children.length === 0) return null;
   return (
-    <ReactFlow
-      nodes={flowNodes}
-      edges={flowEdges}
-      fitView
-      fitViewOptions={{ padding: 0.3 }}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      elementsSelectable={false}
-      proOptions={{ hideAttribution: true }}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#27272a" />
-      <Controls className="!bg-zinc-900 !border-zinc-700" />
-    </ReactFlow>
+    <div className="flex flex-col items-center gap-1 mt-1">
+      <div className="w-px h-4 bg-purple-300/50" />
+      <ArrowDown className="w-3 h-3 text-purple-400 -mt-1.5" />
+      <div className="flex items-start gap-3">
+        {tree.children.map((child) => (
+          <div
+            key={child.node.id}
+            className="flex flex-col items-center gap-1"
+          >
+            <div data-node-uid={child.node.id}>
+              <NodeBox
+                node={child.node}
+                isSelected={selectedNodeId === child.node.id}
+                isChild
+                onClick={() => onNodeClick?.(child.node.id)}
+              />
+            </div>
+            <ChildTree
+              tree={child}
+              selectedNodeId={selectedNodeId}
+              onNodeClick={onNodeClick}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
+
+function DagEdges({
+  edges,
+  containerRef,
+}: {
+  edges: Array<{ from: string; to: string }>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [paths, setPaths] = useState<Array<{ key: string; d: string }>>([]);
+
+  const recalc = useCallback(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    const newPaths: Array<{ key: string; d: string }> = [];
+
+    function offsetRelativeTo(el: HTMLElement): {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+    } {
+      let x = 0,
+        y = 0;
+      let cur: HTMLElement | null = el;
+      while (cur && cur !== container) {
+        x += cur.offsetLeft;
+        y += cur.offsetTop;
+        cur = cur.offsetParent as HTMLElement | null;
+      }
+      return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+    }
+
+    for (const edge of edges) {
+      const fromEl = container.querySelector(
+        `[data-node-uid="${edge.from}"]`
+      ) as HTMLElement | null;
+      const toEl = container.querySelector(
+        `[data-node-uid="${edge.to}"]`
+      ) as HTMLElement | null;
+      if (!fromEl || !toEl) continue;
+
+      const from = offsetRelativeTo(fromEl);
+      const to = offsetRelativeTo(toEl);
+
+      const x1 = from.x + from.w / 2;
+      const y1 = from.y + from.h;
+      const x2 = to.x + to.w / 2;
+      const y2 = to.y;
+
+      const dy = Math.abs(y2 - y1);
+      const cp = Math.max(dy * 0.45, 20);
+      const d = `M ${x1} ${y1} C ${x1} ${y1 + cp}, ${x2} ${y2 - cp}, ${x2} ${y2}`;
+      newPaths.push({ key: `${edge.from}-${edge.to}`, d });
+    }
+
+    setPaths(newPaths);
+  }, [edges, containerRef]);
+
+  useLayoutEffect(() => {
+    recalc();
+    const t1 = setTimeout(recalc, 80);
+    const t2 = setTimeout(recalc, 300);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [recalc]);
+
+  if (paths.length === 0) return null;
+
+  return (
+    <svg
+      className="absolute inset-0 pointer-events-none overflow-visible"
+      style={{ zIndex: 0 }}
+    >
+      <defs>
+        <marker
+          id="dag-arrow"
+          markerWidth="10"
+          markerHeight="7"
+          refX="9"
+          refY="3.5"
+          orient="auto"
+        >
+          <polygon points="0 0, 10 3.5, 0 7" fill="rgba(139,92,246,0.5)" />
+        </marker>
+      </defs>
+      {paths.map((p) => (
+        <path
+          key={p.key}
+          d={p.d}
+          fill="none"
+          stroke="rgba(139,92,246,0.4)"
+          strokeWidth="2"
+          strokeDasharray="6 3"
+          markerEnd="url(#dag-arrow)"
+        />
+      ))}
+    </svg>
+  );
+}
+
+export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
+  function ExecutionCanvas(
+    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange },
+    ref
+  ) {
+    const transformRef = useRef<ReactZoomPanPinchRef>(null);
+    const dagContainerRef = useRef<HTMLDivElement>(null);
+
+    useImperativeHandle(ref, () => ({
+      resetTransform: () => transformRef.current?.resetTransform(),
+      zoomIn: () => transformRef.current?.zoomIn(),
+      zoomOut: () => transformRef.current?.zoomOut(),
+    }));
+
+    const { layers, edges, dagTrees } = useMemo(() => buildDag(nodes), [nodes]);
+
+    if (nodes.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-full text-ink-3 text-sm">
+          {sessionStatus === "planning"
+            ? "Building plan\u2026"
+            : "No nodes in plan"}
+        </div>
+      );
+    }
+
+    return (
+      <TransformWrapper
+        ref={transformRef}
+        initialScale={0.9}
+        minScale={0.25}
+        maxScale={2.5}
+        onInit={(instance) => {
+          setTimeout(() => instance.centerView(0.9), 60);
+        }}
+        onTransformed={(_, state) => {
+          onZoomChange?.(state.scale);
+        }}
+        wheel={{ step: 0.08 }}
+        doubleClick={{ disabled: true }}
+        panning={{ allowLeftClickPan: true }}
+        limitToBounds={false}
+      >
+        <TransformComponent
+          wrapperStyle={{ width: "100%", height: "100%" }}
+        >
+          <div
+            ref={dagContainerRef}
+            className="relative flex flex-col items-center p-16 gap-10 min-h-[400px]"
+          >
+            {layers.map((layer, layerIdx) => (
+              <div
+                key={layerIdx}
+                className="flex items-start justify-center gap-10"
+              >
+                {layer.map((node) => {
+                  const tree = dagTrees.get(node.id);
+                  return (
+                    <div
+                      key={node.id}
+                      className="flex flex-col items-center gap-1"
+                    >
+                      <div data-node-uid={node.id}>
+                        <NodeBox
+                          node={node}
+                          isSelected={selectedNodeId === node.id}
+                          isChild={false}
+                          onClick={() => onNodeClick?.(node.id)}
+                        />
+                      </div>
+                      {tree && (
+                        <ChildTree
+                          tree={tree}
+                          selectedNodeId={selectedNodeId}
+                          onNodeClick={onNodeClick}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            <DagEdges edges={edges} containerRef={dagContainerRef} />
+          </div>
+        </TransformComponent>
+      </TransformWrapper>
+    );
+  }
+);

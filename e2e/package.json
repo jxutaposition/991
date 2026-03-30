@@ -1,0 +1,15 @@
+{
+  "name": "lele-e2e",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "mock-site": "node mock-gtm-site/server.js",
+    "test:headed": "npx playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}

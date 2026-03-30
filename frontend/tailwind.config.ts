@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
+import typography from "@tailwindcss/typography";
 
-const config: Config = {
+export default {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,11 +10,31 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        page:    "var(--page)",
+        surface: "var(--surface)",
+        raised:  "var(--raised)",
+        rim: {
+          DEFAULT: "var(--rim)",
+          strong:  "var(--rim-strong)",
+        },
+        ink: {
+          DEFAULT: "var(--ink)",
+          2:       "var(--ink-2)",
+          3:       "var(--ink-3)",
+        },
+        brand: {
+          DEFAULT: "var(--brand)",
+          hover:   "var(--brand-hover)",
+          subtle:  "var(--brand-subtle)",
+          rim:     "var(--brand-rim)",
+        },
+        danger: {
+          DEFAULT: "var(--danger)",
+          subtle:  "var(--danger-subtle)",
+          rim:     "var(--danger-rim)",
+        },
       },
     },
   },
-  plugins: [],
-};
-export default config;
+  plugins: [typography],
+} satisfies Config;

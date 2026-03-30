@@ -120,6 +120,16 @@ async fn execute_node(
         "executing node"
     );
 
+    // Broadcast node_started event (consumed by SSE frontend and Slack notifier)
+    event_bus.send(
+        &session_id.to_string(),
+        serde_json::json!({
+            "type": "node_started",
+            "node_uid": uid.to_string(),
+            "agent_slug": &agent_slug,
+        }),
+    ).await;
+
     // Get upstream outputs for context
     let upstream_outputs = match load_upstream_outputs(&db, &node).await {
         Ok(o) => o,
@@ -148,13 +158,13 @@ async fn execute_node(
                 error!(uid = %uid, error = %e, "failed to unblock downstream");
             }
             // Check if all nodes are terminal → mark session completed
-            check_session_completion(&db, &session_id).await;
+            check_session_completion(&db, &session_id, &event_bus).await;
         }
         NodeStatus::Failed => {
             if let Err(e) = skip_downstream(&db, &uid, &session_id).await {
                 error!(uid = %uid, error = %e, "failed to skip downstream");
             }
-            check_session_completion(&db, &session_id).await;
+            check_session_completion(&db, &session_id, &event_bus).await;
         }
         _ => {}
     }
@@ -188,7 +198,8 @@ async fn claim_ready_nodes(
             id, session_id, agent_slug, agent_git_sha, task_description,
             status, requires, attempt_count, parent_uid,
             input, output, judge_score, judge_feedback,
-            judge_config, max_iterations, model, skip_judge
+            judge_config, max_iterations, model, skip_judge,
+            variant_group, variant_label, variant_selected
         FROM claimed
         "#
     );
@@ -247,6 +258,9 @@ fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
         max_iterations,
         model,
         skip_judge,
+        variant_group: row.get("variant_group").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()),
+        variant_label: row.get("variant_label").and_then(Value::as_str).map(String::from),
+        variant_selected: row.get("variant_selected").and_then(Value::as_bool),
     })
 }
 
@@ -273,11 +287,15 @@ async fn persist_node_result(
         .map(|s| format!("'{}'", s.replace('\'', "''")))
         .unwrap_or_else(|| "NULL".to_string());
 
-    let error_text = result
-        .error
-        .as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
+    // If there's an error but no judge_feedback, surface the error in judge_feedback
+    // so it's visible in the frontend
+    let effective_feedback = if result.judge_feedback.is_some() {
+        judge_feedback.clone()
+    } else if let Some(err) = &result.error {
+        format!("'{}'", err.replace('\'', "''"))
+    } else {
+        "NULL".to_string()
+    };
 
     let sql = format!(
         r#"
@@ -285,7 +303,7 @@ async fn persist_node_result(
         SET status = '{status}',
             output = {output_json},
             judge_score = {judge_score},
-            judge_feedback = {judge_feedback},
+            judge_feedback = {effective_feedback},
             completed_at = NOW()
         WHERE id = '{uid}'
         "#
@@ -446,7 +464,7 @@ async fn skip_downstream_recursive(
 }
 
 /// Mark session as completed if all nodes are in a terminal state.
-async fn check_session_completion(db: &PgClient, session_id: &Uuid) {
+async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &EventBus) {
     let sql = format!(
         r#"
         SELECT
@@ -467,6 +485,13 @@ async fn check_session_completion(db: &PgClient, session_id: &Uuid) {
                     "UPDATE execution_sessions SET status = 'completed', completed_at = NOW() WHERE id = '{session_id}'"
                 );
                 let _ = db.execute(&update_sql).await;
+
+                // Broadcast session_completed (consumed by SSE and Slack notifier)
+                event_bus.send(
+                    &session_id.to_string(),
+                    serde_json::json!({"type": "session_completed"}),
+                ).await;
+
                 info!(session = %session_id, "session completed");
             }
         }
@@ -535,10 +560,16 @@ async fn load_upstream_outputs(
 }
 
 /// Emit a completion event to the session's SSE channel.
-async fn emit_to_session(_event_bus: &EventBus, session_id: &str, result: &AgentResult) {
-    // The EventBus doesn't expose a direct send — we subscribe to get the receiver
-    // but we need a sender. We work around this by broadcasting via the channel map.
-    // For now we log; the SSE route polls DB for live status.
+async fn emit_to_session(event_bus: &EventBus, session_id: &str, result: &AgentResult) {
+    let event = serde_json::json!({
+        "type": "node_completed",
+        "node_uid": result.node_uid,
+        "status": result.status.as_str(),
+        "judge_score": result.judge_score,
+    });
+
+    event_bus.send(session_id, event).await;
+
     info!(
         session = %session_id,
         node = %result.node_uid,

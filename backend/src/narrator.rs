@@ -4,7 +4,7 @@
 /// of what the expert is doing and why, streams output back to the extension
 /// via SSE. Uses Claude Haiku for low-latency streaming.
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::anthropic::{user_message, AnthropicClient};
@@ -124,6 +124,13 @@ pub async fn persist_narration(
         "#
     );
     db.execute(&sql).await?;
+
+    // Increment distillation_count on the session
+    let count_sql = format!(
+        "UPDATE observation_sessions SET distillation_count = distillation_count + 1 WHERE id = '{session_id}'"
+    );
+    let _ = db.execute(&count_sql).await;
+
     info!(session = %session_id, seq = sequence_ref, "narration persisted");
     Ok(id.to_string())
 }

@@ -71,6 +71,8 @@ pub async fn catalog_get(
         "judge_config": agent.judge_config,
         "max_iterations": agent.max_iterations,
         "model": agent.model,
+        "skip_judge": agent.skip_judge,
+        "system_prompt": agent.system_prompt,
         "example_count": agent.examples.len(),
         "knowledge_doc_count": agent.knowledge_docs.len(),
     })))
@@ -89,6 +91,22 @@ pub struct CreateExecutionResponse {
     pub session_id: String,
     pub plan: Value,
     pub node_count: usize,
+}
+
+/// GET /api/execute/sessions — list recent execution sessions.
+pub async fn execution_sessions_list(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let sql = r#"
+        SELECT id, request_text, status, plan_approved_at, created_at, completed_at,
+               (SELECT COUNT(*) FROM execution_nodes WHERE session_id = s.id) as node_count,
+               (SELECT COUNT(*) FILTER (WHERE status = 'passed') FROM execution_nodes WHERE session_id = s.id) as passed_count
+        FROM execution_sessions s
+        ORDER BY created_at DESC
+        LIMIT 50
+    "#;
+    let rows = state.db.execute(sql).await.unwrap_or_default();
+    Json(json!({"sessions": rows}))
 }
 
 /// POST /api/execute — plan a new execution session.
@@ -172,12 +190,22 @@ pub async fn execution_approve(
     })?;
 
     let sql = format!(
-        "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = '{session_uuid}' AND status = 'planning'"
+        "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = '{session_uuid}' AND status = 'awaiting_approval'"
     );
 
     state.db.execute(&sql).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
+
+    let unblock_sql = format!(
+        "UPDATE execution_nodes SET status = 'ready' WHERE session_id = '{session_uuid}' AND status = 'pending' AND requires = '{{}}'"
+    );
+    state.db.execute(&unblock_sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    // Create SSE channel so clients can subscribe to live execution events
+    state.event_bus.create_channel(&session_id).await;
 
     info!(session = %session_id, "execution approved — work queue will pick up ready nodes");
 
@@ -202,7 +230,10 @@ pub async fn execution_get(
     let nodes_sql = format!(
         r#"
         SELECT id, agent_slug, task_description, status, requires,
-               judge_score, output, started_at, completed_at
+               judge_score, judge_feedback, judge_config, output, input,
+               attempt_count, max_iterations, model, skip_judge,
+               parent_uid, variant_group, variant_label, variant_selected,
+               started_at, completed_at
         FROM execution_nodes WHERE session_id = '{session_id}'
         ORDER BY created_at
         "#
@@ -214,6 +245,27 @@ pub async fn execution_get(
         "session": session,
         "nodes": nodes,
     })))
+}
+
+/// GET /api/execute/:session_id/nodes/:node_id/events — get execution events for a node.
+pub async fn execution_node_events(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, node_id)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sql = format!(
+        r#"
+        SELECT id, node_id, event_type, payload, created_at
+        FROM execution_events
+        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
+        ORDER BY created_at ASC
+        "#
+    );
+
+    let events = state.db.execute(&sql).await.unwrap_or_default();
+    Ok(Json(json!({ "events": events })))
 }
 
 /// GET /api/execute/:session_id/events — SSE stream for live execution progress.
@@ -273,7 +325,7 @@ async fn persist_session(
     let session_sql = format!(
         r#"
         INSERT INTO execution_sessions (id, customer_id, request_text, plan, status)
-        VALUES ('{session_id}', {customer_val}, '{request_escaped}', '{plan_escaped}'::jsonb, 'planning')
+        VALUES ('{session_id}', {customer_val}, '{request_escaped}', '{plan_escaped}'::jsonb, 'awaiting_approval')
         "#
     );
     db.execute(&session_sql).await?;
@@ -555,6 +607,29 @@ pub async fn observe_session_end(
 
     info!(session = %session_id, coverage = coverage, "observation session ended");
 
+    // Trigger extraction pipeline asynchronously
+    {
+        let db = state.db.clone();
+        let catalog = state.catalog.clone();
+        let api_key = state.settings.anthropic_api_key.clone();
+        let agents_dir = state.settings.agents_dir.display().to_string();
+        let session_id_clone = session_id.clone();
+
+        tokio::spawn(async move {
+            info!(session = %session_id_clone, "starting post-session extraction");
+            if let Err(e) = crate::extraction::run_extraction(
+                &db,
+                &catalog,
+                &api_key,
+                "claude-sonnet-4-6",
+                &session_id_clone,
+                &agents_dir,
+            ).await {
+                tracing::warn!(session = %session_id_clone, error = %e, "extraction pipeline failed");
+            }
+        });
+    }
+
     Ok(Json(json!({
         "session_id": session_id,
         "coverage_score": coverage,
@@ -587,4 +662,238 @@ pub async fn observe_session_get(
     let distillations = state.db.execute(&dist_sql).await.unwrap_or_default();
 
     Ok(Json(json!({"session": session, "distillations": distillations})))
+}
+
+// ── Agent PRs ────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct AgentPrsQuery {
+    pub status: Option<String>,
+}
+
+/// GET /api/agent-prs — list agent PRs, optionally filtered by status.
+pub async fn agent_prs_list(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<AgentPrsQuery>,
+) -> Json<Value> {
+    let status_filter = query.status.unwrap_or_else(|| "open".to_string());
+    let status_escaped = status_filter.replace('\'', "''");
+
+    let sql = format!(
+        r#"
+        SELECT id, pr_type, target_agent_slug, proposed_slug, gap_summary,
+               confidence, evidence_count, status, created_at
+        FROM agent_prs
+        WHERE status = '{status_escaped}'
+        ORDER BY created_at DESC
+        LIMIT 100
+        "#
+    );
+
+    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    Json(json!({"prs": rows}))
+}
+
+/// GET /api/agent-prs/:pr_id — get a single PR with full details.
+pub async fn agent_pr_get(
+    State(state): State<Arc<AppState>>,
+    Path(pr_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sql = format!(
+        r#"
+        SELECT id, pr_type, target_agent_slug, proposed_slug, file_diffs,
+               reasoning, gap_summary, confidence, evidence_count, status, created_at
+        FROM agent_prs
+        WHERE id = '{pr_uuid}'
+        "#
+    );
+
+    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let pr = rows.first().ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(pr.clone()))
+}
+
+/// POST /api/agent-prs/:pr_id/approve — approve a PR.
+pub async fn agent_pr_approve(
+    State(state): State<Arc<AppState>>,
+    Path(pr_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
+    })?;
+
+    let sql = format!(
+        "UPDATE agent_prs SET status = 'approved', reviewed_at = NOW() WHERE id = '{pr_uuid}' AND status = 'open'"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    info!(pr = %pr_id, "agent PR approved");
+    Ok(Json(json!({"ok": true, "status": "approved"})))
+}
+
+/// POST /api/agent-prs/:pr_id/reject — reject a PR.
+pub async fn agent_pr_reject(
+    State(state): State<Arc<AppState>>,
+    Path(pr_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
+    })?;
+
+    let sql = format!(
+        "UPDATE agent_prs SET status = 'rejected', reviewed_at = NOW() WHERE id = '{pr_uuid}' AND status = 'open'"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    info!(pr = %pr_id, "agent PR rejected");
+    Ok(Json(json!({"ok": true, "status": "rejected"})))
+}
+
+// ── Data Viewer ──────────────────────────────────────────────────────────────
+
+/// GET /api/data/schemas — list all tables with row counts.
+pub async fn data_schemas(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let sql = r#"
+        SELECT schemaname AS schema, relname AS table_name, n_live_tup AS row_count
+        FROM pg_stat_user_tables
+        ORDER BY schemaname, relname
+    "#;
+    let rows = state.db.execute(sql).await.unwrap_or_default();
+
+    // Also list views
+    let views_sql = r#"
+        SELECT schemaname AS schema, viewname AS table_name, -1 AS row_count
+        FROM pg_views
+        WHERE schemaname = 'public'
+        ORDER BY viewname
+    "#;
+    let views = state.db.execute(views_sql).await.unwrap_or_default();
+
+    let mut all = rows;
+    all.extend(views);
+
+    Json(json!({"tables": all}))
+}
+
+#[derive(Deserialize)]
+pub struct QueryRequest {
+    pub sql: String,
+}
+
+/// POST /api/data/query — execute read-only SQL.
+pub async fn data_query(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<QueryRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let trimmed = body.sql.trim();
+
+    // Validate read-only
+    let first_word = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_uppercase();
+
+    if !matches!(first_word.as_str(), "SELECT" | "WITH" | "EXPLAIN") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Only SELECT, WITH, and EXPLAIN queries are allowed"})),
+        ));
+    }
+
+    match state.db.execute(trimmed).await {
+        Ok(rows) => {
+            let row_count = rows.len();
+            // Extract column names from first row
+            let columns: Vec<String> = rows
+                .first()
+                .and_then(|r| r.as_object())
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+
+            Ok(Json(json!({
+                "columns": columns,
+                "rows": rows,
+                "row_count": row_count,
+                "sql": trimmed,
+            })))
+        }
+        Err(e) => Ok(Json(json!({
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "sql": trimmed,
+            "error": format!("{e}"),
+        }))),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TableRowsQuery {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+/// GET /api/data/tables/:table/rows — get paginated rows for a table.
+pub async fn data_table_rows(
+    State(state): State<Arc<AppState>>,
+    Path(table): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<TableRowsQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Validate table name (alphanumeric + underscore only)
+    if !table.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid table name"})),
+        ));
+    }
+
+    let limit = query.limit.unwrap_or(100).min(10000);
+    let offset = query.offset.unwrap_or(0);
+
+    // Check if table has created_at for ordering
+    let has_created_at = state.db.execute(&format!(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = '{table}' AND column_name = 'created_at' LIMIT 1"
+    )).await.map(|r| !r.is_empty()).unwrap_or(false);
+
+    let order = if has_created_at { "ORDER BY created_at DESC" } else { "" };
+
+    let sql = format!(
+        "SELECT * FROM {table} {order} LIMIT {limit} OFFSET {offset}"
+    );
+
+    match state.db.execute(&sql).await {
+        Ok(rows) => {
+            let row_count = rows.len();
+            let columns: Vec<String> = rows
+                .first()
+                .and_then(|r| r.as_object())
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+
+            Ok(Json(json!({
+                "table": table,
+                "columns": columns,
+                "rows": rows,
+                "row_count": row_count,
+                "limit": limit,
+                "offset": offset,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("{e}")})),
+        )),
+    }
 }

@@ -111,6 +111,27 @@ fn decode_pg_column(row: &PgRow, col_name: &str, type_name: &str) -> Value {
             .map(|dt| Value::String(dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()))
             .unwrap_or(Value::Null),
 
+        "text" | "varchar" | "name" | "char" | "bpchar" => row
+            .try_get::<Option<String>, _>(col_name)
+            .ok()
+            .flatten()
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+
+        "uuid" => row
+            .try_get::<Option<uuid::Uuid>, _>(col_name)
+            .ok()
+            .flatten()
+            .map(|u| Value::String(u.to_string()))
+            .unwrap_or(Value::Null),
+
+        "_uuid" | "uuid[]" => row
+            .try_get::<Option<Vec<uuid::Uuid>>, _>(col_name)
+            .ok()
+            .flatten()
+            .map(|arr| Value::Array(arr.into_iter().map(|u| Value::String(u.to_string())).collect()))
+            .unwrap_or(Value::Array(vec![])),
+
         _ => row
             .try_get::<Option<String>, _>(col_name)
             .ok()

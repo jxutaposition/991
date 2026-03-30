@@ -3,12 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --page:           #ffffff;
+  --surface:        #f8f9fa;
+  --raised:         #f0f2f5;
+  --rim:            #e4e7ec;
+  --rim-strong:     #c5cad5;
+  --ink:            #111827;
+  --ink-2:          #6b7280;
+  --ink-3:          #9ca3af;
+  --brand:          #2563eb;
+  --brand-hover:    #1d4ed8;
+  --brand-subtle:   #eff6ff;
+  --brand-rim:      #bfdbfe;
+  --danger:         #dc2626;
+  --danger-subtle:  #fef2f2;
+  --danger-rim:     #fecaca;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: 'Inter', system-ui, sans-serif;
 }

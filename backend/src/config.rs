@@ -25,6 +25,12 @@ pub struct Settings {
 
     /// Path to the agents/ directory.
     pub agents_dir: PathBuf,
+
+    // Slack integration (optional — disabled if slack_bot_token is None)
+    pub slack_bot_token: Option<String>,
+    pub slack_app_token: Option<String>,
+    pub slack_signing_secret: Option<String>,
+    pub slack_mode: String, // "socket" or "http"
 }
 
 impl Settings {
@@ -57,6 +63,10 @@ impl Settings {
                 .unwrap_or_else(|_| "lele-screenshots".to_string()),
             tavily_api_key: env::var("TAVILY_API_KEY").ok().filter(|s| !s.is_empty()),
             agents_dir,
+            slack_bot_token: env::var("SLACK_BOT_TOKEN").ok().filter(|s| !s.is_empty()),
+            slack_app_token: env::var("SLACK_APP_TOKEN").ok().filter(|s| !s.is_empty()),
+            slack_signing_secret: env::var("SLACK_SIGNING_SECRET").ok().filter(|s| !s.is_empty()),
+            slack_mode: env::var("SLACK_MODE").unwrap_or_else(|_| "socket".to_string()),
         }
     }
 }

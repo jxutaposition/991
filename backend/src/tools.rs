@@ -290,7 +290,7 @@ pub async fn execute_tool(
 
     match name {
         "search_linkedin_profile" => {
-            let query = input.get("query").and_then(Value::as_str).unwrap_or("");
+            let _query = input.get("query").and_then(Value::as_str).unwrap_or("");
             json!({
                 "name": "Alex Johnson",
                 "title": "VP of Sales",
