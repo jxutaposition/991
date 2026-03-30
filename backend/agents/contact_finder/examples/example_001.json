@@ -1,0 +1,61 @@
+{
+  "input": {
+    "company_domain": "acmefinancial.com",
+    "company_name": "Acme Financial",
+    "target_personas": ["CFO", "VP Finance", "Controller", "Head of Finance Operations"]
+  },
+  "output": {
+    "contacts": [
+      {
+        "name": "Sarah Chen",
+        "title": "Chief Financial Officer",
+        "persona": "economic_buyer",
+        "linkedin_url": "https://www.linkedin.com/in/sarahchen-cfo",
+        "email": "s.chen@acmefinancial.com",
+        "confidence": "high",
+        "confidence_reason": "Exact title match for economic buyer persona. Joined 19 days ago from Stripe — actively in onboarding and stack evaluation mode. Email pattern confirmed via Hunter.io.",
+        "in_crm": false,
+        "crm_contact_id": null,
+        "tenure_months": 1,
+        "notes": "Recently hired (March 2025) from Stripe VP Financial Operations. Very high-value timing — she will be auditing the finance tech stack in her first 90 days. Her LinkedIn shows 3 recent posts about finance ops modernization. Approach with respect for her Stripe background and reference the complexity of Acme Ledger's multi-entity reconciliation needs."
+      },
+      {
+        "name": "Daniel Okafor",
+        "title": "VP Financial Operations",
+        "persona": "champion",
+        "linkedin_url": "https://www.linkedin.com/in/danielokafor",
+        "email": "d.okafor@acmefinancial.com",
+        "confidence": "high",
+        "confidence_reason": "Title directly corresponds to day-to-day finance operations ownership — the person who will feel the month-end close pain most acutely. Has been in role for 18 months (ramped). Email pattern confirmed.",
+        "in_crm": true,
+        "crm_contact_id": "CRM-00483",
+        "tenure_months": 18,
+        "notes": "Already in CRM. Last outreach was 8 months ago — initial email, no response. The new CFO hire and Series C may have changed the internal dynamic significantly. Worth re-engaging with a new angle tied to the recent changes. Do not use the same messaging as the prior sequence."
+      },
+      {
+        "name": "Priya Mehta",
+        "title": "Senior Controller",
+        "persona": "champion",
+        "linkedin_url": "https://www.linkedin.com/in/priyamehta-controller",
+        "email": null,
+        "confidence": "medium",
+        "confidence_reason": "Title is exact champion match (Controller = primary user of financial close automation). LinkedIn profile confirmed active (post 3 weeks ago). Email not confirmed — will require inbox discovery or direct LinkedIn outreach.",
+        "in_crm": false,
+        "crm_contact_id": null,
+        "tenure_months": 26,
+        "notes": "Long tenure = fully owns the close process and knows the pain well. No email confirmed — LinkedIn message or manual email pattern discovery needed. Good target for bottom-up champion motion if CFO outreach does not respond within 2 weeks."
+      }
+    ],
+    "primary_contact": {
+      "name": "Sarah Chen",
+      "title": "Chief Financial Officer",
+      "persona": "economic_buyer",
+      "linkedin_url": "https://www.linkedin.com/in/sarahchen-cfo",
+      "email": "s.chen@acmefinancial.com",
+      "confidence": "high",
+      "rationale": "New CFO 19 days into role — the highest-value window for tool evaluation. She has the authority to approve budget and is actively forming her views on the existing stack. Reaching her now, before she has locked in decisions, is a significant timing advantage. Her Stripe background means she will respond well to operational rigor and data-driven messaging."
+    },
+    "company_domain": "acmefinancial.com",
+    "discovery_notes": "No technical evaluator persona identified — Acme Financial's finance automation buying decision is unlikely to involve a deep IT security review at this stage. If the deal progresses, a technical review by their Head of Engineering (not found here) may be needed for the NetSuite integration. Daniel Okafor in CRM should be approached with refreshed messaging — the prior sequence was 8 months ago and pre-dates the Series C and CFO hire."
+  }
+}

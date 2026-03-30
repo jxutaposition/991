@@ -1,0 +1,60 @@
+{
+  "input": {
+    "prospect_name": "Olivia",
+    "company_name": "Prism Fintech",
+    "hook_or_trigger": "Prism Fintech raised $24M Series B in February 2026",
+    "email_body": "Saw Prism's $24M raise last month — congrats. Scaling a fintech GTM motion post-funding is fast and expensive if the data's fragmented.\n\nWe help fintech teams cut CAC by 25% by unifying their paid and outbound data. Brex reduced their blended CAC by 28% in Q1 using us.\n\nAre you free Thursday for 15 minutes?",
+    "count": 6
+  },
+  "output": {
+    "variants": [
+      {
+        "subject_line": "Prism's Series B → CAC question",
+        "score": 9.0,
+        "reasoning": "Directly references the funding trigger, implies relevant insight, creates a curiosity gap, includes company name, and stays under 40 characters.",
+        "char_count": 31,
+        "pattern_used": "trigger_reference"
+      },
+      {
+        "subject_line": "Olivia — Prism's post-raise CAC",
+        "score": 8.5,
+        "reasoning": "First-name personalization plus company name plus a specific outcome metric makes this feel targeted and relevant without being vague.",
+        "char_count": 31,
+        "pattern_used": "first_name"
+      },
+      {
+        "subject_line": "one thing about Prism's $24M raise",
+        "score": 8.0,
+        "reasoning": "Strong curiosity gap with the specific funding amount as an anchor — 'one thing about' pattern drives opens by implying you have a specific insight.",
+        "char_count": 34,
+        "pattern_used": "curiosity_gap"
+      },
+      {
+        "subject_line": "2 fintech teams that cut CAC post-Series B",
+        "score": 7.5,
+        "reasoning": "Number specificity and a trigger reference work well here, though the absence of prospect name or company name reduces personalization score slightly.",
+        "char_count": 41,
+        "pattern_used": "number_specificity"
+      },
+      {
+        "subject_line": "prism's growth spend efficiency",
+        "score": 7.0,
+        "reasoning": "Lowercase peer-to-peer feel with company name, but 'growth spend efficiency' is slightly abstract — clarity score is middling.",
+        "char_count": 30,
+        "pattern_used": "lowercase_peer"
+      },
+      {
+        "subject_line": "scaling Prism's GTM after the raise",
+        "score": 6.5,
+        "reasoning": "Relevant and personal but 'scaling GTM' is a common enough phrase that it doesn't create strong curiosity — intrigue score pulls this down.",
+        "char_count": 35,
+        "pattern_used": "company_name"
+      }
+    ],
+    "recommended": {
+      "subject_line": "Prism's Series B → CAC question",
+      "score": 9.0,
+      "why_top": "This variant scores highest because it directly names the prospect's funding trigger (making it impossible to confuse with a mass blast), the arrow implies a logical consequence that creates curiosity, and 'CAC question' hints at a specific insight without giving it away. At 31 characters it is well under the 50-character threshold, and the combination of company name plus trigger reference earns full marks on both personalization and specificity."
+    }
+  }
+}

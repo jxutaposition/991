@@ -1,0 +1,87 @@
+{
+  "input": {
+    "source_session_id": "session_outreach_2026-03-25_batch_004",
+    "contacts_to_upsert": [
+      {
+        "name": "Sarah Chen",
+        "email": "s.chen@meridiananalytics.io",
+        "title": "VP of Sales",
+        "company_name": "Meridian Analytics",
+        "company_domain": "meridiananalytics.io",
+        "linkedin_url": "https://linkedin.com/in/sarahchen-meridian",
+        "notes": "Target persona: VP Sales. Company raised $18M Series B in Feb 2026. Outreach angle: scaling GTM after funding.",
+        "pipeline_stage": "Contacted"
+      },
+      {
+        "name": "Marcus Obi",
+        "email": "m.obi@stackform.dev",
+        "title": "CTO",
+        "company_name": "Stackform",
+        "company_domain": "stackform.dev",
+        "linkedin_url": "https://linkedin.com/in/marcusobi",
+        "notes": "CTO who published blog on infra costs March 10, 2026. Outreach angle: infra cost reduction.",
+        "pipeline_stage": "Contacted"
+      },
+      {
+        "name": "Jennifer Ramos",
+        "email": "j.ramos@loopbackhealth.com",
+        "title": "CMO",
+        "company_name": "Loopback Health",
+        "company_domain": "loopbackhealth.com",
+        "linkedin_url": "https://linkedin.com/in/jenniferramos-lbh",
+        "notes": "New CMO, 30 days in from Athenahealth. High intent window — new exec evaluating tools stack.",
+        "pipeline_stage": "Contacted"
+      }
+    ],
+    "activities_to_log": [
+      {
+        "contact_email": "s.chen@meridiananalytics.io",
+        "activity_type": "email_sent",
+        "description": "Sent cold outreach email. Subject: 'Meridian's Series B → your GTM build'. Personalization hook: $18M raise and VP Sales hiring.",
+        "timestamp": "2026-03-25T09:14:00Z",
+        "metadata": {
+          "subject_line": "Meridian's Series B → your GTM build",
+          "sequence_id": "seq_batch_004",
+          "touch_number": 1
+        }
+      },
+      {
+        "contact_email": "m.obi@stackform.dev",
+        "activity_type": "email_sent",
+        "description": "Sent cold outreach email. Subject: 'your infra cost post'. Referenced his March 10 blog post as hook.",
+        "timestamp": "2026-03-25T09:17:00Z",
+        "metadata": {
+          "subject_line": "your infra cost post",
+          "sequence_id": "seq_batch_004",
+          "touch_number": 1
+        }
+      },
+      {
+        "contact_email": "j.ramos@loopbackhealth.com",
+        "activity_type": "email_sent",
+        "description": "Sent cold outreach email. Subject: '30 days in at Loopback'. Hook: new CMO first-90-days stack audit.",
+        "timestamp": "2026-03-25T09:21:00Z",
+        "metadata": {
+          "subject_line": "30 days in at Loopback",
+          "sequence_id": "seq_batch_004",
+          "touch_number": 1
+        }
+      }
+    ]
+  },
+  "output": {
+    "results": {
+      "contacts_created": 3,
+      "contacts_updated": 0,
+      "activities_logged": 3,
+      "companies_created": 3,
+      "companies_linked": 3,
+      "errors": []
+    },
+    "crm_record_ids": {
+      "s.chen@meridiananalytics.io": "crm_contact_8841",
+      "m.obi@stackform.dev": "crm_contact_8842",
+      "j.ramos@loopbackhealth.com": "crm_contact_8843"
+    }
+  }
+}

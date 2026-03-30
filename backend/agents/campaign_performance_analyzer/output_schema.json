@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "triage_status": { "type": "string", "enum": ["crisis", "plateau", "growing", "on_track"] },
+    "executive_summary": { "type": "string" },
+    "overall_metrics": {
+      "type": "object",
+      "properties": {
+        "total_spend": { "type": "number" },
+        "total_leads": { "type": "number" },
+        "blended_cpl": { "type": "number" },
+        "vs_target": { "type": "string" },
+        "vs_prior_period": { "type": "string" }
+      }
+    },
+    "top_performers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "channel": { "type": "string" },
+          "cpl": { "type": "number" },
+          "leads": { "type": "number" },
+          "why_top": { "type": "string" }
+        }
+      }
+    },
+    "anomalies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric": { "type": "string" },
+          "value": { "type": "string" },
+          "deviation": { "type": "string" },
+          "likely_cause": { "type": "string" }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "priority": { "type": "number" },
+          "action": { "type": "string" },
+          "rationale": { "type": "string" },
+          "estimated_impact": { "type": "string" }
+        }
+      }
+    },
+    "budget_reallocation": {
+      "type": "object",
+      "properties": {
+        "current_allocation": { "type": "object" },
+        "recommended_allocation": { "type": "object" },
+        "rationale": { "type": "string" }
+      }
+    },
+    "attribution_notes": { "type": "string" }
+  }
+}

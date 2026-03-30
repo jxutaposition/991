@@ -1,0 +1,6 @@
+tools = [
+  "read_crm_pipeline",
+  "web_search",
+  "read_upstream_output",
+  "write_output",
+]

@@ -1,0 +1,60 @@
+{
+  "input": {
+    "prospect_name": "Marcus",
+    "company_name": "DevCo",
+    "hook_or_trigger": "DevCo has 6 open Senior SRE job postings as of March 2026",
+    "email_body": "Six open Senior SRE postings tells me reliability is a live pain point at DevCo right now — not a future one.\n\nSentinel Ops cuts P1 incident response time by 50% and takes load off the on-call rotation without growing the team. Lattice dropped their MTTR by 54% in 60 days.\n\nAre you free for 15 minutes this week?",
+    "count": 6
+  },
+  "output": {
+    "variants": [
+      {
+        "subject_line": "6 SRE roles at DevCo",
+        "score": 9.5,
+        "reasoning": "Hyper-specific (exact number of open roles) plus company name — if Marcus sees this, he knows immediately that you looked at his team, and the specificity signals genuine relevance.",
+        "char_count": 20,
+        "pattern_used": "number_specificity"
+      },
+      {
+        "subject_line": "Marcus — DevCo's on-call load",
+        "score": 8.5,
+        "reasoning": "First name plus company name plus a pain-point reference — three personalization signals in one short line, well under 40 characters.",
+        "char_count": 29,
+        "pattern_used": "first_name"
+      },
+      {
+        "subject_line": "why DevCo's SRE openings caught my eye",
+        "score": 8.0,
+        "reasoning": "Curiosity gap with company name — 'caught my eye' implies a specific observation and the SRE reference confirms relevance, but it's slightly longer than ideal.",
+        "char_count": 38,
+        "pattern_used": "curiosity_gap"
+      },
+      {
+        "subject_line": "devco's incident response time",
+        "score": 7.5,
+        "reasoning": "Lowercase peer feel with a specific operational metric as the topic — clear, relevant, and conversational, though lacks intrigue compared to the top variants.",
+        "char_count": 30,
+        "pattern_used": "lowercase_peer"
+      },
+      {
+        "subject_line": "one thing about DevCo's SRE hiring",
+        "score": 7.5,
+        "reasoning": "Classic curiosity gap pattern with company name and a specific domain reference — the 'one thing about' pattern reliably drives opens and is not yet overused.",
+        "char_count": 34,
+        "pattern_used": "curiosity_gap"
+      },
+      {
+        "subject_line": "50% faster P1 response — relevant for DevCo?",
+        "score": 6.5,
+        "reasoning": "Specific metric is a strong signal but framing it as a question at the end reduces conviction; 'relevant for' phrasing softens the relevance claim rather than asserting it.",
+        "char_count": 44,
+        "pattern_used": "number_specificity"
+      }
+    ],
+    "recommended": {
+      "subject_line": "6 SRE roles at DevCo",
+      "score": 9.5,
+      "why_top": "This is the strongest subject line because the number '6' is exact and verifiable — Marcus will immediately recognize it as accurate, which creates trust before the email is even opened. Combined with the company name it scores maximum points on both specificity and personalization. At only 20 characters it is among the shortest possible subject lines, which performs well on mobile and gives it a peer-message quality that a longer subject line cannot replicate."
+    }
+  }
+}

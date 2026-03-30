@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["prospect_name", "prospect_title", "company_name"],
+  "properties": {
+    "prospect_name": {
+      "type": "string",
+      "description": "Full name of the prospect on the call"
+    },
+    "prospect_title": {
+      "type": "string",
+      "description": "Current job title of the prospect"
+    },
+    "company_name": {
+      "type": "string",
+      "description": "Name of the prospect's company"
+    },
+    "meeting_context": {
+      "type": "string",
+      "description": "How this call was set up — e.g. 'inbound demo request', 'responded to cold email about rep ramp time', 'referral from mutual contact' (optional)"
+    },
+    "company_research": {
+      "type": "string",
+      "description": "Recent news, funding events, hiring signals, or strategic context about the company (optional)"
+    },
+    "crm_history": {
+      "type": "string",
+      "description": "Prior interaction history from CRM — past emails, calls, notes, deal stage (optional)"
+    },
+    "our_product_value_props": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Key value propositions of our product, used to tailor the pivot-to-value section (optional)"
+    }
+  },
+  "additionalProperties": false
+}

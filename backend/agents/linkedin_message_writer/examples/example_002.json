@@ -1,0 +1,26 @@
+{
+  "input": {
+    "prospect_name": "Taylor Brennan",
+    "prospect_title": "Director of Demand Generation",
+    "company_name": "Fundify",
+    "linkedin_profile_data": "Taylor Brennan | Director of Demand Generation at Fundify (Series B, ~180 employees, B2B fintech, SMB lending platform). Started role 3 months ago, previously Sr. Demand Gen Manager at Paystand. LinkedIn activity: liked 2 posts about paid attribution last week, commented on a thread about MQL quality vs. quantity.",
+    "company_research": "Fundify raised $31M Series B in Q4 last year. Expanding into the mid-market segment. Currently running Google and LinkedIn ads. No visible Meta presence. Their job postings show they're building a performance marketing function largely from scratch under Taylor.",
+    "sender_name": "James Okoro",
+    "sender_company": "Northbeam",
+    "value_prop": "Multi-touch ad attribution platform that shows demand gen leaders exactly which paid channels and creatives are driving pipeline, not just clicks — especially useful for teams running Google + LinkedIn in parallel.",
+    "message_type": "connection_request"
+  },
+  "output": {
+    "connection_request": "Taylor — congrats on the Director role at Fundify. Building a perf marketing function from scratch while figuring out attribution across Google + LinkedIn is genuinely hard. Connecting with folks navigating the same problems.",
+    "inmail_subject": "Attribution across your Google + LinkedIn build-out",
+    "inmail_body": "Taylor,\n\nThree months into building Fundify's performance marketing function — and inheriting an attribution setup that probably wasn't designed for the channels you're now running — is a specific kind of challenge that doesn't get talked about enough.\n\nYour comments about MQL quality vs. quantity last week were interesting. Most demand gen leaders in your position are wrestling with the same tension: paid volume looks good in the dashboard, but the pipeline signal is fuzzy because the attribution model can't cleanly separate what Google and LinkedIn are each actually doing.\n\nAt Northbeam, we work with demand gen teams at Series B companies who are scaling paid for the first time and need to know — with confidence — which creative, which channel, and which audience is driving qualified pipeline before they double down on budget. Given Fundify's expansion into mid-market, that clarity tends to matter a lot right now.\n\nWould it be useful to share how a few teams at similar stages set up their attribution logic when they were in your exact position?\n\nJames Okoro\nNorthbeam",
+    "personalization_hooks_used": [
+      "Prospect started the Director of Demand Generation role 3 months ago — new role transition",
+      "Company is building its performance marketing function largely from scratch under Taylor (sourced from job postings)",
+      "Prospect commented on a LinkedIn thread about MQL quality vs. quantity",
+      "Fundify is running Google + LinkedIn ads with no visible Meta presence",
+      "Company recently raised Series B and is expanding into mid-market"
+    ],
+    "character_count_connection": 230
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "input": {
+    "product_name": "lele",
+    "product_description": "AI GTM platform that trains agents from real expert behavior and runs outreach, research, and campaign execution autonomously",
+    "target_audience": "VP Sales at B2B SaaS companies 100-500 employees",
+    "key_message": "Expert-trained outreach at the scale of a template",
+    "ad_copy_driving_traffic": "Rippling cut SDR ramp time from 90 to 44 days",
+    "customer_outcomes": [
+      "Rippling cut SDR ramp time from 90 to 44 days",
+      "Gong increased positive reply rates by 34%",
+      "150+ teams running expert-trained outreach sequences"
+    ],
+    "primary_cta": "Book a 30-minute demo",
+    "top_objections": [
+      "We already use Outreach/Salesloft",
+      "Our reps won't adopt another tool",
+      "We don't have budget right now"
+    ]
+  },
+  "output": {
+    "hero": {
+      "headline": "Your SDRs ramp in 44 days, not 90.",
+      "subheadline": "For VP Sales at growing SaaS teams — lele trains AI agents from your best reps' actual playbooks and runs personalized outreach at scale. No more templates. No more 3-month ramps.",
+      "cta_text": "See how it works",
+      "cta_subtext": "30-minute demo · No commitment · We'll show you exactly how Rippling did it"
+    },
+    "social_proof_bar": "Trusted by 150+ fast-growing B2B SaaS teams including Rippling, Gong, Carta, and others. 4.8/5 on G2.",
+    "problem_agitation": "Every quarter, you watch 4-6 new SDRs join your team, spend 8 weeks learning your ICP, and start sending the same generic templates as everyone else. Reply rates flatline. By the time they're hitting their stride — if they do — half your cohort has churned. Meanwhile your best rep's playbook lives in their head, not in a system anyone else can use.",
+    "solution_section": "lele captures how your best GTM people actually work — the specific hooks they write, the triggers they look for, the judgment calls they make — and encodes it into AI agents that every rep can run from day one. New hire books their first meeting in week 1, not month 3. The playbook doesn't leave when the rep does.",
+    "feature_benefit_pairs": [
+      {
+        "feature_name": "Expert-Trained Sequences",
+        "benefit": "Your new SDR sends outreach on day 1 that took your best rep 2 years to figure out — because it was trained from their actual behavior, not AI-generated templates."
+      },
+      {
+        "feature_name": "Automated Account Research",
+        "benefit": "Every prospect gets a personalized first line based on their funding news, LinkedIn activity, or job postings — without your reps spending 20 minutes per account on research."
+      },
+      {
+        "feature_name": "Adaptive Follow-Up",
+        "benefit": "Sequences adjust based on prospect behavior. Opens but no reply? Different angle on touch 2. Positive reply? Immediately flags for human handoff. No deals die in the queue."
+      },
+      {
+        "feature_name": "Native CRM Sync",
+        "benefit": "Every activity, every email sent, every reply received — automatically logged to Salesforce or HubSpot. Pipeline attribution is clean. No manual entry."
+      }
+    ],
+    "customer_quotes": [
+      {
+        "quote": "We cut our SDR ramp from 90 days to 44. I was skeptical of anything that promised faster ramp — we'd tried training programs, better playbooks, more coaching. This was different because it actually encoded what our best rep does, not what we thought he did.",
+        "attribution": "Sarah Chen, VP of Sales, Rippling"
+      },
+      {
+        "quote": "Our positive reply rates went from 2.1% to 3.4% in the first 6 weeks. The personalization hooks the agent writes are better than what most of my reps write manually — because they're trained from the emails that actually worked.",
+        "attribution": "Marcus Webb, Head of Revenue, Gong"
+      },
+      {
+        "quote": "I was worried my reps wouldn't adopt it. The opposite happened — they started competing over who had the best-performing sequence. When the tool makes you look good, you use it.",
+        "attribution": "David Park, VP Sales, Carta"
+      }
+    ],
+    "objection_handling": [
+      {
+        "objection": "We already use Outreach or Salesloft.",
+        "response": "Most of our customers switched from exactly those tools. The difference isn't the platform — it's what's inside the sequences. Outreach runs whatever your reps write. lele runs what your best rep would write, trained from observation, not from their guesses about what works."
+      },
+      {
+        "objection": "Our reps won't adopt another tool.",
+        "response": "We hear this constantly. In practice, reps adopt tools that make them look good. When a new hire's first sequence outperforms a veteran's — because it's trained from actual expert behavior — adoption isn't a problem. We have 100% rep adoption within 30 days across 150+ customers."
+      },
+      {
+        "objection": "I don't have budget for this right now.",
+        "response": "Every week without expert-trained sequencing costs you roughly $2,400 in missed pipeline per SDR (based on average deal size and ramp delay across our customer base). The math usually closes the budget conversation fast. We can show you the model in the demo."
+      }
+    ],
+    "final_cta": {
+      "headline": "Ready to see what 44-day SDR ramp looks like for your team?",
+      "cta_text": "Book a 30-minute demo",
+      "urgency_framing": "We run 3 new customer onboardings per week and slots fill quickly. Most teams that book a demo are live within 2 weeks."
+    },
+    "message_match_note": "This page matches the 'Rippling cut SDR ramp time from 90 to 44 days' ad — the hero headline repeats the specific 44-day number to reinforce the message. Visitors who clicked that ad will immediately recognize they're in the right place."
+  }
+}

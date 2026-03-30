@@ -1,0 +1,78 @@
+{
+  "input": {
+    "product_name": "DevOnboard",
+    "product_description": "Developer onboarding automation that reduces time-to-first-commit from 2 weeks to 3 days",
+    "target_audience": "CTOs and VPs of Engineering at Series B+ SaaS companies",
+    "key_message": "First commit in 3 days, not 2 weeks",
+    "ad_copy_driving_traffic": "First commit in 3 days — automated",
+    "customer_outcomes": [
+      "Carta reduced engineer time-to-productivity by 65%",
+      "Plaid onboards 20 engineers/month with zero DevEx headcount"
+    ],
+    "primary_cta": "Start free trial",
+    "top_objections": [
+      "Our onboarding is already pretty good",
+      "We have a dedicated DevEx person who handles this",
+      "Setup seems complicated"
+    ]
+  },
+  "output": {
+    "hero": {
+      "headline": "First commit in 3 days, not 2 weeks.",
+      "subheadline": "For engineering teams growing faster than their onboarding process — DevOnboard builds a personalized 3-day path for every new hire automatically. Connect GitHub, Jira, and Confluence. It's done in an afternoon.",
+      "cta_text": "Start free — no credit card",
+      "cta_subtext": "14-day trial · Works with GitHub, GitLab, Jira, Linear · Setup in one afternoon"
+    },
+    "social_proof_bar": "Engineering teams at Carta, Plaid, Brex, and 80+ fast-growing SaaS companies. 4.9/5 on G2 · 'Best onboarding tool' — The Pragmatic Engineer",
+    "problem_agitation": "Your new engineers spend their first two weeks reading documentation that's 6 months out of date, waiting for access to 8 different systems, and asking the same questions that every engineer before them asked. By the time they make their first meaningful contribution, you've spent 80 hours of senior engineer time — and the new hire still isn't sure they made the right call joining.",
+    "solution_section": "DevOnboard connects to your existing stack — GitHub, Jira, Confluence, Slack — and automatically builds a personalized 3-day onboarding path for every engineer based on their team, their role, and your actual codebase. No more wiki maintenance. No more tribal knowledge. Every new hire gets the same quality onboarding your best manager gives, automatically.",
+    "feature_benefit_pairs": [
+      {
+        "feature_name": "Automated Environment Setup",
+        "benefit": "New engineers get their full dev environment configured and verified on day 1, without waiting for IT tickets or senior engineers to walk them through it."
+      },
+      {
+        "feature_name": "Codebase Orientation",
+        "benefit": "DevOnboard generates a personalized tour of your most relevant repos, recent PRs, and architecture decisions — specific to the team they're joining, not a generic 'here's the monorepo' walkthrough."
+      },
+      {
+        "feature_name": "First Ticket Recommendation",
+        "benefit": "Every new hire gets a recommended starter ticket sized for their experience level on day 2. First PR is opened. First review cycle starts. They feel useful before the end of week 1."
+      },
+      {
+        "feature_name": "Team Context Briefs",
+        "benefit": "Auto-generated summaries of each teammate's active work, communication style, and areas of ownership — so engineers know who to ask before they feel awkward asking."
+      }
+    ],
+    "customer_quotes": [
+      {
+        "quote": "We went from a 14-day ramp to 3 days for most engineers. The thing I didn't expect was the morale impact — new hires feel productive immediately instead of feeling lost for two weeks. That first impression matters more than I realized.",
+        "attribution": "Priya Nair, VP of Engineering, Carta"
+      },
+      {
+        "quote": "We onboard 20 engineers a month and we have zero dedicated DevEx headcount. DevOnboard runs the entire process. Our senior engineers aren't interrupted by onboarding questions anymore — they just review first PRs.",
+        "attribution": "Jason Ko, Head of Engineering, Plaid"
+      }
+    ],
+    "objection_handling": [
+      {
+        "objection": "Our onboarding is already pretty good.",
+        "response": "Most teams think their onboarding is fine until they measure it. The average 'good' engineering onboarding is 8-12 days to first meaningful contribution and 3-4 hours of senior engineer time per new hire. If yours beats that, we'll tell you honestly in the demo. If it doesn't, that's $12k in loaded cost per hire you're leaving on the table."
+      },
+      {
+        "objection": "We have a dedicated DevEx person who handles this.",
+        "response": "DevOnboard gives your DevEx person leverage — they stop doing the repeatable stuff manually and start improving the system. Our DevEx customers use the time savings to work on the things that actually require a human: culture, growth paths, team dynamics."
+      },
+      {
+        "objection": "Setup seems complicated.",
+        "response": "Connect GitHub → connect Jira or Linear → connect Confluence or Notion. You're done. Average setup time across our customers is 3 hours 20 minutes. No engineering resources required — your DevEx lead or an EM can do it."
+      }
+    ],
+    "final_cta": {
+      "headline": "Start your first engineer onboarding this week.",
+      "cta_text": "Start free — 14 days",
+      "urgency_framing": "Most teams see their first automated onboarding complete within 48 hours of setup. If you have a new hire starting next week, you have time."
+    },
+    "message_match_note": "This page matches the 'First commit in 3 days — automated' ad. The hero headline repeats 'First commit in 3 days' verbatim for message match. Visitors from this ad are looking for proof the claim is real — lead with the Carta/Plaid stats immediately below the fold."
+  }
+}

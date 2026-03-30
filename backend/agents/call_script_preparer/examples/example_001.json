@@ -1,0 +1,103 @@
+{
+  "input": {
+    "prospect_name": "Derek Solis",
+    "prospect_title": "VP of Sales",
+    "company_name": "FreightPath",
+    "meeting_context": "Responded to a cold email about sales enablement — mentioned in his reply that new reps are taking 5-6 months to hit quota and that onboarding content is scattered across Google Drive, Notion, and Salesforce.",
+    "company_research": "FreightPath is a 200-person logistics SaaS. Series B. Grew headcount 35% YoY. Currently hiring 4 AEs and a sales enablement manager. Their website touts enterprise logistics workflow automation for 3PL providers. No current enablement platform detected in their tech stack.",
+    "crm_history": "No prior contact. First outreach was a cold email sent 6 days ago. Derek replied within 2 hours — strong buying signal.",
+    "our_product_value_props": [
+      "Centralizes all sales content, battlecards, and playbooks in a single searchable hub",
+      "AI-powered rep onboarding paths that adapt to each rep's role and existing knowledge",
+      "Real-time content usage analytics so managers can see what reps actually use in deals",
+      "Integrates natively with Salesforce — content suggestions surface directly in the deal record"
+    ]
+  },
+  "output": {
+    "call_agenda": [
+      {
+        "section": "Agenda setting",
+        "duration_minutes": 2,
+        "goal": "Give Derek control of the clock, confirm the 30-minute structure, set expectation that this is a listening call first"
+      },
+      {
+        "section": "Warm up",
+        "duration_minutes": 4,
+        "goal": "Build rapport, surface context about the sales org's recent growth and Derek's perspective on the ramp problem"
+      },
+      {
+        "section": "Discovery",
+        "duration_minutes": 14,
+        "goal": "Uncover magnitude of ramp problem, current tools/process, decision authority, and urgency drivers"
+      },
+      {
+        "section": "Pivot to value",
+        "duration_minutes": 5,
+        "goal": "Reflect pain back, connect to specific capabilities — do not demo, just verbal map"
+      },
+      {
+        "section": "Next step lock",
+        "duration_minutes": 5,
+        "goal": "Confirm fit signal and lock a specific next meeting with the right stakeholders"
+      }
+    ],
+    "warm_up_questions": [
+      "You mentioned the team has grown 35% in the last year — was that growth planned, or did it accelerate faster than the onboarding infrastructure could handle?",
+      "When you replied to my email, you said content is scattered across Drive, Notion, and Salesforce. Was that always the case, or did it evolve as the team scaled?",
+      "You have an open req for a sales enablement manager — is this the first dedicated enablement hire, or are you backfilling?"
+    ],
+    "discovery_questions": [
+      {
+        "question": "You mentioned 5-6 months to quota — what does that number look like when a rep is performing well versus struggling? Is the gap mostly in product knowledge, prospecting, or something else?",
+        "meddic_dimension": "Identify Pain",
+        "follow_up_probe": "If you could cut ramp time in half, what would that mean in terms of pipeline contribution per quarter?"
+      },
+      {
+        "question": "When reps go into a deal today, where do they go to find the right case study or battlecard? Walk me through the actual steps.",
+        "meddic_dimension": "Identify Pain",
+        "follow_up_probe": "How often do reps just not use content because it's too hard to find, or they can't tell what's current?"
+      },
+      {
+        "question": "How are you currently measuring whether onboarding is working — is there a certification process, manager check-ins, or is it more informal?",
+        "meddic_dimension": "Metrics",
+        "follow_up_probe": "Is there a point in the onboarding process where you can tell early whether a rep is going to hit their ramp target?"
+      },
+      {
+        "question": "If you moved forward with a sales enablement platform, who else would need to be part of that decision — would it touch HR, IT, or finance?",
+        "meddic_dimension": "Economic Buyer",
+        "follow_up_probe": "Is there a budget owner separate from you for this kind of purchase, or does it sit in the sales budget?"
+      },
+      {
+        "question": "What would your evaluation process look like? Are you comparing two or three tools head to head, or is there an internal champion already driving this in a specific direction?",
+        "meddic_dimension": "Decision Process",
+        "follow_up_probe": "What's the rough timeline you're working against — is there a quarter where this needs to be live?"
+      },
+      {
+        "question": "What would a good solution need to do to clear your bar? If you wrote down three criteria a tool has to hit, what would they be?",
+        "meddic_dimension": "Decision Criteria",
+        "follow_up_probe": "Is Salesforce native integration on that list, or more of a nice-to-have?"
+      }
+    ],
+    "pivot_script": "Derek, let me make sure I understood what you told me. You have reps taking 5-6 months to ramp, content is fragmented across three systems nobody trusts, and you're about to add four more AEs into the same environment. The cost of that isn't just slower ramp — it's the deals those reps aren't working confidently while they're still figuring out where the good stuff lives.\n\nWhat we built is essentially the layer between your people and all that content. Reps get onboarding paths that match their role and starting knowledge level — not a generic slide deck. When they're in a deal, the right case study or competitive battlecard surfaces in Salesforce based on what's happening in that specific opportunity. And you can see, as a manager, what content is actually being used versus what's just sitting in a folder.\n\nI don't want to get ahead of the conversation — but based on what you described, I think it's worth showing you specifically how teams in a similar scaling position have used this. Does that make sense to explore?",
+    "objection_handling": [
+      {
+        "objection": "We already have Highspot / Seismic / Guru",
+        "response": "Good to know — how long have you been on it? I ask because most teams we talk to have one of those platforms and still have the ramp problem, usually because the content governance wasn't set up well from the start. What does it solve well for you, and where are you still working around it?"
+      },
+      {
+        "objection": "Not the right time — we're focused on hiring right now",
+        "response": "That's actually the moment this matters most — if you onboard four AEs into a broken content environment, you're compounding the problem. What would need to be in place before this could be a priority? Is it a budget thing, a bandwidth thing, or something else?"
+      },
+      {
+        "objection": "Send me some information and I'll review it",
+        "response": "Absolutely. To make sure I send something that's actually useful rather than a generic deck — what's the specific question you'd want it to answer for you?"
+      },
+      {
+        "objection": "We're building this internally",
+        "response": "That's a path some teams take. What's the scope of the build — is it primarily a content library, or are you trying to build the adaptive learning piece too? I ask because that's usually where the internal builds hit a wall."
+      }
+    ],
+    "next_step_close": "Based on what you've shared, I think the right next step is a 45-minute demo where I show you specifically the onboarding path builder and how content surfacing works in Salesforce — rather than a generic walkthrough. I'd also want to loop in whoever owns the Salesforce environment, since that integration will likely be a factor in your decision. Would Tuesday at 2pm or Thursday morning work for that?",
+    "pre_call_research_notes": "Key facts to internalize before dialing:\n- FreightPath is 200 people, Series B, growing fast (35% YoY headcount growth)\n- Derek replied to cold email within 2 hours — he feels the pain acutely\n- Specific pain he named: 5-6 month ramp, content scattered across Google Drive / Notion / Salesforce\n- They are actively hiring an enablement manager — this is an urgent internal priority\n- No current enablement platform in the tech stack\n- Derek is VP Sales — likely has budget authority but may need CFO or CRO sign-off above $50K ARR\n- 4 open AE reqs in flight — new reps arriving soon creates urgency\n- Do NOT lead with demo. This is a discovery call. The rep should be asking more than they're talking for the first 15 minutes."
+  }
+}

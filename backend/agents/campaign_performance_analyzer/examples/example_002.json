@@ -1,0 +1,79 @@
+{
+  "input": {
+    "campaigns": [
+      { "campaign_id": "meta_dev_001", "campaign_name": "Meta — DevOps Cold Audience", "channel": "meta", "spend": 8200, "impressions": 390000, "clicks": 1170, "leads": 19, "conversions": 19 },
+      { "campaign_id": "goog_dev_001", "campaign_name": "Google — Dev Onboarding Keywords", "channel": "google", "spend": 4800, "impressions": 9600, "clicks": 384, "leads": 41, "conversions": 41 }
+    ],
+    "time_period": "Week of March 17-23, 2025",
+    "target_cpl": 200,
+    "target_leads": 60,
+    "budget_total": 13000,
+    "attribution_model": "last-click, 7-day window",
+    "previous_period_data": {
+      "meta_cpl": 201,
+      "meta_ctr": 0.0038,
+      "google_cpl": 115,
+      "total_leads": 55
+    }
+  },
+  "output": {
+    "triage_status": "crisis",
+    "executive_summary": "⚠️ CRISIS: Meta CPL hit $431 this week — 116% above the $200 target. Google remains healthy at $117 CPL. The Meta campaign is in acute failure: CTR dropped 21% WoW and CPL more than doubled. Immediate action required: pause the underperforming Meta ad sets today and reallocate budget to Google. Total leads (60) hit target only because Google is over-delivering — if Meta continues at current performance, it will drag blended CPL above target.",
+    "overall_metrics": {
+      "total_spend": 13000,
+      "total_leads": 60,
+      "blended_cpl": 216.7,
+      "vs_target": "60 leads vs 60 target (100% attainment); blended CPL $217 vs $200 target (8% over)",
+      "vs_prior_period": "+9% leads WoW (55 → 60); blended CPL up sharply from $159 → $217, driven entirely by Meta collapse"
+    },
+    "top_performers": [
+      {
+        "name": "Google — Dev Onboarding Keywords",
+        "channel": "google",
+        "cpl": 117.1,
+        "leads": 41,
+        "why_top": "CTR of 4.0% on high-intent searches. CPL holding steady WoW ($115 → $117). This is the campaign's only healthy asset right now."
+      }
+    ],
+    "anomalies": [
+      {
+        "metric": "Meta cold CPL",
+        "value": "$431",
+        "deviation": "+114% above target; +114% above prior week ($201 → $431)",
+        "likely_cause": "CTR dropped 21% WoW (0.0038 → 0.0030), suggesting creative fatigue OR audience exhaustion — frequency likely at 4-5+ for this audience size. At $8.2k spend for only 19 leads, this campaign is actively destroying budget. Pause immediately."
+      },
+      {
+        "metric": "Meta CTR",
+        "value": "0.30%",
+        "deviation": "-21% WoW (0.38% → 0.30%)",
+        "likely_cause": "Engineering/DevOps audiences are a small, premium segment on Meta. An audience that's been served this ad multiple times at $8k weekly spend has saturated. The algorithm has found all the easy wins."
+      }
+    ],
+    "recommendations": [
+      {
+        "priority": 1,
+        "action": "PAUSE Meta DevOps Cold campaign immediately — do not wait for end of week",
+        "rationale": "At $431 CPL with declining CTR, every additional day of spend is 2x worse than the target. Pausing today saves $1,200+ in wasted spend (at current daily pace) and stops the bleeding while creative and audience are refreshed.",
+        "estimated_impact": "Immediate: saves ~$8-10k in wasted spend over next 2 weeks. Frees budget for Google reallocation."
+      },
+      {
+        "priority": 2,
+        "action": "Increase Google budget from $4,800/week to $8,000/week",
+        "rationale": "Google is delivering at $117 CPL — 41% below target. With Meta paused, reallocate that budget here. Based on current Google conversion rate (10.7%), $8k/week generates ~68 leads/week vs. 41 currently.",
+        "estimated_impact": "Estimated +27 leads/week at ~$117 CPL. Blended CPL drops to ~$117 (vs. $200 target). Strong ROI."
+      },
+      {
+        "priority": 3,
+        "action": "Rebuild Meta with LinkedIn-style targeting (job title + company size) and new creative before relaunching at $2k/week test budget",
+        "rationale": "The DevOps/engineering leader audience on Meta is small and premium. Rebuilding with tighter targeting (CTO + VP Eng at 50-300 employee companies) and 3 new creative variants will reset the algorithm and reduce wasted reach.",
+        "estimated_impact": "Expect 2-3 weeks of testing to find a Meta configuration that hits target CPL. Do not scale above $2k/week until CPL is consistently below $200."
+      }
+    ],
+    "budget_reallocation": {
+      "current_allocation": { "meta_cold": 8200, "google": 4800 },
+      "recommended_allocation": { "meta_cold": 0, "google": 8000, "meta_test_rebuild": 2000 },
+      "rationale": "Full pause of Meta cold. Google gets the bulk of reallocated budget where it's proven. Small Meta test budget rebuilds the channel for future scale without wasting at scale."
+    },
+    "attribution_notes": "Last-click 7-day window will miss any Meta-to-Google assisted conversions. Given Meta's poor performance this week, this is unlikely to materially change the picture. If Meta is rebuilt, recommend enabling view-through attribution (1-day) to properly credit awareness-to-search conversion paths."
+  }
+}

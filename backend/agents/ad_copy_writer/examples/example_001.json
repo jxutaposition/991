@@ -1,0 +1,80 @@
+{
+  "input": {
+    "product_name": "lele",
+    "target_audience": "VP Sales at B2B SaaS companies 100-500 employees",
+    "key_message": "Expert-level personalized outreach at the scale of a template — without the 90-day SDR ramp",
+    "customer_outcomes": [
+      "Rippling cut SDR ramp time from 90 to 44 days",
+      "Gong increased positive reply rates by 34%"
+    ],
+    "formats": ["meta", "google"],
+    "primary_keywords": ["SDR enablement platform", "sales engagement software", "reduce SDR ramp time"]
+  },
+  "output": {
+    "meta_variants": [
+      {
+        "angle": "pain",
+        "primary_text": "If your SDRs are still taking 90 days to ramp, you're losing a full quarter of pipeline from every new hire. lele cuts ramp time in half by giving new reps expert-trained sequences from day one — not generic templates.",
+        "headline": "Book 40% more meetings",
+        "headline_char_count": 25,
+        "description": "Free 14-day trial",
+        "cta_button": "Learn More"
+      },
+      {
+        "angle": "social_proof",
+        "primary_text": "Rippling's SDR team went from 90-day ramp to 44 days. Same headcount. Different playbook. lele sequences are trained from actual expert observation — not AI-generated templates.",
+        "headline": "Rippling ramps SDRs in 44 days",
+        "headline_char_count": 31,
+        "description": "See how they did it",
+        "cta_button": "Learn More"
+      },
+      {
+        "angle": "curiosity",
+        "primary_text": "The top 1% of SDR teams aren't using better templates. They're using better judgment — encoded into every email, every sequence, every follow-up. That's what lele captures and runs automatically.",
+        "headline": "Why top SDR teams outperform",
+        "headline_char_count": 30,
+        "description": "Expert-trained sequences",
+        "cta_button": "Learn More"
+      },
+      {
+        "angle": "direct_value",
+        "primary_text": "Build a 50-lead targeted outreach campaign in under 2 hours — including research, personalized emails, and a 4-touch sequence. lele does the research and writes the emails. You approve and send.",
+        "headline": "50 leads, 2 hours, 0 templates",
+        "headline_char_count": 31,
+        "description": "Try free for 14 days",
+        "cta_button": "Get Started"
+      }
+    ],
+    "google_variants": [
+      {
+        "angle": "pain_and_value",
+        "headline_1": "{keyword:SDR Enablement}",
+        "headline_2": "Cut Ramp Time 50%",
+        "headline_3": "Start Free Trial Today",
+        "description_1": "lele trains AI agents from real expert GTM behavior — not generic templates. Your reps ramp faster and book more meetings.",
+        "description_2": "Rippling cut SDR ramp from 90 to 44 days. See the playbook that made it happen. Free 14-day trial.",
+        "sitelinks": ["See Case Studies", "How It Works", "Pricing", "Book a Demo"],
+        "callouts": ["No credit card required", "Setup in one afternoon", "Native Salesforce sync", "Expert-trained sequences"]
+      },
+      {
+        "angle": "direct_value",
+        "headline_1": "Sales Engagement Platform",
+        "headline_2": "Personalized at Scale",
+        "headline_3": "Free 14-Day Trial",
+        "description_1": "Build targeted outreach campaigns in hours — expert research, personalized emails, and multi-touch sequences built automatically.",
+        "description_2": "Used by fast-growing B2B SaaS teams. Gong, Rippling, and 200+ sales teams trust lele for outbound. Try free.",
+        "sitelinks": ["Book a Demo", "Pricing", "Integrations", "Customer Stories"],
+        "callouts": ["14-day free trial", "No long-term contract", "SOC 2 certified", "Salesforce & HubSpot native"]
+      }
+    ],
+    "recommended_meta": "Run the pain variant first — it has the highest personal resonance for a VP Sales who's actively watching ramp time metrics. The social proof variant is the strongest A/B challenger once you have baseline data.",
+    "recommended_google": "Run the pain_and_value variant with keyword insertion in headline_1 — Quality Score will be higher and it speaks directly to searchers in active evaluation mode.",
+    "ab_test_pairings": [
+      {
+        "variant_a": "meta pain variant",
+        "variant_b": "meta social proof variant",
+        "hypothesis": "Pain-led copy will have higher CTR with cold audiences; social proof will have higher conversion rate for warm retargeting. Run cold:pain, warm:social_proof as a segmented test."
+      }
+    ]
+  }
+}

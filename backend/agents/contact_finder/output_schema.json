@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContactFinderOutput",
+  "type": "object",
+  "required": ["contacts", "primary_contact", "company_domain"],
+  "properties": {
+    "contacts": {
+      "type": "array",
+      "description": "Ranked list of 2-4 contacts across distinct decision-making personas",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "title", "persona", "confidence"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Full name of the contact"
+          },
+          "title": {
+            "type": "string",
+            "description": "Current job title at the target company"
+          },
+          "persona": {
+            "type": "string",
+            "enum": ["economic_buyer", "champion", "technical_evaluator"],
+            "description": "Decision-making role this contact plays in a typical deal"
+          },
+          "linkedin_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "LinkedIn profile URL"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Business email address if found"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Confidence that this person is the right contact to reach"
+          },
+          "confidence_reason": {
+            "type": "string",
+            "description": "Brief explanation of the confidence level"
+          },
+          "in_crm": {
+            "type": "boolean",
+            "description": "Whether this contact already exists in the CRM"
+          },
+          "crm_contact_id": {
+            "type": "string",
+            "description": "CRM record ID if in_crm is true"
+          },
+          "tenure_months": {
+            "type": "integer",
+            "description": "Approximate months in current role, if determinable"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Personalization notes, recent activity, or caveats (e.g., 'recently started', 'was unresponsive in Q3 2024 outreach')"
+          }
+        }
+      }
+    },
+    "primary_contact": {
+      "type": "object",
+      "description": "The single highest-priority contact to sequence first",
+      "required": ["name", "title", "persona", "confidence"],
+      "properties": {
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "persona": { "type": "string" },
+        "linkedin_url": { "type": "string" },
+        "email": { "type": "string" },
+        "confidence": { "type": "string" },
+        "rationale": {
+          "type": "string",
+          "description": "Why this person was selected as the primary contact over others"
+        }
+      }
+    },
+    "company_domain": {
+      "type": "string",
+      "description": "Echo of the input company domain for use by downstream agents"
+    },
+    "discovery_notes": {
+      "type": "string",
+      "description": "Notes on gaps, limitations of the search, or important caveats about the contact list"
+    }
+  }
+}

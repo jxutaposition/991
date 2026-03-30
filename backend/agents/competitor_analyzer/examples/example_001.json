@@ -1,0 +1,61 @@
+{
+  "input": {
+    "company_domain": "acmefinancial.com",
+    "company_name": "Acme Financial",
+    "your_product_category": "financial close automation and reconciliation",
+    "known_competitors": ["FloQast", "Blackline", "Workiva", "Vena Solutions"]
+  },
+  "output": {
+    "competitors_identified": [
+      {
+        "name": "FloQast",
+        "evidence": "Two Acme Financial employees reviewed FloQast on G2 in Q4 2024. One review (username: 'Finance Ops Manager @ Acme Financial') rated it 3/5 stars and specifically complained about 'limited multi-currency support' and 'reconciliation templates that don't handle multi-entity consolidation well.' A second review praised the Slack integration. Both reviewers confirm current usage. Additionally, a Senior Controller job posting on Greenhouse (December 2024) listed 'FloQast experience preferred.'",
+        "confidence": "confirmed",
+        "what_they_use_it_for": "Month-end close management and checklist tracking for their US finance team. The Slack integration appears to be a key workflow touchpoint for their remote-first finance team.",
+        "displacement_angle": "Acme Financial's own employees flagged FloQast's multi-currency and multi-entity weaknesses on G2 — exactly the gap that will become critical as they expand to EMEA (announced March 2025). Their Finance Ops Manager essentially described our differentiated capability as the pain they're experiencing. Lead with this: 'I noticed your team has been using FloQast for close management — with your London office planned for Q3, multi-currency consolidation is about to become a real constraint. That's specifically what we built for.'",
+        "source_urls": [
+          "https://www.g2.com/products/floqast/reviews/floqast-review-12834",
+          "https://acmefinancial.greenhouse.io/jobs/senior-controller-dec2024"
+        ]
+      },
+      {
+        "name": "Workiva",
+        "evidence": "One LinkedIn profile of Acme Financial's VP Accounting lists 'Workiva' under skills added 14 months ago. A job posting for 'Director of Financial Reporting' (January 2025) lists 'Workiva or similar reporting tool' as preferred. However, no explicit confirmation of current active subscription.",
+        "confidence": "likely",
+        "what_they_use_it_for": "External financial reporting and potentially SEC-style disclosure management. Likely used by the reporting function rather than the close/reconciliation team — parallel track to FloQast.",
+        "displacement_angle": "Workiva is primarily a reporting layer — it does not solve the reconciliation and close workflow problem that FloQast is struggling with. If Acme is using both, they have a redundant and fragmented close process. Our platform replaces FloQast while also feeding clean, auditable data directly into Workiva's reporting layer, reducing the manual handoff between close and report.",
+        "source_urls": [
+          "https://www.linkedin.com/in/acme-vp-accounting",
+          "https://acmefinancial.greenhouse.io/jobs/director-financial-reporting-jan2025"
+        ]
+      }
+    ],
+    "recommended_positioning": "Acme Financial is currently running their month-end close on FloQast, but their own employees have publicly flagged its multi-currency and multi-entity limitations on G2 — the exact constraints that will bite them during their announced EMEA expansion. The new CFO Sarah Chen, joining from Stripe where multi-entity and multi-currency operations were mission-critical, will recognize this gap immediately. Position as the close automation platform that was purpose-built for high-complexity, multi-entity finance teams, and that integrates with both NetSuite (their ERP) and Workiva (their likely reporting tool) — eliminating two of FloQast's specific weaknesses without disrupting the rest of the stack.",
+    "battle_cards": [
+      {
+        "competitor": "FloQast",
+        "our_strengths": [
+          "Native multi-currency reconciliation with real-time FX rate support — no manual adjustments required for EMEA entities",
+          "Multi-entity close management with configurable roll-up rules across subsidiaries — handles Acme's anticipated London entity without configuration changes",
+          "Two-way NetSuite sync with automated journal entry creation — eliminates the manual export/import step that FloQast requires"
+        ],
+        "their_weaknesses": [
+          "Multi-currency support is limited to basic FX conversion — confirmed by Acme's own G2 review flagging 'limited multi-currency support'",
+          "Multi-entity consolidation requires manual workarounds for intercompany eliminations — the Acme Finance Ops Manager specifically called this out",
+          "No native ERP write-back — users must manually post reconciled entries back to NetSuite, adding 2-3 days to close cycle"
+        ],
+        "talking_points": [
+          "Your Finance Ops Manager flagged FloQast's multi-currency limitations on G2 last quarter. With your EMEA expansion planned for Q3, that constraint is about to become a blocker — your London entity will need real-time GBP/USD reconciliation that FloQast doesn't handle natively. We solve that out of the box.",
+          "FloQast requires manual NetSuite exports for your close process. Our two-way NetSuite integration means reconciled balances write directly back to GL without the spreadsheet handoff — the Apex Logistics team cut 4 days off their close cycle with this alone.",
+          "Sarah Chen comes from Stripe, where the close process handles multi-currency and multi-entity at massive scale. She'll have zero patience for workarounds on currency reconciliation. Come to that first conversation already knowing her pain point."
+        ],
+        "landmines_to_avoid": [
+          "Do not criticize FloQast's Slack integration — Acme's team appears to rely on it and it is a genuine strength",
+          "Do not claim FloQast is unreliable or low quality — the G2 reviews show it works for basic close workflows; our angle is complexity and scale, not reliability"
+        ]
+      }
+    ],
+    "no_competitor_found": false,
+    "research_notes": "FloQast confirmed via two G2 reviews and a job posting. Workiva flagged as likely based on LinkedIn skills and job posting language — not confirmed active subscription. BlackLine and Vena Solutions: no evidence found at Acme Financial despite targeted searches. BlackLine is typically used at enterprise/public companies — Acme's size makes it unlikely. Vena not found in any job postings or reviews. The strongest competitive angle is around the EMEA expansion and FloQast's known multi-currency weakness — this is an unusually well-documented displacement angle."
+  }
+}

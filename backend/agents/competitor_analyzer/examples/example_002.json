@@ -1,0 +1,73 @@
+{
+  "input": {
+    "company_domain": "devco.build",
+    "company_name": "DevCo",
+    "your_product_category": "developer experience platform — observability, incident management, and on-call scheduling",
+    "known_competitors": ["PagerDuty", "OpsGenie", "FireHydrant", "Incident.io", "Rootly"]
+  },
+  "output": {
+    "competitors_identified": [
+      {
+        "name": "PagerDuty",
+        "evidence": "DevCo's Platform Engineering job postings (February–March 2025) list 'PagerDuty administration experience' as a requirement in 3 of 9 SRE/Platform postings on LinkedIn. A Staff Engineer at DevCo has 'PagerDuty' listed under Skills on LinkedIn, added approximately 18 months ago. BuiltWith data confirms a PagerDuty integration in DevCo's web app. Talia Osei (Head of Platform Engineering) has a LinkedIn post from 4 months ago referencing 'tuning our PagerDuty escalation policies.'",
+        "confidence": "confirmed",
+        "what_they_use_it_for": "Primary on-call alerting and escalation management for their production engineering team. Their Platform team owns the PagerDuty configuration, and it appears deeply embedded — they have escalation policy tuning as an ongoing operational task.",
+        "displacement_angle": "PagerDuty is deeply embedded at DevCo for alerting, but Talia Osei's own post about 'tuning escalation policies' is a red flag — it signals alert fatigue and manual configuration overhead, the exact pain that their new VP Engineering Marcus Webb (coming from Stripe, where they ran sophisticated on-call at scale) will find unacceptable. Lead with: 'We work with a lot of teams that run PagerDuty for alerting but find the escalation tuning and alert fatigue problem unsolvable at the policy level. The teams that switch to us do it because they want to automate the noise reduction rather than tune their way out of it.'",
+        "source_urls": [
+          "https://www.linkedin.com/company/devco/jobs/",
+          "https://www.linkedin.com/in/ravisundaram-infra",
+          "https://www.linkedin.com/in/taliaosei"
+        ]
+      },
+      {
+        "name": "Datadog",
+        "evidence": "Multiple DevCo job postings (9 found, February–March 2025) explicitly require 'Datadog experience.' DevCo's company engineering blog post from October 2024 describes their observability stack and mentions 'Datadog as our primary metrics and tracing platform.' BuiltWith confirms Datadog RUM installed on devco.build.",
+        "confidence": "confirmed",
+        "what_they_use_it_for": "Primary observability platform — metrics, APM tracing, and browser monitoring. Appears to be the source-of-truth for system health, feeding into PagerDuty alerts.",
+        "displacement_angle": "Datadog is their observability layer and is not a direct competitive displacement target for the incident management and on-call platform. However, our native Datadog integration means incidents surface with full trace context already attached — no copy-pasting metric links into incident channels. Position as Datadog-enhancing, not Datadog-replacing. Lead with integration value, not competition.",
+        "source_urls": [
+          "https://devco.build/engineering/observability-stack-2024",
+          "https://www.linkedin.com/company/devco/jobs/"
+        ]
+      },
+      {
+        "name": "FireHydrant",
+        "evidence": "A DevCo Software Engineer's LinkedIn profile shows they worked at FireHydrant for 14 months (2022–2023) before joining DevCo. One DevCo employee reviewed FireHydrant on G2 in mid-2024 (profile shows 'Engineer at a small business, 51-200 employees' — consistent with DevCo's size at that time), giving it 4 stars but flagging 'limited customization for non-Slack-native workflows' as a weakness. No explicit current usage confirmation — the review may reflect an evaluation that did not result in purchase.",
+        "confidence": "likely",
+        "what_they_use_it_for": "Possibly evaluated as an incident management layer to sit on top of PagerDuty, but unclear if currently active. The ex-FireHydrant engineer may have championed an internal evaluation.",
+        "displacement_angle": "If FireHydrant was evaluated and not purchased, that gives us an opening: 'We know teams at your size often evaluate FireHydrant alongside PagerDuty — the gap they usually hit is that FireHydrant is Slack-first and Datadog-adjacent, but it doesn't unify the on-call schedule, the incident response, and the postmortem into a single workflow. That's what we built. Happy to show the diff.'",
+        "source_urls": [
+          "https://www.g2.com/products/firehydrant/reviews/firehydrant-review-89234",
+          "https://www.linkedin.com/in/devco-sw-engineer-firehydrant"
+        ]
+      }
+    ],
+    "recommended_positioning": "DevCo is running PagerDuty for alerting and Datadog for observability — a common stack that works at startup scale but creates alert fatigue and integration overhead as teams grow. Their own Head of Platform has publicly referenced the pain of manually tuning escalation policies, and their new VP Engineering Marcus Webb brings Stripe-level standards for on-call operations. Position as the platform that unifies Datadog signals and PagerDuty-style escalation into a single incident lifecycle workflow — not replacing either tool, but eliminating the operational overhead of managing them separately. The timing is ideal: new VP Engineering in his first 30 days, active SRE hiring, and a Series B that means the team will double in 12 months, making current manual tuning unsustainable.",
+    "battle_cards": [
+      {
+        "competitor": "PagerDuty",
+        "our_strengths": [
+          "Automated noise reduction using ML-based alert correlation — eliminates the manual 'escalation policy tuning' that Talia Osei described as an ongoing overhead",
+          "Unified on-call scheduling, incident response, and retrospective in one tool — PagerDuty requires separate integrations for post-incident workflow",
+          "Native Datadog bidirectional integration — incident timeline auto-populates with the Datadog traces and metrics that triggered the alert, no manual linking"
+        ],
+        "their_weaknesses": [
+          "Alert fatigue at scale — DevCo's own Head of Platform is actively tuning escalation policies, a symptom of PagerDuty's alert volume management limitations",
+          "Retrospective and postmortem workflow requires a separate tool (Confluence, Notion, or a third-party integration) — fragmented incident lifecycle",
+          "On-call scheduling UX is dated and requires manual management — does not account for team growth or time-zone complexity well"
+        ],
+        "talking_points": [
+          "Talia Osei posted 4 months ago about tuning PagerDuty escalation policies — that is the symptom, not the cure. Our ML correlation reduces alert volume by an average of 67% before it ever reaches an engineer's phone. The configuration tuning goes away.",
+          "Marcus Webb comes from Stripe, where on-call operations are treated as a first-class engineering discipline. He will want a single pane of glass across alert, incident, and retrospective — PagerDuty only covers the alert-to-page step. We cover the full lifecycle.",
+          "As DevCo doubles its engineering team post-Series B, PagerDuty's manual on-call configuration will become a weekly ops burden. We autogenerate on-call schedules from your GitHub org structure and auto-rotate as new engineers join teams."
+        ],
+        "landmines_to_avoid": [
+          "Do not imply PagerDuty doesn't work — it clearly does and their team is competent at administering it; the angle is scale and overhead, not reliability",
+          "Do not disparage the PagerDuty brand — it is respected among SRE practitioners and attacking it will reduce credibility with Marcus Webb and Talia Osei"
+        ]
+      }
+    ],
+    "no_competitor_found": false,
+    "research_notes": "PagerDuty is the clearest competitive target — confirmed by job postings, LinkedIn skills, and a direct blog post reference. Datadog is confirmed but is not a displacement target; our Datadog integration is a selling point. FireHydrant was likely evaluated (possibly by the ex-FireHydrant employee) but unclear if in active use today. OpsGenie and Rootly: no evidence found at DevCo. Incident.io: one indirect signal — an SRE at DevCo follows Incident.io on LinkedIn, but this is very weak signal. Not included. The primary competitive narrative for DevCo is PagerDuty + Datadog complexity/overhead as the company scales."
+  }
+}

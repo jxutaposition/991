@@ -1,0 +1,10 @@
+tools = [
+  "search_linkedin_profile",
+  "fetch_company_news",
+  "search_company_data",
+  "read_crm_contact",
+  "read_crm_pipeline",
+  "web_search",
+  "read_upstream_output",
+  "write_output",
+]

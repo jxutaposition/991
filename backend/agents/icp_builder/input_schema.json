@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ICPBuilderInput",
+  "type": "object",
+  "required": ["business_description"],
+  "additionalProperties": false,
+  "properties": {
+    "business_description": {
+      "type": "string",
+      "description": "What the product does, the problem it solves, and who it currently serves"
+    },
+    "crm_data_summary": {
+      "type": "string",
+      "description": "Summary of CRM win/loss data, top customer attributes, and churn patterns. Can be a narrative or structured text."
+    },
+    "target_market": {
+      "type": "string",
+      "description": "High-level market description, e.g., 'mid-market B2B SaaS companies in North America'"
+    },
+    "known_best_customers": {
+      "type": "array",
+      "description": "List of company names or domains that represent the best current customers",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "input": {
+    "product_category": "Developer onboarding automation",
+    "target_audience": "CTOs and VPs of Engineering at Series B+ SaaS companies with active engineering hiring",
+    "monthly_budget": 5000,
+    "conversion_goal": "trial_signup",
+    "existing_conversion_data": false,
+    "primary_keywords": ["developer onboarding platform", "engineer onboarding automation", "internal developer portal", "reduce engineering ramp time"],
+    "landing_page_url": "https://devonboard.io/trial"
+  },
+  "output": {
+    "campaign_structure": {
+      "type": "Search",
+      "bidding_strategy": "Manual CPC (first 30 days to accumulate conversion data, then switch to Target CPA at $200 target)",
+      "daily_budget": 167
+    },
+    "ad_groups": [
+      {
+        "name": "Developer Onboarding — Branded Category",
+        "theme": "Explicit category searches — prospects who know the solution category exists",
+        "keywords": [
+          { "keyword": "developer onboarding platform", "match_type": "Exact" },
+          { "keyword": "developer onboarding software", "match_type": "Exact" },
+          { "keyword": "engineer onboarding automation", "match_type": "Exact" },
+          { "keyword": "dev onboarding tool", "match_type": "Phrase" },
+          { "keyword": "engineering onboarding platform", "match_type": "Phrase" }
+        ],
+        "negative_keywords": ["free", "template", "checklist", "HR onboarding", "employee onboarding", "jobs", "review", "alternative"]
+      },
+      {
+        "name": "Internal Developer Portal — Adjacent Intent",
+        "theme": "Searches for related infrastructure that DevOnboard solves",
+        "keywords": [
+          { "keyword": "internal developer portal", "match_type": "Exact" },
+          { "keyword": "developer portal software", "match_type": "Phrase" },
+          { "keyword": "dev environment setup automation", "match_type": "Phrase" },
+          { "keyword": "engineering wiki software", "match_type": "Phrase" }
+        ],
+        "negative_keywords": ["open source", "free", "self-hosted", "Backstage tutorial"]
+      },
+      {
+        "name": "Reduce Engineering Ramp Time — Problem Aware",
+        "theme": "Searches that signal awareness of the problem but not the solution category",
+        "keywords": [
+          { "keyword": "reduce engineering ramp time", "match_type": "Phrase" },
+          { "keyword": "faster engineer onboarding", "match_type": "Phrase" },
+          { "keyword": "new hire engineer productivity", "match_type": "Phrase" },
+          { "keyword": "engineering onboarding best practices", "match_type": "Broad" }
+        ],
+        "negative_keywords": ["jobs", "salary", "HR", "training course", "bootcamp", "free checklist", "template download"]
+      }
+    ],
+    "global_negative_keywords": [
+      "jobs", "salary", "interview", "free", "open source", "github alternative",
+      "review", "vs", "comparison", "tutorial", "how to build",
+      "HR onboarding", "employee onboarding", "new employee", "orientation",
+      "bootcamp", "training", "course", "certification", "Reddit"
+    ],
+    "rsa_structure": {
+      "pinned_headlines": [
+        "Position 1 (Brand): DevOnboard — Engineer Onboarding (30 chars)",
+        "Position 2 (Value): First Commit in 3 Days (22 chars)",
+        "Position 3 (CTA/Proof): Free Trial — Carta Cut Ramp 65% (32 chars)"
+      ],
+      "descriptions": [
+        "Automate engineer onboarding end-to-end. Connect GitHub, Jira, Confluence — new hires hit their first PR in 3 days, not 3 weeks. No DevEx team required.",
+        "Carta reduced engineer time-to-productivity by 65%. Plaid runs 20 hires/month with zero dedicated DevEx headcount. Try free — 14-day trial, no credit card."
+      ],
+      "extensions": {
+        "sitelinks": [
+          "How It Works | devonboard.io/how-it-works",
+          "Carta Case Study | devonboard.io/carta",
+          "Integrations | devonboard.io/integrations",
+          "Pricing | devonboard.io/pricing"
+        ],
+        "callouts": [
+          "Works with GitHub & GitLab",
+          "Jira & Linear native",
+          "SAML SSO included",
+          "14-day free trial"
+        ],
+        "structured_snippets": {
+          "type": "Integrations",
+          "values": ["GitHub", "GitLab", "Jira", "Linear", "Confluence", "Notion", "Slack"]
+        }
+      }
+    },
+    "quality_score_optimizations": [
+      "Ensure landing page headline 'First commit in 3 days' matches ad headlines for message relevance",
+      "Add target keywords naturally in page body copy (developer onboarding, engineer onboarding automation)",
+      "Page load speed target <2s — technical audience has zero tolerance for slow pages",
+      "Add 'developer onboarding' as H1 on landing page for keyword relevance signal"
+    ],
+    "launch_sequence": [
+      "Week 1: Launch with Manual CPC, all 3 ad groups active, conservative bids ($2-4 CPC for branded, $3-5 for problem-aware)",
+      "Week 2: Review search term reports daily — add negatives from irrelevant queries",
+      "Week 3: Pause keywords with >50 impressions and 0 clicks; increase bids on keywords driving clicks",
+      "Week 4+: Once 15+ trial signups accumulated, switch to Target CPA bidding at $200",
+      "Month 2: If branded category ad group CPL <$200, increase budget by 30% and test Phrase Match expansion"
+    ],
+    "estimated_cpc_range": "$3-7 CPC for developer onboarding category (less competitive than sales tech). Expected CTR 3-5% for exact match. Trial signup conversion rate 8-12% from paid search traffic."
+  }
+}

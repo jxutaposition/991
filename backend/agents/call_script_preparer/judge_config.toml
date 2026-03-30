@@ -1,0 +1,14 @@
+threshold = 7.5
+
+rubric = [
+  "Call agenda includes specific time allocations for each section",
+  "At least 5 discovery questions covering multiple MEDDIC dimensions",
+  "Objection handling section covers at least 3 common objections with specific language",
+  "Talk track for the pivot from pain to value is present",
+  "Script ends with a specific next-step close (not 'I'll follow up')",
+]
+
+need_to_know = [
+  "Are the discovery questions tailored to this prospect's specific context?",
+  "Is the economic buyer identified and is there a plan if they're not on the call?",
+]

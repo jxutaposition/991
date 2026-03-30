@@ -1,0 +1,99 @@
+{
+  "input": {
+    "prospect_name": "Renata Voss",
+    "prospect_title": "CFO",
+    "company_name": "MedCore Health",
+    "meeting_context": "Inbound trial request through our website — no prior contact. Trial started 9 days ago but has not been activated. The form submission included the note: 'Looking to replace our current FP&A tool ahead of our Q3 board presentation.'",
+    "company_research": "MedCore Health is a 500-person healthcare services company. Private equity-backed, 3 years post-acquisition. Recent news: merged with a smaller regional chain in January. Likely dealing with consolidated reporting and chart of accounts harmonization. Industry context: PE-backed healthcare companies typically face intense board-level scrutiny on EBITDA, headcount cost, and margin by service line.",
+    "crm_history": "No prior contact. Trial created 9 days ago, never activated. Email from our trial onboarding sequence was opened twice but no response.",
+    "our_product_value_props": [
+      "Replaces spreadsheet-based FP&A with driver-based financial models connected live to source data",
+      "Board-ready reporting packages with scenario modeling (base, upside, downside)",
+      "Multi-entity consolidation with currency and intercompany eliminations",
+      "Headcount planning module that integrates with HRIS"
+    ]
+  },
+  "output": {
+    "call_agenda": [
+      {
+        "section": "Agenda setting",
+        "duration_minutes": 2,
+        "goal": "Orient Renata to the call structure, signal that this is not a sales pitch but a conversation about whether the trial can address her Q3 timeline"
+      },
+      {
+        "section": "Warm up",
+        "duration_minutes": 3,
+        "goal": "Acknowledge the merger context, establish rapport as a peer conversation about the FP&A challenge"
+      },
+      {
+        "section": "Discovery",
+        "duration_minutes": 15,
+        "goal": "Understand the Q3 board presentation requirements, current tool limitations, consolidation complexity, and approval process"
+      },
+      {
+        "section": "Pivot to value",
+        "duration_minutes": 5,
+        "goal": "Connect specific pain (consolidation, scenario modeling for board) to product capabilities"
+      },
+      {
+        "section": "Next step lock",
+        "duration_minutes": 5,
+        "goal": "Set up a technical onboarding session to activate the trial with real MedCore data"
+      }
+    ],
+    "warm_up_questions": [
+      "You mentioned a Q3 board presentation as the driver — is this a regular quarterly board pack, or is there a specific strategic decision on the table that's raising the stakes for this one?",
+      "The merger with the regional chain closed in January — has the chart of accounts consolidation been completed, or is that still in process?",
+      "You started a trial but haven't been able to activate it yet — was that a bandwidth thing, or did something come up in the setup that gave you pause?"
+    ],
+    "discovery_questions": [
+      {
+        "question": "What does your current FP&A process look like from raw data to board-ready numbers — are you working in Excel, a legacy tool, or a mix?",
+        "meddic_dimension": "Identify Pain",
+        "follow_up_probe": "How long does it typically take your team to close the books and get the consolidated view you need for a board presentation?"
+      },
+      {
+        "question": "With the merger, you're now reporting across two entities — are you doing intercompany eliminations manually, or is there a system handling that?",
+        "meddic_dimension": "Identify Pain",
+        "follow_up_probe": "When something breaks in that consolidation process — a misaligned cost center, a timing difference — how long does it typically take to find and fix it?"
+      },
+      {
+        "question": "For the Q3 board presentation, what's the board most focused on? Is it EBITDA by service line, headcount cost, the merged entity's combined performance, or all of the above?",
+        "meddic_dimension": "Metrics",
+        "follow_up_probe": "Is there a scenario they're going to ask you to model — like what the combined P&L looks like under a cost-reduction plan versus a growth plan?"
+      },
+      {
+        "question": "If you evaluated a new FP&A tool, what would it need to do to get a yes from you? Are there hard requirements around ERP integration, user count, or specific reporting templates?",
+        "meddic_dimension": "Decision Criteria",
+        "follow_up_probe": "You mentioned you're PE-backed — does your board or the PE firm have any standard reporting formats they expect you to match?"
+      },
+      {
+        "question": "Assuming this trial looked good — what would the path to a decision look like? Is this your call, or would it need to go to the PE sponsors or an IT committee?",
+        "meddic_dimension": "Decision Process",
+        "follow_up_probe": "What's the latest you could start an implementation and still have it ready for the Q3 board package?"
+      },
+      {
+        "question": "Is there a Controller or VP Finance on your team who would be the day-to-day user of this tool — or would you be running it yourself?",
+        "meddic_dimension": "Champion",
+        "follow_up_probe": "Would it make sense to include them in the next conversation so we can make sure the technical fit is right?"
+      }
+    ],
+    "pivot_script": "Renata, based on what you've described — consolidating two entities manually in Excel, needing scenario modeling for a PE board that wants EBITDA by service line, and a hard Q3 deadline — I want to be direct about whether we can actually help.\n\nWhat we built for exactly this situation: the multi-entity consolidation handles intercompany eliminations automatically once your chart of accounts is mapped — and that mapping typically takes one to two days with our onboarding team, not weeks. The board reporting module has scenario templates built for PE portco contexts specifically — base, upside, downside — and they pull live from whatever ERP you're using so you're not re-entering numbers.\n\nThe trial you started is set up for a single entity. To see if this actually solves your problem, you need to run it against your real merged data. I'd like to propose we spend 45 minutes with your Controller to activate the trial the right way — and if it doesn't consolidate cleanly, I'll tell you that before you've invested more time.",
+    "objection_handling": [
+      {
+        "objection": "We're already evaluating Workday Adaptive or Vena",
+        "response": "That's a reasonable set to evaluate. What's drawing you to them — is it the brand, a specific capability, or a recommendation from someone? I ask because the implementation timelines for those platforms are typically 6-9 months, which puts your Q3 board presentation at risk. Is speed-to-value part of your evaluation criteria?"
+      },
+      {
+        "objection": "We don't have the bandwidth to implement a new tool right now",
+        "response": "That's a real concern. The question is whether the bandwidth cost of implementation is higher or lower than the bandwidth cost of doing this consolidation manually every month in Excel. What does that currently cost your team in hours per month?"
+      },
+      {
+        "objection": "The PE firm needs to approve any software above a certain spend threshold",
+        "response": "Good to know early. What's the approval process — is it a written business case, a call with their operating partner, or just a spend approval from the CFO of the sponsor? I want to make sure we structure the right materials for whoever needs to sign off."
+      }
+    ],
+    "next_step_close": "Here's what I'd suggest as the next step: rather than another general demo, let's get your Controller on a 45-minute session where we activate your trial with real MedCore data — ideally both entities — and I'll show you specifically how the consolidation handles the intercompany piece. If it works the way I think it will, you'll have a proof point you can use internally to move this forward. If it doesn't, you'll know quickly. Would Thursday or Friday this week work for that session?",
+    "pre_call_research_notes": "Key facts to internalize:\n- Renata is the CFO — she is the economic buyer. This is not a champion call, it's a decision-maker call.\n- Inbound trial: she came to us. The urgency is real (Q3 board presentation). Do not oversell — help her validate.\n- Trial never activated — likely a bandwidth or setup complexity issue. Address this early and offer to fix it.\n- January merger with regional chain: chart of accounts consolidation is almost certainly not done. This is the core pain.\n- PE-backed healthcare: board is focused on EBITDA by service line, headcount cost, and synergy realization from the merger.\n- Do not mention competitor pricing or disparage Adaptive/Vena — she may have existing relationships with those vendors.\n- The Controller is likely the internal champion. Get them into the next meeting.\n- Hard deadline: Q3 board pack. Work backward from that date to set implementation urgency."
+  }
+}

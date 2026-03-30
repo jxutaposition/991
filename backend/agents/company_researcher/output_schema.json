@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompanyResearcherOutput",
+  "type": "object",
+  "required": ["company_snapshot", "triggers", "recommended_angle"],
+  "properties": {
+    "company_snapshot": {
+      "type": "object",
+      "required": ["name", "domain", "industry", "size_estimate", "funding_stage"],
+      "properties": {
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "industry": { "type": "string" },
+        "size_estimate": {
+          "type": "string",
+          "description": "Employee count or range, e.g., '~280 employees'"
+        },
+        "funding_stage": {
+          "type": "string",
+          "description": "Most recent funding stage, e.g., 'Series B', 'Bootstrapped', 'Public'"
+        },
+        "total_funding": {
+          "type": "string",
+          "description": "Total funding raised to date if known, e.g., '$62M'"
+        },
+        "hq_location": { "type": "string" },
+        "founded_year": { "type": "integer" },
+        "description": {
+          "type": "string",
+          "description": "One-sentence description of what the company does"
+        }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "description": "Ranked list of recent events with sales relevance, sorted by recency descending",
+      "items": {
+        "type": "object",
+        "required": ["event", "date", "sales_relevance"],
+        "properties": {
+          "event": {
+            "type": "string",
+            "description": "Specific description of the event, including names and amounts where applicable"
+          },
+          "date": {
+            "type": "string",
+            "description": "Date or approximate date of the event, e.g., '2025-03-14' or 'early March 2025'"
+          },
+          "sales_relevance": {
+            "type": "string",
+            "description": "Why this event matters for a sales conversation and what pain or need it implies"
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Source URL for this trigger if available"
+          },
+          "trigger_type": {
+            "type": "string",
+            "enum": ["funding", "executive_hire", "product_launch", "expansion", "acquisition", "partnership", "layoff", "other"]
+          }
+        }
+      }
+    },
+    "tech_stack": {
+      "type": "array",
+      "description": "Specific tool names identified in the company's tech stack",
+      "items": { "type": "string" }
+    },
+    "growth_indicators": {
+      "type": "object",
+      "properties": {
+        "current_headcount": { "type": "integer" },
+        "headcount_growth_yoy": {
+          "type": "string",
+          "description": "YoY headcount change, e.g., '+34% YoY' or 'declined ~12%'"
+        },
+        "open_job_count": { "type": "integer" },
+        "notable_hiring_areas": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functional areas with significant open roles"
+        },
+        "geographic_expansion": {
+          "type": "string",
+          "description": "New markets or offices opened if found"
+        }
+      }
+    },
+    "recommended_angle": {
+      "type": "string",
+      "description": "Specific, research-grounded outreach angle for the first email or call. Must reference at least one specific finding."
+    },
+    "low_signal_flag": {
+      "type": "boolean",
+      "description": "Set to true if no meaningful triggers were found and the company appears dormant or has very limited public presence",
+      "default": false
+    },
+    "raw_research_notes": {
+      "type": "string",
+      "description": "Freeform notes capturing additional findings, interesting details, or caveats that did not fit the structured fields"
+    }
+  }
+}

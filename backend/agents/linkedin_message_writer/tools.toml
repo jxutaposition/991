@@ -1,0 +1,8 @@
+tools = [
+  "search_linkedin_profile",
+  "fetch_company_news",
+  "read_crm_contact",
+  "read_upstream_output",
+  "write_draft",
+  "write_output"
+]

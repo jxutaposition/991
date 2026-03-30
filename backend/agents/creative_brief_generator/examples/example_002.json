@@ -1,0 +1,63 @@
+{
+  "input": {
+    "business_objective": "Launch awareness campaign for new developer onboarding product targeting engineering leaders",
+    "product_description": "Developer onboarding automation platform that reduces time-to-first-commit for new engineers from 2 weeks to 3 days",
+    "icp_data": "CTOs and VPs of Engineering at Series B+ SaaS companies, 50-300 engineers, hiring 5+ engineers per quarter",
+    "budget": "$30,000 total",
+    "channel_preferences": ["Google Search", "developer newsletters", "LinkedIn"],
+    "existing_customer_outcomes": [
+      "Carta reduced new engineer time-to-productivity by 65%",
+      "Plaid onboards 20 engineers/month with zero dedicated DevEx headcount"
+    ]
+  },
+  "output": {
+    "objective": "Generate 100 demo requests from CTOs and VPs of Engineering at Series B+ SaaS companies (50-300 engineers) by Q3 end at CPL under $250",
+    "target_audience": {
+      "persona_description": "Alex is a VP of Engineering at a 150-person Series B SaaS company. They're hiring 3-4 engineers per month and have no dedicated DevEx team. New hires spend their first two weeks reading wikis and waiting for access. Alex knows this is a problem — they've heard the complaints — but it's not their top priority because 'it's always been this way.' They follow engineering blogs, occasionally post on LinkedIn about team building, and spend time in Slack communities. They evaluate tools by whether their lead engineer will adopt them without a fight.",
+      "pain_points": [
+        "New hires take 2+ weeks to become productive — cost of delay compounds with hiring pace",
+        "The wiki is always out of date and no one has time to maintain it",
+        "Onboarding is inconsistent — different managers do it differently, so quality varies"
+      ],
+      "watering_holes": ["Engineering blogs (Martin Fowler, Will Larson)", "LeadDev", "LinkedIn", "Hacker News", "internal Slack communities"]
+    },
+    "key_message": "Engineering teams that hire fast can't afford a 2-week onboarding tax — we cut it to 3 days, automatically.",
+    "supporting_messages": [
+      "Carta reduced new engineer time-to-first-commit by 65% without adding DevEx headcount",
+      "Setup takes one afternoon: connect your GitHub, Jira, and Confluence — the system builds itself",
+      "Engineers adopt it because it makes THEIR first week better, not just the manager's tracking spreadsheet"
+    ],
+    "tone": {
+      "adjectives": ["Technical credibility", "No-fluff", "Builder-empathetic"],
+      "we_are": "Engineers who understand how painful bad onboarding is and built the thing we wish existed",
+      "we_are_not": "An HR software company that added a developer onboarding checkbox to an existing product"
+    },
+    "channel_mix": [
+      {
+        "channel": "Google Search",
+        "role": "Conversion — capture active search intent",
+        "rationale": "Searches for 'developer onboarding automation', 'reduce engineer ramp time', 'internal developer portal' indicate active evaluation mode.",
+        "budget_pct": 45
+      },
+      {
+        "channel": "LinkedIn Sponsored Content",
+        "role": "Awareness — reach VPs Eng actively posting about team scaling",
+        "rationale": "Engineering leaders at growth-stage companies are active on LinkedIn. Can layer company size + recent hiring growth signal via targeting.",
+        "budget_pct": 35
+      },
+      {
+        "channel": "Newsletter sponsorships (LeadDev, ELC)",
+        "role": "Awareness — reach engineering leadership community",
+        "rationale": "LeadDev and ELC newsletters are read by exactly this ICP. Sponsorship reaches them in a content-consumption context vs. an ad-scrolling context.",
+        "budget_pct": 20
+      }
+    ],
+    "success_metrics": [
+      { "kpi": "Demo requests", "target": "100", "measurement": "Form submissions tagged as VP Eng / CTO in HubSpot" },
+      { "kpi": "CPL", "target": "<$250", "measurement": "Total spend / demo requests" },
+      { "kpi": "LinkedIn CTR", "target": ">0.8%", "measurement": "LinkedIn Campaign Manager CTR on sponsored content" },
+      { "kpi": "Search impression share", "target": ">40%", "measurement": "Google Ads impression share on branded + category keywords" }
+    ],
+    "constraints": "No mention of specific competitor names. Carta case study cleared for use — use 65% stat only, do not cite specific team size. All developer tools screenshots must show real UI (no mocked dashboards). Technical copy must be reviewed by an engineer before publishing."
+  }
+}

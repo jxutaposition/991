@@ -1,0 +1,14 @@
+threshold = 7.0
+
+rubric = [
+  "At least 2 distinct personas are represented in the output (e.g., economic buyer + champion, not two economic buyers)",
+  "Each contact includes a LinkedIn URL or sufficient identifying information (full name + title + company) to find them independently",
+  "Each contact has a confidence score of high, medium, or low with a reason provided",
+  "CRM check was explicitly performed and results reflected (contacts flagged as in_crm where applicable)",
+  "No coordinator, intern, or clearly non-buyer roles appear in the primary contact list",
+]
+
+need_to_know = [
+  "Are any of these contacts already in the CRM with prior outreach history that would affect sequencing?",
+  "What is the primary decision-maker persona and why were they selected as the top contact?",
+]

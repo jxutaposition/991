@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MetaAdsCampaignBuilderOutput",
+  "type": "object",
+  "required": [
+    "campaign",
+    "ad_sets",
+    "ad_assignments",
+    "pixel_events",
+    "cbo_vs_abo_recommendation",
+    "launch_checklist",
+    "estimated_cpl_range"
+  ],
+  "properties": {
+    "campaign": {
+      "type": "object",
+      "required": ["name", "objective", "budget_strategy"],
+      "properties": {
+        "name": { "type": "string" },
+        "objective": { "type": "string" },
+        "budget_strategy": { "type": "string", "description": "CBO or ABO with brief rationale." }
+      }
+    },
+    "ad_sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "audience_type",
+          "audience_definition",
+          "budget_allocation_pct",
+          "placements",
+          "min_audience_size_estimate"
+        ],
+        "properties": {
+          "name": { "type": "string" },
+          "audience_type": {
+            "type": "string",
+            "enum": ["cold", "lookalike", "retargeting"]
+          },
+          "audience_definition": {
+            "type": "string",
+            "description": "Plain-language description of the audience targeting parameters."
+          },
+          "budget_allocation_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Percentage of total campaign budget allocated to this ad set."
+          },
+          "placements": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific placements enabled for this ad set."
+          },
+          "min_audience_size_estimate": {
+            "type": "string",
+            "description": "Estimated audience size range (e.g. '600k–1.2M')."
+          }
+        }
+      }
+    },
+    "ad_assignments": {
+      "type": "object",
+      "description": "Map of ad_set_name to array of ad variant IDs or descriptions.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "pixel_events": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of Meta Pixel standard events to configure."
+    },
+    "cbo_vs_abo_recommendation": {
+      "type": "string",
+      "description": "Recommendation (CBO or ABO) with the reasoning behind the choice."
+    },
+    "launch_checklist": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered pre-launch verification steps."
+    },
+    "estimated_cpl_range": {
+      "type": "string",
+      "description": "Expected cost-per-lead range based on audience type and objective (e.g. '$80–$140')."
+    }
+  },
+  "additionalProperties": false
+}

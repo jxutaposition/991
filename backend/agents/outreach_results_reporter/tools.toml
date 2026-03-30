@@ -1,0 +1,6 @@
+tools = [
+  "fetch_email_analytics",
+  "read_crm_pipeline",
+  "read_upstream_output",
+  "write_output",
+]

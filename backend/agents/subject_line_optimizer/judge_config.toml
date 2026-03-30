@@ -1,0 +1,13 @@
+threshold = 7.5
+
+rubric = [
+  "At least 5 subject line variants were produced",
+  "Each variant includes a numeric score (0-10) with a one-sentence reasoning explaining the score",
+  "The top-ranked variant is under 50 characters",
+  "At least 2 variants use personalization — prospect first name or company name is present",
+  "No variant uses an overused or low-performing pattern: Quick question, Following up, Checking in, Touching base, Circling back, Re: (deceptive), or any exclamation mark",
+]
+
+need_to_know = [
+  "What is the highest-scored subject line variant and its score?",
+]

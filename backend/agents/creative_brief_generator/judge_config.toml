@@ -1,0 +1,15 @@
+threshold = 7.5
+
+rubric = [
+  "Business objective is measurable and time-bound (contains a number and a date or quarter)",
+  "Target audience is written as a person description, not a demographic category",
+  "Key message is a single sentence and could not be said by a generic competitor",
+  "Tone section includes both 'we are' and 'we are NOT' with specific examples",
+  "Channel mix includes rationale for each channel (not just a list)",
+  "Success metrics include specific numerical targets and measurement methods",
+]
+
+need_to_know = [
+  "Could a designer or copywriter brief themselves from this document alone, without additional clarification?",
+  "Is the key message differentiated enough that a competitor couldn't claim the same thing?",
+]

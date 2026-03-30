@@ -1,0 +1,15 @@
+threshold = 8.0
+
+rubric = [
+  "First line references a specific, verifiable detail about the prospect or their company — not a generic observation",
+  "Body is under 120 words (word count must be checked and accurate)",
+  "Exactly one CTA is present — no multiple asks or compound requests",
+  "Value proposition is stated as a concrete outcome, not a product feature or capability description",
+  "No filler phrases present: synergy, leverage, excited to connect, hope this finds you well, circle back, touch base, best-in-class, cutting-edge",
+  "Subject line is under 50 characters and contains no exclamation mark",
+]
+
+need_to_know = [
+  "Does the first line reference something specific and verifiable about this individual prospect or company (not applicable to any company)?",
+  "Is the CTA a single concrete ask — not a compound question or open-ended invitation?",
+]

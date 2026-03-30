@@ -1,0 +1,61 @@
+{
+  "input": {
+    "company_domain": "devco.build",
+    "company_name": "DevCo",
+    "target_personas": ["CTO", "VP Engineering", "Head of Platform", "Head of SRE", "Staff Engineer"]
+  },
+  "output": {
+    "contacts": [
+      {
+        "name": "Marcus Webb",
+        "title": "VP Engineering",
+        "persona": "economic_buyer",
+        "linkedin_url": "https://www.linkedin.com/in/marcuswebb-eng",
+        "email": "m.webb@devco.build",
+        "confidence": "high",
+        "confidence_reason": "Exact economic buyer persona for a developer tooling platform. Hired 19 days ago from Stripe Platform team — actively in onboarding and environment assessment mode. Email pattern confirmed via company blog post byline.",
+        "in_crm": false,
+        "crm_contact_id": null,
+        "tenure_months": 1,
+        "notes": "New VP Engineering (hired March 10, 2025) from Stripe's internal platform team. Prime evaluation window. Has 2,300 LinkedIn followers, active poster — his last post was about SRE culture at scale. Would respond well to a peer-level message from an engineering practitioner, not a sales pitch. Approach via LinkedIn message first before email."
+      },
+      {
+        "name": "Talia Osei",
+        "title": "Head of Platform Engineering",
+        "persona": "champion",
+        "linkedin_url": "https://www.linkedin.com/in/taliaosei",
+        "email": "t.osei@devco.build",
+        "confidence": "high",
+        "confidence_reason": "Platform lead = primary owner of on-call tooling, observability stack, and incident management decisions. Has been in role 14 months. Email pattern confirmed. LinkedIn shows she posted about their Kubernetes migration 3 months ago.",
+        "in_crm": true,
+        "crm_contact_id": "CRM-00712",
+        "tenure_months": 14,
+        "notes": "Already in CRM from a prior outbound sequence 5 months ago — she replied once asking for a case study, then went quiet. The new VP Engineering hire and Series B are strong reasons to re-engage. Lead with 'A lot has changed since we last spoke' angle. She is the day-to-day champion and likely advises Marcus Webb on tooling."
+      },
+      {
+        "name": "Ravi Sundaram",
+        "title": "Staff Engineer — Infrastructure",
+        "persona": "technical_evaluator",
+        "linkedin_url": "https://www.linkedin.com/in/ravisundaram-infra",
+        "email": null,
+        "confidence": "medium",
+        "confidence_reason": "Staff Engineer with infrastructure focus will be involved in any technical evaluation or proof of concept. Title is a technical evaluator, not a buyer — include only in later-stage sequences. LinkedIn active (post last month about OpenTelemetry).",
+        "in_crm": false,
+        "crm_contact_id": null,
+        "tenure_months": 22,
+        "notes": "Long-tenured infrastructure engineer — knows the current stack deeply and will be a key voice in any PoC or integration review. No email confirmed. Do not sequence until Marcus Webb or Talia Osei are engaged and moving forward — Ravi is a stage 2 or 3 contact."
+      }
+    ],
+    "primary_contact": {
+      "name": "Marcus Webb",
+      "title": "VP Engineering",
+      "persona": "economic_buyer",
+      "linkedin_url": "https://www.linkedin.com/in/marcuswebb-eng",
+      "email": "m.webb@devco.build",
+      "confidence": "high",
+      "rationale": "19 days into the role, active LinkedIn presence, direct economic buyer authority for developer tooling. The combination of a new VP Engineering hire + Series B + active SRE hiring creates a rare 60-day window where evaluation decisions are still being formed. Reaching him now before he inherits the incumbent vendor's renewal conversation is the highest-leverage move."
+    },
+    "company_domain": "devco.build",
+    "discovery_notes": "No CTO found at DevCo — likely a flat structure where Marcus Webb (VP Engineering) holds both budget and technical leadership. Priya Nair (CEO) is listed on LinkedIn but approaching the CEO for a developer tooling decision at a 155-person company would be unusual and may signal a lack of understanding of their org. Stick with Marcus as primary. Talia Osei in CRM had prior warm engagement — coordinate re-engagement timing with the Marcus outreach to avoid confusion if both reply simultaneously."
+  }
+}

@@ -1,0 +1,8 @@
+slug = "competitor_analyzer"
+name = "Competitor Analyzer"
+category = "research"
+description = "Maps the competitive landscape for a target account or market segment. Identifies which competitors the prospect is likely using, their strengths and weaknesses, and differentiation opportunities."
+intents = ["competitor", "competitive analysis", "competition", "alternatives", "market landscape", "differentiation", "competitive intel", "vs", "compare"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = false

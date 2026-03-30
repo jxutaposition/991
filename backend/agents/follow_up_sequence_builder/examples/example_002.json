@@ -1,0 +1,70 @@
+{
+  "input": {
+    "initial_email": {
+      "subject_line": "6 SRE roles at DevCo",
+      "body": "Six open Senior SRE postings tells me reliability is a live pain point at DevCo right now — not a future one.\n\nSentinel Ops cuts P1 incident response time by 50% and takes load off the on-call rotation without growing the team. Lattice dropped their MTTR by 54% in 60 days.\n\nAre you free for 15 minutes this week?",
+      "sent_date": "2026-03-25"
+    },
+    "prospect": {
+      "name": "Marcus",
+      "title": "Head of Engineering",
+      "company_name": "DevCo"
+    },
+    "context": "Sender is Priya Nair from Sentinel Ops. Product reduces P1 incident response time and on-call burden. Social proof: Lattice -54% MTTR in 60 days, Figma reduced P1 page frequency by 40% in Q4 2025. Available resources: 'On-Call Runbook Template' (free download), 'SRE Hiring vs Tooling: A Cost Comparison' calculator. No specific urgency events available. 5-touch sequence preferred."
+  },
+  "output": {
+    "sequence": [
+      {
+        "touch_number": 2,
+        "day": 3,
+        "angle": "value_add",
+        "subject_line": "on-call runbook template",
+        "body": "Marcus — no agenda here, just sharing something your SRE team might find useful while you're scaling.\n\nWe put together a free on-call runbook template that Lattice and Figma both used to standardize incident response. It's yours to use regardless: [link]\n\nHope it saves your team some time.",
+        "word_count": 48,
+        "angle_rationale": "A genuinely free, immediately useful resource earns goodwill and demonstrates domain expertise — gives Marcus something valuable before asking again, and the SRE-specific asset reinforces relevance."
+      },
+      {
+        "touch_number": 3,
+        "day": 7,
+        "angle": "social_proof",
+        "subject_line": "how Figma cut P1 pages by 40%",
+        "body": "Different company than my first email: Figma reduced their P1 page frequency by 40% in Q4 2025 — while also cutting their SRE headcount ask for 2026.\n\nThey were scaling fast (like DevCo looks right now) and wanted to solve reliability without just throwing people at it.\n\nWorth a 15-minute conversation?",
+        "word_count": 52,
+        "angle_rationale": "A second distinct social proof story with a different company and metric expands the credibility case — 'cutting headcount ask' specifically resonates with an eng leader weighing hiring vs tooling."
+      },
+      {
+        "touch_number": 4,
+        "day": 14,
+        "angle": "direct_ask",
+        "subject_line": "still relevant, Marcus?",
+        "body": "Quick one: still a relevant problem at DevCo, or has the picture changed?\n\nEither way is fine — just want to make sure I'm not pinging you on something that's no longer a priority.",
+        "word_count": 32,
+        "angle_rationale": "After two value-add touches, a direct relevance check reduces friction — it gives Marcus an easy 'yes' or 'no' path and signals respect for his time rather than pressure."
+      },
+      {
+        "touch_number": 5,
+        "day": 21,
+        "angle": "urgency_scarcity",
+        "subject_line": "SRE hiring vs tooling calculator",
+        "body": "One last thing, Marcus — we built a calculator that models 'hire 2 more SREs vs deploy tooling' across response time, cost, and team burn. If the 6 open roles are still in play, it might be a useful input: [link]",
+        "word_count": 40,
+        "angle_rationale": "Repositions the final substantive touch around a decision-relevant tool — the 6 SRE roles are still the anchor, and the calculator speaks directly to the hiring vs tooling tradeoff Marcus is presumably weighing."
+      },
+      {
+        "touch_number": 6,
+        "day": 28,
+        "angle": "breakup",
+        "subject_line": "last one from me",
+        "body": "That's the last one, Marcus. If incident response ever becomes a project you want outside help on, I'm easy to find. Good luck with the SRE build-out. — Priya",
+        "word_count": 29,
+        "angle_rationale": "Clean breakup that references the specific context (SRE build-out), closes without pressure, and leaves a warm door open — exits the sequence with the same specificity that opened it."
+      }
+    ],
+    "conditional_logic": {
+      "on_reply": "Stop sequence immediately. Do not send the next scheduled touch. Log reply activity in CRM with timestamp, reply sentiment, and full reply text. Set contact status to 'Replied — SDR handoff'. Assign to owning AE or SDR within 4 business hours.",
+      "on_ooo": "Detect out-of-office auto-reply. Pause the sequence. Extract the return date from the OOO message body using date parsing. Resume the sequence from the next touch on the calendar day after the stated return date. If no return date is found in the OOO message, pause for 10 days and then resume. Log pause and resume events in CRM.",
+      "on_bounce": "Hard bounce: immediately remove contact from sequence, flag email as undeliverable in CRM, tag as 'Bounced — needs re-verification'. Do not attempt re-send. Soft bounce: retry the same touch after 24 hours. If the second attempt also soft-bounces, treat as a hard bounce."
+    },
+    "total_touches": 6
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "hero": {
+      "type": "object",
+      "properties": {
+        "headline": { "type": "string" },
+        "subheadline": { "type": "string" },
+        "cta_text": { "type": "string" },
+        "cta_subtext": { "type": "string" }
+      }
+    },
+    "social_proof_bar": { "type": "string" },
+    "problem_agitation": { "type": "string" },
+    "solution_section": { "type": "string" },
+    "feature_benefit_pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "feature_name": { "type": "string" },
+          "benefit": { "type": "string" }
+        }
+      }
+    },
+    "customer_quotes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "quote": { "type": "string" },
+          "attribution": { "type": "string" }
+        }
+      }
+    },
+    "objection_handling": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "objection": { "type": "string" },
+          "response": { "type": "string" }
+        }
+      }
+    },
+    "final_cta": {
+      "type": "object",
+      "properties": {
+        "headline": { "type": "string" },
+        "cta_text": { "type": "string" },
+        "urgency_framing": { "type": "string" }
+      }
+    },
+    "message_match_note": { "type": "string" }
+  }
+}

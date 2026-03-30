@@ -1,0 +1,14 @@
+threshold = 7.0
+
+rubric = [
+  "At least 2 triggers are found with approximate dates attached (not described as 'recently' without a timeframe)",
+  "Tech stack section lists specific product names (e.g., 'Datadog', 'Salesforce'), not categories (e.g., 'monitoring tool', 'CRM')",
+  "Growth indicators include at least one specific number (headcount count or %, funding amount, job posting count)",
+  "Recommended outreach angle references at least one specific trigger or data point found during research",
+  "Source URLs or named sources provided for at least 2 of the triggers",
+]
+
+need_to_know = [
+  "What is the most recent notable event at this company and when did it occur?",
+  "What specific tech stack tools were identified during research?",
+]

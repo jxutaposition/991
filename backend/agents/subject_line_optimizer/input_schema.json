@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SubjectLineOptimizerInput",
+  "type": "object",
+  "required": ["prospect_name", "company_name"],
+  "properties": {
+    "email_body": {
+      "type": "string",
+      "description": "Optional email body text. Providing it allows the agent to align subject line tone and content with the email's core message."
+    },
+    "prospect_name": {
+      "type": "string",
+      "description": "Prospect's first name (or full name). Used for personalization variants."
+    },
+    "company_name": {
+      "type": "string",
+      "description": "Prospect's company name. Used for company-personalized variants."
+    },
+    "hook_or_trigger": {
+      "type": "string",
+      "description": "Optional specific trigger to reference (e.g. 'Series B funding', 'hired new CMO', '6 open SRE roles'). Enables trigger-based subject line patterns."
+    },
+    "count": {
+      "type": "integer",
+      "description": "Number of subject line variants to generate.",
+      "default": 6,
+      "minimum": 5,
+      "maximum": 10
+    }
+  },
+  "additionalProperties": false
+}

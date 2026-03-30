@@ -1,0 +1,8 @@
+slug = "meeting_prep_agent"
+name = "Meeting Prep Agent"
+category = "social_outreach"
+description = "Generates a pre-meeting brief with company overview, attendee backgrounds, recent news, competitive context, and recommended talking points. Designed to be read 10 minutes before a scheduled call."
+intents = ["meeting prep", "pre-meeting brief", "meeting briefing", "talking points", "account prep", "call preparation", "meeting research", "attendee research"]
+max_iterations = 10
+skip_judge = false
+flexible_tool_use = false

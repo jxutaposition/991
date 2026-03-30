@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "required": ["campaigns", "time_period"],
+  "properties": {
+    "campaigns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string" },
+          "campaign_name": { "type": "string" },
+          "channel": { "type": "string" },
+          "spend": { "type": "number" },
+          "impressions": { "type": "number" },
+          "clicks": { "type": "number" },
+          "leads": { "type": "number" },
+          "conversions": { "type": "number" }
+        }
+      }
+    },
+    "time_period": { "type": "string" },
+    "target_cpl": { "type": "number" },
+    "target_leads": { "type": "number" },
+    "budget_total": { "type": "number" },
+    "attribution_model": { "type": "string" },
+    "previous_period_data": { "type": "object" }
+  }
+}

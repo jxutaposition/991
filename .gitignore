@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+.dagster/
+storage/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+frontend/playwright-report/
+frontend/test-results/
+
+# keys
+*.pem
+
+# logs (guardian and loader output)
+logs/
+.logs/
+*.log
+
+# Rust build artifacts
+backend/target/

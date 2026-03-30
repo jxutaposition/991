@@ -1,0 +1,8 @@
+slug = "subject_line_optimizer"
+name = "Subject Line Optimizer"
+category = "email_outreach"
+description = "Generates and scores multiple subject line variants for a cold email. Uses pattern analysis of high-performing subject lines to rank variants by predicted open rate."
+intents = ["subject line", "email subject", "open rate", "subject optimization", "email headline", "ab test subject"]
+max_iterations = 8
+skip_judge = false
+flexible_tool_use = false

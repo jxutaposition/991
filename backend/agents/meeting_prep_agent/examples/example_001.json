@@ -1,0 +1,25 @@
+{
+  "input": {
+    "meeting_subject": "Discovery call — sales engagement platform",
+    "attendees": [
+      {
+        "name": "Sarah Chen",
+        "title": "VP of Sales",
+        "company": "Meridian Payments",
+        "linkedin_url": "https://linkedin.com/in/sarahchen"
+      },
+      {
+        "name": "David Park",
+        "title": "Head of Revenue Operations",
+        "company": "Meridian Payments"
+      }
+    ],
+    "meeting_context": "Responded to cold email about SDR productivity; mentioned ramp time as their #1 bottleneck",
+    "our_value_props": [
+      "Cut SDR ramp time from 90 days to 45 days",
+      "AI-personalized sequences at scale",
+      "Native CRM sync with Salesforce"
+    ]
+  },
+  "output": "# Meeting Brief: Meridian Payments — Discovery Call\n\n## Company Snapshot\n- **Founded:** 2019 · HQ: Austin, TX · ~280 employees (up from 190 a year ago — 47% growth)\n- **Industry:** Embedded payments infrastructure for SaaS platforms\n- **Funding:** Series B, $42M raised in March 2024 (8 months ago) — still in active deployment window\n- **Standout fact:** Just posted 8 SDR roles on LinkedIn in the past 6 weeks. Scaling outbound aggressively post-funding.\n- **Tech stack signals:** Salesforce (active users visible on LinkedIn), Gong, ZoomInfo\n\n## Attendee Profiles\n\n**Sarah Chen — VP of Sales**\n- Joined Meridian 14 months ago from Stripe (5 years there, Director of SMB Sales)\n- Prior: Braintree (acquired by PayPal), 3 years in enterprise sales\n- LinkedIn: Posts regularly about sales leadership, recently shared an article on SDR burnout and \"the broken ramp model\" — this is clearly top of mind\n- Likely optimizing for: building a repeatable outbound motion before Series C; under pressure to show pipeline growth from the new headcount investment\n\n**David Park — Head of Revenue Operations**\n- Joined 6 months ago from HubSpot (RevOps Manager, 4 years)\n- First RevOps hire at Meridian — building the function from scratch\n- LinkedIn: No public posts. Profile was updated 2 months ago with new role.\n- Likely optimizing for: picking the right tool stack before processes calcify; wants to be the person who brought in the right infrastructure early\n\n## Strategic Context\nMeridian is in classic post-Series B scaling mode: headcount growing fast, outbound just getting stood up, and the clock is ticking on showing pipeline ROI from the new capital. Sarah's LinkedIn post about SDR burnout suggests she's aware the current onboarding process is broken — reps are taking too long to get productive and churning before they hit their stride. David as a first-time RevOps head is likely evaluating 3-5 tools this quarter to set the foundation.\n\n## CRM History\nFirst contact: cold email sent 11 days ago. Sarah opened the email 3 times and clicked the link to our case study page (Rippling example). Responded 2 days later: \"This is relevant — our ramp time is embarrassing. Let's find 30 minutes.\" No prior relationship, no previous demos, no competitor mentions yet.\n\n## Talking Points\n1. **SDR ramp time (lead with this):** Sarah called out ramp time in her reply — open with it. \"You mentioned ramp time in your note. What does onboarding look like for a new SDR today — and what would it need to look like for you to feel good about the investment?\" Let her define the problem before you pitch the solution.\n\n2. **RevOps stack timing:** David is building from scratch. This is a greenfield opportunity — no legacy process to displace. \"Since David joined 6 months ago, you're likely still in the window where the stack isn't locked in — what does the evaluation process look like on your end?\"\n\n3. **Series B pressure:** 8 new SDR hires signals they're betting big on outbound. \"With 8 SDRs coming on in the next quarter, the ramp problem compounds fast — every 30 days of delay on a rep is roughly [X] in missed pipeline. What's your target for when the new team hits quota?\"\n\n## Potential Landmines\n- **Outreach/Salesloft likely in evaluation:** Given their tech maturity (Gong, ZoomInfo), they've probably already looked at the obvious alternatives. Ask early: \"Have you already had conversations with Outreach or Salesloft?\"\n- **David controls the budget:** Sarah is the champion, but David owns tooling decisions as RevOps head. Make sure he's enrolled, not just a note-taker.\n- **Salesforce complexity:** Their Salesforce is likely messy (new company, rapid growth). Native sync is a selling point but also a risk — ask about their Salesforce hygiene before promising seamless integration.\n\n## One Thing to Accomplish\nGet agreement on a 2-week pilot scope with David owning the technical setup and Sarah defining the SDR ramp metric we'll measure against."
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoogleAdsCampaignBuilderInput",
+  "type": "object",
+  "required": ["product_category", "target_audience", "monthly_budget", "conversion_goal"],
+  "properties": {
+    "product_category": {
+      "type": "string",
+      "description": "Category or product type being advertised (e.g., 'sales enablement software', 'B2B data API')."
+    },
+    "target_audience": {
+      "type": "string",
+      "description": "Description of the ideal buyer persona and company profile."
+    },
+    "monthly_budget": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Total monthly Google Ads budget in USD."
+    },
+    "conversion_goal": {
+      "type": "string",
+      "enum": ["lead_form", "demo_request", "trial_signup", "purchase"],
+      "description": "Primary action to optimize toward."
+    },
+    "existing_conversion_data": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the account already has 30+ conversions/month from prior campaigns."
+    },
+    "primary_keywords": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Seed keywords provided by the user to anchor ad group themes."
+    },
+    "competitor_names": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Competitor brand names to consider for competitor ad groups or negatives."
+    },
+    "landing_page_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Primary destination URL for the conversion-focused ad groups."
+    }
+  },
+  "additionalProperties": false
+}

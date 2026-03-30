@@ -1,0 +1,8 @@
+slug = "follow_up_sequence_builder"
+name = "Follow-Up Sequence Builder"
+category = "email_outreach"
+description = "Builds a multi-touch follow-up sequence with 3-5 touchpoints. Each touch has a different angle, escalating value proposition, and timing recommendation. Includes conditional logic (e.g., if reply → handoff to human)."
+intents = ["follow up", "email sequence", "drip campaign", "cadence", "touchpoints", "nurture sequence", "multi-touch", "follow-up emails"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = false

@@ -1,0 +1,19 @@
+{
+  "input": {
+    "company_name": "Pixel & Pine Creative Agency",
+    "company_domain": "pixelandpine.co",
+    "icp_criteria": {
+      "target_industries": ["SaaS", "Technology", "Digital Agencies"],
+      "employee_count_min": 100,
+      "employee_count_max": 2000,
+      "funding_stages": ["Series A", "Series B", "Series C"],
+      "target_geographies": ["United States", "Canada"],
+      "behavioral_filters": {
+        "job_postings_keywords": ["project manager", "operations manager", "head of delivery"]
+      }
+    },
+    "company_research": "Pixel & Pine is a boutique creative/digital agency founded in 2016. They have approximately 50 employees and are fully bootstrapped — no external funding confirmed via Crunchbase or LinkedIn. Revenue is estimated at $3–5M ARR based on headcount benchmarks for creative agencies. Headquarters in Austin, TX. They use Basecamp for project management and have posted one project coordinator role in the past 6 months.",
+    "crm_data": "No existing contacts in CRM. No prior outreach history at this account."
+  },
+  "output": "LEAD SCORE REPORT — Pixel & Pine Creative Agency (pixelandpine.co)\n\nTotal Score: 31 / 100 | Tier: TIER 3\n\nSCORE BREAKDOWN:\n- Firmographic Fit: 14 / 40\n  - Industry (Creative/Digital Agency): 8/15 — adjacent to target (digital agencies are in scope but not the core ICP; pure creative agencies rarely have the operational complexity that drives urgency for our platform)\n  - Employee count (50 employees, ICP minimum is 100): 3/10 — below ICP threshold; at 50 employees the company is unlikely to have the process fragmentation that justifies our platform's price point\n  - Funding stage (Bootstrapped): 2/10 — bootstrapped companies are outside the target funding profile; budget constraints are a known obstacle for platform sales above $500/month\n  - Geography (Austin, TX, US): 5/5 — confirmed US, within territory\n\n- Intent Signals: 7 / 30\n  - Job posting: One Project Coordinator role in last 6 months: +7 pts — moderate signal that delivery operations are a concern, but a coordinator hire is junior and does not indicate investment in a platform-level solution\n  - No technographic signals detected (using Basecamp, a low-cost legacy tool — could indicate either loyalty or budget sensitivity): 0 pts\n\n- Timing Signals: 0 / 20\n  - No funding event detected\n  - No leadership change detected\n  - No expansion news or company announcements found\n  - No negative timing signals that would reduce score further\n\n- Relationship / Warm Intro: 0 / 10\n  - No existing CRM contacts at this company\n  - No second-degree LinkedIn paths identified\n\nPOSITIVE SIGNALS:\n- US-based agency with active project coordination hiring — confirms operational awareness and that project delivery is a pain area\n- Austin, TX HQ — within active sales territory\n\nNEGATIVE SIGNALS:\n- Bootstrapped with ~50 employees — below ICP employee floor of 100; budget for a project management platform at this price tier is uncertain\n- Using Basecamp — an entrenched (even if basic) alternative; switching costs are psychological even if low\n- No funding, no leadership change, no expansion news — zero urgency signals detected\n- No warm path into the account\n\nMISSING DATA:\n- Revenue figures not confirmed from public sources — estimated at $3–5M ARR using headcount benchmarks; actual revenue could place them in or out of addressable range\n- No visibility into current client count or project volume — a 50-person agency running 100+ concurrent projects would be a different profile than one running 10\n\nRECOMMENDED ACTION (TIER 3): Do not prioritize for immediate outreach. Enroll in a low-touch nurture sequence (quarterly email cadence, content-driven). Revisit this account if: (1) headcount grows above 100, (2) they announce a funding event, (3) they post a Head of Operations or VP Delivery role. Set a 90-day reminder to re-score using updated firmographic data."
+}

@@ -1,0 +1,14 @@
+threshold = 7.5
+
+rubric = [
+  "Message opens with a specific, verifiable hook (not a generic compliment)",
+  "Connection request version is under 300 characters",
+  "Value proposition mentioned in prospect's terms, not product feature language",
+  "CTA is appropriate for the message type (connect vs. InMail)",
+  "Tone matches prospect seniority level",
+]
+
+need_to_know = [
+  "Would this message read as a peer reaching out or a vendor cold-pitching?",
+  "Is there at least one specific detail that shows the sender researched this person?",
+]

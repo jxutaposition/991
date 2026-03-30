@@ -1,0 +1,15 @@
+threshold = 7.5
+
+rubric = [
+  "Campaign type selection justified based on funnel stage and budget",
+  "Ad groups are thematically tight (each group has a clear single topic)",
+  "Negative keyword list includes at least 15 specific negatives",
+  "Bidding strategy recommendation tied to current conversion data availability",
+  "RSA structure includes pinned headlines in correct positions",
+  "At least 4 ad extensions specified",
+]
+
+need_to_know = [
+  "Are keyword themes specific to the product category, not generic B2B terms?",
+  "Is the campaign structured to provide clean data for optimization, not just to launch?",
+]

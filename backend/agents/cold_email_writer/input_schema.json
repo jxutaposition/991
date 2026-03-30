@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ColdEmailWriterInput",
+  "type": "object",
+  "required": ["prospect", "sender"],
+  "properties": {
+    "prospect": {
+      "type": "object",
+      "required": ["name", "title", "company_name", "domain"],
+      "properties": {
+        "name": { "type": "string", "description": "Prospect's full name." },
+        "title": { "type": "string", "description": "Prospect's job title." },
+        "company_name": { "type": "string" },
+        "domain": { "type": "string" },
+        "linkedin_url": { "type": "string", "format": "uri" },
+        "research_notes": {
+          "type": "string",
+          "description": "Pre-researched context about the prospect or company."
+        },
+        "recent_triggers": {
+          "type": "array",
+          "description": "Specific, verifiable signals to use as personalization hooks.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "sender": {
+      "type": "object",
+      "required": ["name", "company", "value_prop"],
+      "properties": {
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "value_prop": {
+          "type": "string",
+          "description": "The core outcome the sender's product delivers (stated as outcome, not feature)."
+        },
+        "social_proof_stat": {
+          "type": "string",
+          "description": "One specific, named customer result to include as social proof (e.g. 'Helped Brex cut CAC by 23%'). Optional — omit if not available."
+        }
+      }
+    },
+    "tone": {
+      "type": "string",
+      "enum": ["professional", "casual", "direct"],
+      "default": "direct",
+      "description": "Tone of the email. Defaults to direct."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ICPBuilderOutput",
+  "type": "object",
+  "required": ["icp_summary", "tier_1", "tier_2", "tier_3", "negative_icp", "firmographic_filters", "behavioral_triggers"],
+  "additionalProperties": false,
+  "properties": {
+    "icp_summary": {
+      "type": "string",
+      "description": "2-3 sentence narrative description of the ideal customer, usable in a sales deck or brief"
+    },
+    "tier_1": {
+      "type": "object",
+      "description": "Best-fit accounts — all firmographic criteria met plus at least one behavioral trigger",
+      "required": ["criteria", "estimated_conversion_rate", "description"],
+      "properties": {
+        "criteria": {
+          "type": "object",
+          "description": "Key-value pairs of criteria and their required values/ranges for Tier 1"
+        },
+        "estimated_conversion_rate": {
+          "type": "string",
+          "description": "Estimated conversion rate range, e.g., '25-40%'"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of what qualifies an account as Tier 1"
+        }
+      }
+    },
+    "tier_2": {
+      "type": "object",
+      "description": "Strong-fit accounts — firmographic criteria met but no active behavioral trigger",
+      "required": ["criteria", "estimated_conversion_rate", "description"],
+      "properties": {
+        "criteria": {
+          "type": "object",
+          "description": "Key-value pairs of criteria for Tier 2"
+        },
+        "estimated_conversion_rate": {
+          "type": "string",
+          "description": "Estimated conversion rate range, e.g., '10-20%'"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of what qualifies an account as Tier 2"
+        }
+      }
+    },
+    "tier_3": {
+      "type": "object",
+      "description": "Marginal-fit accounts — partial firmographic match or trigger without full firmographic fit",
+      "required": ["criteria", "estimated_conversion_rate", "description"],
+      "properties": {
+        "criteria": {
+          "type": "object",
+          "description": "Key-value pairs of criteria for Tier 3"
+        },
+        "estimated_conversion_rate": {
+          "type": "string",
+          "description": "Estimated conversion rate range, e.g., '3-8%'"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of what qualifies an account as Tier 3"
+        }
+      }
+    },
+    "negative_icp": {
+      "type": "array",
+      "description": "Explicit exclusion criteria — companies that match these should be removed from consideration",
+      "items": {
+        "type": "string"
+      }
+    },
+    "firmographic_filters": {
+      "type": "object",
+      "description": "Key-value object of directly filterable firmographic criteria (suitable for use in a lead list builder or CRM filter)",
+      "properties": {
+        "employee_count_min": { "type": "integer" },
+        "employee_count_max": { "type": "integer" },
+        "funding_stages": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "industries": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "geographies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_tech_stack": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "behavioral_triggers": {
+      "type": "array",
+      "description": "Buying signals and intent triggers that indicate near-term purchase readiness",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

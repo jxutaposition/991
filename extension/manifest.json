@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "lele — GTM Observer",
+  "version": "0.1.0",
+  "description": "Captures GTM expert workflow sessions and streams real-time AI narration",
+  "permissions": ["activeTab", "tabs", "storage", "alarms", "sidePanel"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://mail.google.com/*",
+    "https://app.hubspot.com/*",
+    "https://app.salesforce.com/*",
+    "https://ads.google.com/*",
+    "https://business.facebook.com/*",
+    "https://docs.google.com/*",
+    "https://sheets.google.com/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://mail.google.com/*",
+        "https://app.hubspot.com/*",
+        "https://app.salesforce.com/*",
+        "https://ads.google.com/*",
+        "https://business.facebook.com/*",
+        "https://docs.google.com/*",
+        "https://sheets.google.com/*"
+      ],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "lele Observer",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,8 @@
+slug = "company_researcher"
+name = "Company Researcher"
+category = "research"
+description = "Deep research on a target company: recent news, funding rounds, headcount growth, tech stack, key initiatives, and competitive positioning. Used to personalize outreach and identify timing signals."
+intents = ["company research", "research company", "company intel", "company info", "firmographic", "funding", "tech stack", "news", "company background", "account research"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = false

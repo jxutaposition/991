@@ -1,0 +1,5 @@
+tools = [
+  "read_upstream_output",
+  "write_draft",
+  "write_output",
+]

@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LeadListBuilderOutput",
+  "type": "object",
+  "required": ["companies", "total_found", "filters_applied", "crm_duplicates_excluded", "list_quality_notes"],
+  "properties": {
+    "companies": {
+      "type": "array",
+      "description": "Ranked list of prospect companies, sorted by ICP fit score descending.",
+      "items": {
+        "type": "object",
+        "required": ["name", "domain", "industry", "employee_count", "hq_location", "icp_fit_score"],
+        "properties": {
+          "name": { "type": "string" },
+          "domain": { "type": "string" },
+          "industry": { "type": "string" },
+          "employee_count": {
+            "type": ["integer", "null"],
+            "description": "Estimated employee count. Null if unknown."
+          },
+          "hq_location": {
+            "type": ["string", "null"],
+            "description": "City and country/state of headquarters."
+          },
+          "icp_fit_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Composite ICP fit score used for ranking."
+          },
+          "primary_contact": {
+            "type": ["object", "null"],
+            "description": "Best available contact at the company for outreach.",
+            "properties": {
+              "name": { "type": "string" },
+              "title": { "type": "string" },
+              "email": { "type": ["string", "null"] },
+              "linkedin_url": { "type": ["string", "null"] }
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Brief notes on why this company was included, any timing signals, or CRM flags."
+          },
+          "funding_stage": { "type": ["string", "null"] },
+          "crm_flag": {
+            "type": ["string", "null"],
+            "description": "CRM status note (e.g., 'IN PIPELINE', 'PREVIOUSLY LOST', null if clean)."
+          }
+        }
+      }
+    },
+    "total_found": {
+      "type": "integer",
+      "description": "Total number of companies returned before any deduplication."
+    },
+    "filters_applied": {
+      "type": "object",
+      "description": "The exact filter values used to build this list.",
+      "additionalProperties": true
+    },
+    "crm_duplicates_excluded": {
+      "type": "integer",
+      "description": "Number of companies removed because they matched existing CRM customer records."
+    },
+    "list_quality_notes": {
+      "type": "string",
+      "description": "Summary of quality issues, coverage gaps, or filter adjustments made during list construction."
+    }
+  },
+  "additionalProperties": false
+}

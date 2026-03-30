@@ -1,0 +1,590 @@
+/// HTTP route handlers.
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{
+        sse::{Event, Sse},
+        IntoResponse,
+    },
+    Json,
+};
+use futures_util::stream;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tracing::{error, info};
+use uuid::Uuid;
+
+use crate::narrator::{self, CapturedEvent};
+use url::Url;
+use crate::planner;
+use crate::state::AppState;
+
+// ── Health ────────────────────────────────────────────────────────────────────
+
+pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(json!({
+        "status": "ok",
+        "agents_loaded": state.catalog.len(),
+        "catalog_git_sha": state.catalog.git_sha(),
+    }))
+}
+
+// ── Catalog ───────────────────────────────────────────────────────────────────
+
+pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let agents: Vec<Value> = state
+        .catalog
+        .all()
+        .map(|a| {
+            json!({
+                "slug": a.slug,
+                "name": a.name,
+                "category": a.category,
+                "description": a.description,
+                "intents": a.intents,
+            })
+        })
+        .collect();
+
+    let count = agents.len();
+    Json(json!({"agents": agents, "count": count}))
+}
+
+pub async fn catalog_get(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let agent = state
+        .catalog
+        .get(&slug)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(json!({
+        "slug": agent.slug,
+        "name": agent.name,
+        "category": agent.category,
+        "description": agent.description,
+        "intents": agent.intents,
+        "tools": agent.tools,
+        "judge_config": agent.judge_config,
+        "max_iterations": agent.max_iterations,
+        "model": agent.model,
+        "example_count": agent.examples.len(),
+        "knowledge_doc_count": agent.knowledge_docs.len(),
+    })))
+}
+
+// ── Execution ─────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct CreateExecutionRequest {
+    pub request_text: String,
+    pub customer_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CreateExecutionResponse {
+    pub session_id: String,
+    pub plan: Value,
+    pub node_count: usize,
+}
+
+/// POST /api/execute — plan a new execution session.
+pub async fn execution_create(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateExecutionRequest>,
+) -> Result<Json<CreateExecutionResponse>, (StatusCode, Json<Value>)> {
+    info!(request = %body.request_text, "creating execution session");
+
+    let catalog_summary = state.catalog.catalog_summary();
+
+    // Run LLM planner
+    let plan = planner::plan_execution(
+        &body.request_text,
+        &catalog_summary,
+        &state.settings.anthropic_api_key,
+        &state.settings.anthropic_model,
+    )
+    .await
+    .map_err(|e| {
+        error!(error = %e, "planner failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Planning failed: {e}")})),
+        )
+    })?;
+
+    let session_id = Uuid::new_v4();
+
+    // Convert to execution nodes
+    let exec_nodes = planner::plan_to_execution_nodes(
+        &plan,
+        session_id,
+        state.catalog.git_sha(),
+        &state.catalog,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Plan validation failed: {e}")})),
+        )
+    })?;
+
+    let node_count = exec_nodes.len();
+    let plan_json = planner::plan_to_json(&exec_nodes);
+
+    // Persist session and nodes to DB
+    persist_session(
+        &state.db,
+        session_id,
+        body.customer_id.as_deref(),
+        &body.request_text,
+        &plan_json,
+        &exec_nodes,
+    )
+    .await
+    .map_err(|e| {
+        error!(error = %e, "failed to persist session");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to create session"})),
+        )
+    })?;
+
+    info!(session_id = %session_id, nodes = node_count, "session created");
+
+    Ok(Json(CreateExecutionResponse {
+        session_id: session_id.to_string(),
+        plan: plan_json,
+        node_count,
+    }))
+}
+
+/// POST /api/execute/:session_id/approve — approve the plan and start execution.
+pub async fn execution_approve(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    let sql = format!(
+        "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = '{session_uuid}' AND status = 'planning'"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    info!(session = %session_id, "execution approved — work queue will pick up ready nodes");
+
+    Ok(Json(json!({"status": "executing", "session_id": session_id})))
+}
+
+/// GET /api/execute/:session_id — get session status and nodes.
+pub async fn execution_get(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let sql = format!(
+        r#"
+        SELECT id, status, request_text, plan, plan_approved_at, created_at, completed_at
+        FROM execution_sessions WHERE id = '{session_id}'
+        "#
+    );
+
+    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = rows.first().ok_or(StatusCode::NOT_FOUND)?.clone();
+
+    let nodes_sql = format!(
+        r#"
+        SELECT id, agent_slug, task_description, status, requires,
+               judge_score, output, started_at, completed_at
+        FROM execution_nodes WHERE session_id = '{session_id}'
+        ORDER BY created_at
+        "#
+    );
+
+    let nodes = state.db.execute(&nodes_sql).await.unwrap_or_default();
+
+    Ok(Json(json!({
+        "session": session,
+        "nodes": nodes,
+    })))
+}
+
+/// GET /api/execute/:session_id/events — SSE stream for live execution progress.
+pub async fn execution_events_sse(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    let rx = state.event_bus.subscribe(&session_id).await;
+
+    match rx {
+        Some(mut receiver) => {
+            let stream = async_stream::stream! {
+                loop {
+                    match receiver.recv().await {
+                        Ok(event) => {
+                            yield Ok::<Event, std::convert::Infallible>(
+                                Event::default().data(event.to_string())
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(lagged = n, "SSE receiver lagged");
+                        }
+                    }
+                }
+            };
+            Sse::new(stream).into_response()
+        }
+        None => {
+            // No active channel — poll DB for current status instead
+            let stream = stream::once(async move {
+                let event = Event::default().data(json!({"type": "no_active_stream"}).to_string());
+                Ok::<Event, std::convert::Infallible>(event)
+            });
+            Sse::new(stream).into_response()
+        }
+    }
+}
+
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+async fn persist_session(
+    db: &crate::pg::PgClient,
+    session_id: Uuid,
+    customer_id: Option<&str>,
+    request_text: &str,
+    plan_json: &Value,
+    nodes: &[crate::agent_catalog::ExecutionPlanNode],
+) -> anyhow::Result<()> {
+    let customer_val = customer_id
+        .map(|id| format!("'{id}'"))
+        .unwrap_or_else(|| "NULL".to_string());
+
+    let request_escaped = request_text.replace('\'', "''");
+    let plan_escaped = plan_json.to_string().replace('\'', "''");
+
+    let session_sql = format!(
+        r#"
+        INSERT INTO execution_sessions (id, customer_id, request_text, plan, status)
+        VALUES ('{session_id}', {customer_val}, '{request_escaped}', '{plan_escaped}'::jsonb, 'planning')
+        "#
+    );
+    db.execute(&session_sql).await?;
+
+    for node in nodes {
+        let requires_arr = if node.requires.is_empty() {
+            "ARRAY[]::uuid[]".to_string()
+        } else {
+            let items: Vec<String> = node.requires.iter().map(|u| format!("'{u}'::uuid")).collect();
+            format!("ARRAY[{}]", items.join(","))
+        };
+
+        let judge_config_json = serde_json::to_string(&node.judge_config)
+            .unwrap_or_else(|_| "{}".to_string())
+            .replace('\'', "''");
+
+        let task_escaped = node.task_description.replace('\'', "''");
+
+        let node_sql = format!(
+            r#"
+            INSERT INTO execution_nodes
+              (id, session_id, agent_slug, agent_git_sha, task_description, status,
+               requires, attempt_count, judge_config, max_iterations, model, skip_judge)
+            VALUES
+              ('{uid}', '{session_id}', '{slug}', '{sha}', '{task}', '{status}',
+               {requires}, 0, '{judge}'::jsonb, {max_iter}, '{model}', {skip_judge})
+            "#,
+            uid = node.uid,
+            slug = node.agent_slug,
+            sha = node.agent_git_sha,
+            task = task_escaped,
+            status = node.status.as_str(),
+            requires = requires_arr,
+            judge = judge_config_json,
+            max_iter = node.max_iterations,
+            model = node.model,
+            skip_judge = node.skip_judge,
+        );
+        db.execute(&node_sql).await?;
+    }
+
+    Ok(())
+}
+
+// ── Observation API ───────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct StartSessionRequest {
+    pub expert_id: String,
+}
+
+/// POST /api/observe/session/start
+pub async fn observe_session_start(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<StartSessionRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_id = Uuid::new_v4();
+    let expert_id = body.expert_id.replace('\'', "''");
+
+    let sql = format!(
+        r#"
+        INSERT INTO observation_sessions (id, expert_id, started_at, status)
+        VALUES ('{session_id}', '{expert_id}', NOW(), 'recording')
+        "#
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    // Create SSE channel for narrator stream
+    state.event_bus.create_channel(&session_id.to_string()).await;
+
+    info!(session = %session_id, expert = %body.expert_id, "observation session started");
+
+    Ok(Json(json!({"session_id": session_id.to_string()})))
+}
+
+#[derive(Deserialize)]
+pub struct EventBatchRequest {
+    pub events: Vec<CapturedEvent>,
+}
+
+/// POST /api/observe/session/:session_id/events
+pub async fn observe_session_events(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<EventBatchRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if body.events.is_empty() {
+        return Ok(Json(json!({"received": 0, "gaps_detected": []})));
+    }
+
+    let received = body.events.len();
+
+    // Persist events to DB
+    for event in &body.events {
+        let url = event.url.as_deref().unwrap_or("").replace('\'', "''");
+        let domain = event
+            .url
+            .as_deref()
+            .and_then(|u| Url::parse(u).ok())
+            .and_then(|u| u.host_str().map(|h| h.to_string()))
+            .unwrap_or_default();
+        let dom_ctx = event
+            .dom_context
+            .as_ref()
+            .map(|v| v.to_string().replace('\'', "''"))
+            .unwrap_or_else(|| "null".to_string());
+        let event_type = event.event_type.replace('\'', "''");
+
+        let sql = format!(
+            r#"
+            INSERT INTO action_events
+              (session_id, sequence_number, event_type, url, domain, dom_context, created_at)
+            VALUES
+              ('{session_id}', {seq}, '{event_type}', '{url}', '{domain}', '{dom_ctx}'::jsonb, NOW())
+            ON CONFLICT (session_id, sequence_number) DO NOTHING
+            "#,
+            seq = event.sequence_number,
+        );
+        let _ = state.db.execute(&sql).await;
+    }
+
+    // Update event count
+    let _ = state.db.execute(&format!(
+        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = '{session_id}') WHERE id = '{session_id}'"
+    )).await;
+
+    // Trigger narrator asynchronously (fire and forget)
+    {
+        let db = state.db.clone();
+        let api_key = state.settings.anthropic_api_key.clone();
+        let events = body.events.clone();
+        let session_id_clone = session_id.clone();
+        let event_bus = state.event_bus.clone();
+
+        tokio::spawn(async move {
+            narrate_batch(&db, &api_key, &session_id_clone, &events, &event_bus).await;
+        });
+    }
+
+    Ok(Json(json!({"received": received, "gaps_detected": []})))
+}
+
+async fn narrate_batch(
+    db: &crate::pg::PgClient,
+    api_key: &str,
+    session_id: &str,
+    events: &[CapturedEvent],
+    event_bus: &crate::session::EventBus,
+) {
+    // Skip heartbeat-only batches
+    let meaningful: Vec<&CapturedEvent> = events
+        .iter()
+        .filter(|e| e.event_type != "heartbeat")
+        .collect();
+
+    if meaningful.is_empty() {
+        return;
+    }
+
+    let max_seq = meaningful.iter().map(|e| e.sequence_number).max().unwrap_or(0);
+    let prior = narrator::load_prior_narrations(db, session_id, 5).await;
+
+    let narr = narrator::Narrator::new(api_key.to_string());
+    let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
+
+    match narr.narrate(&meaningful_owned, &prior).await {
+        Ok(text) => {
+            let _ = narrator::persist_narration(db, session_id, max_seq, &text, "claude-haiku-4-5-20251001").await;
+
+            // Broadcast to any connected side panel via SSE
+            event_bus.send(
+                session_id,
+                serde_json::json!({
+                    "type": "narration_chunk",
+                    "text": text,
+                    "sequence_ref": max_seq,
+                }),
+            ).await;
+        }
+        Err(e) => {
+            tracing::warn!(session = %session_id, error = %e, "narrator failed for batch");
+        }
+    }
+}
+
+/// GET /api/observe/session/:session_id/narration — SSE stream of narration chunks.
+pub async fn observe_narration_sse(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    let rx = state.event_bus.subscribe(&session_id).await;
+
+    match rx {
+        Some(mut receiver) => {
+            let stream = async_stream::stream! {
+                loop {
+                    match receiver.recv().await {
+                        Ok(event) => {
+                            yield Ok::<Event, std::convert::Infallible>(
+                                Event::default().event("narration_chunk").data(event.to_string())
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    }
+                }
+            };
+            Sse::new(stream).into_response()
+        }
+        None => {
+            // Poll DB for latest narrations
+            let sql = format!(
+                "SELECT id, sequence_ref, narrator_text, expert_correction, created_at FROM distillations WHERE session_id = '{session_id}' ORDER BY sequence_ref DESC LIMIT 20"
+            );
+            let rows = state.db.execute(&sql).await.unwrap_or_default();
+            let stream = stream::once(async move {
+                let event = Event::default()
+                    .event("history")
+                    .data(json!(rows).to_string());
+                Ok::<Event, std::convert::Infallible>(event)
+            });
+            Sse::new(stream).into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CorrectionRequest {
+    pub sequence_ref: i64,
+    pub correction: String,
+}
+
+/// POST /api/observe/session/:session_id/correction
+pub async fn observe_correction(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<CorrectionRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let correction_escaped = body.correction.replace('\'', "''");
+
+    let sql = format!(
+        r#"
+        UPDATE distillations
+        SET expert_correction = '{correction_escaped}'
+        WHERE session_id = '{session_id}'
+          AND sequence_ref = {seq}
+        "#,
+        seq = body.sequence_ref,
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    info!(session = %session_id, seq = body.sequence_ref, "expert correction stored");
+    Ok(Json(json!({"ok": true})))
+}
+
+/// POST /api/observe/session/:session_id/end
+pub async fn observe_session_end(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let coverage = narrator::compute_coverage_score(&state.db, &session_id).await;
+
+    let sql = format!(
+        "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = {coverage} WHERE id = '{session_id}'"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    // Cleanup SSE channel
+    state.event_bus.cleanup(&session_id).await;
+
+    info!(session = %session_id, coverage = coverage, "observation session ended");
+
+    Ok(Json(json!({
+        "session_id": session_id,
+        "coverage_score": coverage,
+    })))
+}
+
+/// GET /api/observe/sessions — list observation sessions.
+pub async fn observe_sessions_list(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let sql = "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count, distillation_count FROM observation_sessions ORDER BY created_at DESC LIMIT 50";
+    let rows = state.db.execute(sql).await.unwrap_or_default();
+    Json(json!({"sessions": rows}))
+}
+
+/// GET /api/observe/session/:session_id — get session detail with distillations.
+pub async fn observe_session_get(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let sql = format!(
+        "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count FROM observation_sessions WHERE id = '{session_id}'"
+    );
+    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = rows.first().ok_or(StatusCode::NOT_FOUND)?.clone();
+
+    let dist_sql = format!(
+        "SELECT id, sequence_ref, narrator_text, expert_correction, created_at FROM distillations WHERE session_id = '{session_id}' ORDER BY sequence_ref"
+    );
+    let distillations = state.db.execute(&dist_sql).await.unwrap_or_default();
+
+    Ok(Json(json!({"session": session, "distillations": distillations})))
+}

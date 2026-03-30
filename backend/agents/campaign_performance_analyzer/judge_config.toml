@@ -1,0 +1,15 @@
+threshold = 7.5
+
+rubric = [
+  "Performance benchmarks provided for each key metric — not just raw numbers but comparison to target and prior period",
+  "At least one anomaly identified with a specific cause hypothesis (not just 'performance declined')",
+  "Top 3 and bottom 3 performers identified with specific names/IDs",
+  "Budget reallocation recommendation present with specific dollar amounts or percentage shifts",
+  "At least one 'stop/pause this immediately' recommendation if any ad set has CPL >2x target",
+  "Attribution model and window explicitly noted",
+]
+
+need_to_know = [
+  "Is there at least one specific action the buyer can take today based on this analysis?",
+  "Are optimization recommendations ranked by estimated impact, not just listed?",
+]

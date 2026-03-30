@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FollowUpSequenceBuilderInput",
+  "type": "object",
+  "required": ["initial_email", "prospect"],
+  "properties": {
+    "initial_email": {
+      "type": "object",
+      "description": "The initial cold outreach email that was sent (Touch 1).",
+      "required": ["subject_line", "body"],
+      "properties": {
+        "subject_line": { "type": "string" },
+        "body": { "type": "string" },
+        "sent_date": {
+          "type": "string",
+          "description": "ISO 8601 date the initial email was sent. Used to calculate absolute send dates for each follow-up touch."
+        }
+      }
+    },
+    "prospect": {
+      "type": "object",
+      "required": ["name", "title", "company_name"],
+      "properties": {
+        "name": { "type": "string", "description": "Prospect's first name (used for personalization in touches)." },
+        "title": { "type": "string" },
+        "company_name": { "type": "string" }
+      }
+    },
+    "context": {
+      "type": "string",
+      "description": "Optional additional context to inform the follow-up angles — e.g. product details, sender company name, available social proof stats, upcoming events, or relevant resources to share."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "required": ["product_name", "target_audience", "key_message"],
+  "properties": {
+    "product_name": { "type": "string" },
+    "target_audience": { "type": "string" },
+    "key_message": { "type": "string" },
+    "creative_brief": { "type": "string" },
+    "supporting_messages": { "type": "array", "items": { "type": "string" } },
+    "customer_outcomes": { "type": "array", "items": { "type": "string" } },
+    "formats": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["meta", "google"] },
+      "default": ["meta", "google"]
+    },
+    "tone": { "type": "string" },
+    "primary_keywords": { "type": "array", "items": { "type": "string" } }
+  }
+}

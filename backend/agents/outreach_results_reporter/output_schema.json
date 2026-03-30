@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "triage": { "type": "string" },
+    "overall_metrics": {
+      "type": "object",
+      "properties": {
+        "deliverability_rate": { "type": "number" },
+        "open_rate": { "type": "number" },
+        "positive_reply_rate": { "type": "number" },
+        "meeting_booked_rate": { "type": "number" },
+        "unsubscribe_rate": { "type": "number" },
+        "benchmarks": { "type": "object" }
+      }
+    },
+    "touch_analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "touch_number": { "type": "number" },
+          "open_rate": { "type": "number" },
+          "reply_rate": { "type": "number" },
+          "unsubscribe_rate": { "type": "number" },
+          "assessment": { "type": "string" }
+        }
+      }
+    },
+    "segment_analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "segment": { "type": "string" },
+          "reply_rate": { "type": "number" },
+          "vs_average": { "type": "string" },
+          "recommendation": { "type": "string" }
+        }
+      }
+    },
+    "attribution_findings": { "type": "array", "items": { "type": "string" } },
+    "red_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric": { "type": "string" },
+          "value": { "type": "string" },
+          "threshold": { "type": "string" },
+          "action": { "type": "string" }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "priority": { "type": "number" },
+          "finding": { "type": "string" },
+          "action": { "type": "string" },
+          "expected_lift": { "type": "string" }
+        }
+      }
+    }
+  }
+}

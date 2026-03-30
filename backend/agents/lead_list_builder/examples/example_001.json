@@ -1,0 +1,224 @@
+{
+  "input": {
+    "scored_leads": [
+      {
+        "company_name": "Meridian Analytics",
+        "domain": "meridiananalytics.io",
+        "tier": "A",
+        "score": 91,
+        "industry": "Data & Analytics SaaS",
+        "headcount": 140,
+        "funding_stage": "Series B",
+        "signals": ["Raised $18M Series B in Feb 2026", "Hiring VP of Sales", "3x headcount in 18 months"]
+      },
+      {
+        "company_name": "Stackform",
+        "domain": "stackform.dev",
+        "tier": "A",
+        "score": 88,
+        "industry": "DevOps Tooling",
+        "headcount": 75,
+        "funding_stage": "Series A",
+        "signals": ["Posted 5 SRE job openings in 30 days", "CTO published blog on infra costs"]
+      },
+      {
+        "company_name": "Loopback Health",
+        "domain": "loopbackhealth.com",
+        "tier": "A",
+        "score": 85,
+        "industry": "Health Tech",
+        "headcount": 210,
+        "funding_stage": "Series C",
+        "signals": ["Announced HIPAA compliance expansion", "Hired new CMO last month"]
+      },
+      {
+        "company_name": "Cartwell Commerce",
+        "domain": "cartwell.com",
+        "tier": "B",
+        "score": 77,
+        "industry": "eCommerce Infrastructure",
+        "headcount": 95,
+        "funding_stage": "Series A",
+        "signals": ["Partnership with Shopify announced", "Opened 2 new regional offices"]
+      },
+      {
+        "company_name": "Prism Fintech",
+        "domain": "prismfintech.io",
+        "tier": "B",
+        "score": 74,
+        "industry": "Fintech",
+        "headcount": 60,
+        "funding_stage": "Seed",
+        "signals": ["New product launch - Prism Payroll", "CEO podcast appearance on GTM strategy"]
+      },
+      {
+        "company_name": "NovaDeploy",
+        "domain": "novadeploy.com",
+        "tier": "A",
+        "score": 83,
+        "industry": "DevOps",
+        "headcount": 55,
+        "funding_stage": "Series A",
+        "signals": ["Already in CRM - active sequence"]
+      },
+      {
+        "company_name": "Velox Logistics",
+        "domain": "veloxlogistics.com",
+        "tier": "C",
+        "score": 52,
+        "industry": "Logistics",
+        "headcount": 500,
+        "funding_stage": "Bootstrapped",
+        "signals": []
+      },
+      {
+        "company_name": "Brightpath EDU",
+        "domain": "brightpathedu.org",
+        "tier": "D",
+        "score": 38,
+        "industry": "EdTech",
+        "headcount": 30,
+        "funding_stage": "Pre-seed",
+        "signals": []
+      }
+    ],
+    "requested_count": 5,
+    "exclude_crm_contacts": true
+  },
+  "output": {
+    "leads": [
+      {
+        "rank": 1,
+        "company_name": "Meridian Analytics",
+        "domain": "meridiananalytics.io",
+        "tier": "A",
+        "score": 91,
+        "primary_contact": {
+          "name": "Sarah Chen",
+          "title": "VP of Sales",
+          "email": "s.chen@meridiananalytics.io",
+          "linkedin_url": "https://linkedin.com/in/sarahchen-meridian",
+          "verified": true
+        },
+        "additional_contacts": [
+          {
+            "name": "David Park",
+            "title": "CEO",
+            "email": "d.park@meridiananalytics.io",
+            "linkedin_url": "https://linkedin.com/in/davidpark-meridian"
+          }
+        ],
+        "outreach_angle": "Meridian just closed an $18M Series B and is actively hiring their first VP of Sales — they're in build-out mode and likely evaluating every part of the revenue stack right now.",
+        "research_notes": "Raised $18M Series B in February 2026 led by Accel. Headcount grew from 45 to 140 in 18 months. Currently hiring VP of Sales, 3 AEs, and a RevOps lead — clear signal of a scaling GTM motion.",
+        "crm_status": "not_in_crm",
+        "persona_label": "VP Sales"
+      },
+      {
+        "rank": 2,
+        "company_name": "Stackform",
+        "domain": "stackform.dev",
+        "tier": "A",
+        "score": 88,
+        "primary_contact": {
+          "name": "Marcus Obi",
+          "title": "CTO",
+          "email": "m.obi@stackform.dev",
+          "linkedin_url": "https://linkedin.com/in/marcusobi",
+          "verified": true
+        },
+        "additional_contacts": [],
+        "outreach_angle": "CTO just published a public blog post on runaway infra costs, and they've posted 5 SRE roles in 30 days — reliability and cost control are live pain points.",
+        "research_notes": "Stackform is a Series A DevOps tooling company (75 employees). CTO Marcus Obi published 'Why We're Rethinking Our Infrastructure Spend' on March 10, 2026. 5 open SRE roles posted in the last month signals growing infra complexity.",
+        "crm_status": "not_in_crm",
+        "persona_label": "CTO"
+      },
+      {
+        "rank": 3,
+        "company_name": "Loopback Health",
+        "domain": "loopbackhealth.com",
+        "tier": "A",
+        "score": 85,
+        "primary_contact": {
+          "name": "Jennifer Ramos",
+          "title": "CMO",
+          "email": "j.ramos@loopbackhealth.com",
+          "linkedin_url": "https://linkedin.com/in/jenniferramos-lbh",
+          "verified": true
+        },
+        "additional_contacts": [
+          {
+            "name": "Tom Graves",
+            "title": "VP of Growth",
+            "email": "t.graves@loopbackhealth.com",
+            "linkedin_url": "https://linkedin.com/in/tomgraves-lbh"
+          }
+        ],
+        "outreach_angle": "New CMO Jennifer Ramos joined last month from Athenahealth — she's 30 days in and almost certainly auditing her full marketing and demand-gen stack.",
+        "research_notes": "Loopback Health (Series C, 210 employees) hired Jennifer Ramos as CMO in February 2026, poached from Athenahealth. New executives in the first 90 days are high-intent buyers actively rebuilding their tooling shortlists.",
+        "crm_status": "not_in_crm",
+        "persona_label": "CMO"
+      },
+      {
+        "rank": 4,
+        "company_name": "Cartwell Commerce",
+        "domain": "cartwell.com",
+        "tier": "B",
+        "score": 77,
+        "primary_contact": {
+          "name": "Alex Drummond",
+          "title": "Head of Revenue Operations",
+          "email": "a.drummond@cartwell.com",
+          "linkedin_url": "https://linkedin.com/in/alexdrummond-cartwell",
+          "verified": true
+        },
+        "additional_contacts": [],
+        "outreach_angle": "Cartwell just announced a Shopify partnership and opened two new regional offices — rapid geographic expansion typically creates RevOps and CRM coordination pain.",
+        "research_notes": "Cartwell Commerce (Series A, 95 employees) announced a Shopify integration partnership on March 5, 2026 and opened offices in Austin and Toronto. Geographic and partner-led expansion usually surfaces data fragmentation and pipeline visibility issues.",
+        "crm_status": "not_in_crm",
+        "persona_label": "Head of RevOps"
+      },
+      {
+        "rank": 5,
+        "company_name": "Prism Fintech",
+        "domain": "prismfintech.io",
+        "tier": "B",
+        "score": 74,
+        "primary_contact": {
+          "name": "Olivia Nkosi",
+          "title": "CEO & Co-founder",
+          "email": "o.nkosi@prismfintech.io",
+          "linkedin_url": "https://linkedin.com/in/oliviankosi",
+          "verified": true
+        },
+        "additional_contacts": [],
+        "outreach_angle": "CEO just released a new payroll product and discussed GTM strategy publicly on a podcast — she's thinking actively about distribution and go-to-market right now.",
+        "research_notes": "Prism Fintech (Seed, 60 employees) launched Prism Payroll on March 1, 2026. CEO Olivia Nkosi appeared on the 'Founders Who Ship' podcast on March 15 discussing their outbound GTM motion — indicates founder-led sales still in play.",
+        "crm_status": "not_in_crm",
+        "persona_label": "CEO/Founder"
+      }
+    ],
+    "metadata": {
+      "total_count": 5,
+      "tier_breakdown": {
+        "A": 3,
+        "B": 2
+      },
+      "personas_represented": ["VP Sales", "CTO", "CMO", "Head of RevOps", "CEO/Founder"],
+      "excluded_count": 3,
+      "exclusion_reasons": [
+        {
+          "company_name": "NovaDeploy",
+          "reason": "Primary contact already in active CRM sequence — excluded per exclude_crm_contacts=true"
+        },
+        {
+          "company_name": "Velox Logistics",
+          "reason": "Tier C — does not meet minimum tier threshold"
+        },
+        {
+          "company_name": "Brightpath EDU",
+          "reason": "Tier D — does not meet minimum tier threshold"
+        }
+      ]
+    }
+  }
+}

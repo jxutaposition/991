@@ -1,0 +1,69 @@
+{
+  "input": {
+    "business_objective": "Generate pipeline from VP Sales at B2B SaaS companies in Q2",
+    "product_description": "AI-powered sales engagement platform that personalizes outreach at scale and cuts SDR ramp time by 50%",
+    "icp_data": "Tier 1: B2B SaaS, 100-500 employees, Series A/B, VP Sales or Head of Sales, company showing >20% headcount growth",
+    "budget": "$50,000 for Q2",
+    "channel_preferences": ["Meta", "Google Search", "LinkedIn", "Cold Email"],
+    "existing_customer_outcomes": [
+      "Rippling cut SDR ramp time from 90 to 44 days",
+      "Gong increased positive reply rates by 34%"
+    ]
+  },
+  "output": {
+    "objective": "Generate 250 MQLs (VP Sales or above at B2B SaaS 100-500 employees) by June 30, 2025 at a blended CPL under $180",
+    "target_audience": {
+      "persona_description": "Sarah is a VP of Sales at a 200-person B2B SaaS company. She's 12-18 months into the role, managing a team of 8-12 reps including 3-4 SDRs. Her board wants to see a 40% increase in pipeline this year and she's trying to figure out if the answer is more headcount, better process, or better tooling. She's seen too many demos of tools that overpromise. She subscribes to Lenny's Newsletter and Pavilion's Slack. She evaluates tools based on how fast they can show ROI, not feature depth.",
+      "pain_points": [
+        "SDR ramp time is 90+ days and she loses reps before they hit quota",
+        "Her team is sending the same templated emails as everyone else and reply rates are declining",
+        "She can't afford to hire another sales ops person to manage sequence complexity"
+      ],
+      "watering_holes": ["LinkedIn (40+ min/day)", "Pavilion community", "Lenny's Newsletter", "Sales Hacker", "RevGenius Slack"]
+    },
+    "key_message": "The best SDR teams use lele to run expert-level personalized outreach at the scale of a template — without the 90-day ramp.",
+    "supporting_messages": [
+      "Rippling cut SDR ramp time from 90 to 44 days using lele's expert-trained sequences",
+      "lele sequences are trained from real expert observation — not AI-generated generic templates",
+      "You don't need a RevOps hire to manage it: setup takes one afternoon"
+    ],
+    "tone": {
+      "adjectives": ["Direct", "Specific", "Peer-level"],
+      "we_are": "A fellow sales leader who has figured out what actually works and is sharing the playbook",
+      "we_are_not": "A vendor showing you a feature demo and asking for a 30-minute discovery call"
+    },
+    "channel_mix": [
+      {
+        "channel": "LinkedIn Sponsored Content",
+        "role": "Consideration — reach VPs actively engaged with sales content",
+        "rationale": "VP Sales persona is highly active on LinkedIn. Can target by title + company size precisely. Best channel for this seniority.",
+        "budget_pct": 35
+      },
+      {
+        "channel": "Google Search",
+        "role": "Conversion — capture active purchase intent",
+        "rationale": "Searches like 'SDR enablement platform', 'sales engagement tool', 'reduce SDR ramp time' signal active evaluation. Highest-intent channel.",
+        "budget_pct": 30
+      },
+      {
+        "channel": "Cold Email",
+        "role": "Pipeline — direct outreach to ICP list built by lead_list_builder",
+        "rationale": "Best channel for personalized 1:1 outreach at scale. Complement to paid — captures prospects not actively searching.",
+        "budget_pct": 20
+      },
+      {
+        "channel": "Meta (LinkedIn retargeting only)",
+        "role": "Retargeting — re-engage website visitors and LinkedIn engagers",
+        "rationale": "Retarget warm audiences who engaged with LinkedIn ads or visited pricing page but didn't convert.",
+        "budget_pct": 15
+      }
+    ],
+    "success_metrics": [
+      { "kpi": "MQLs generated", "target": "250", "measurement": "Form fills or demo requests from ICP-qualified titles in HubSpot" },
+      { "kpi": "Blended CPL", "target": "<$180", "measurement": "Total Q2 campaign spend / total MQLs" },
+      { "kpi": "SQL conversion rate", "target": ">25%", "measurement": "MQLs that progress to SQL stage in HubSpot within 14 days" },
+      { "kpi": "Email positive reply rate", "target": ">5%", "measurement": "Positive replies / emails sent in cold email channel" }
+    ],
+    "constraints": "All copy must pass legal review for customer stat claims. Rippling case study approved for use — do not use Gong name without written approval. Logo usage per brand guidelines v2.3. No competitive comparisons by name in paid ads."
+  }
+}

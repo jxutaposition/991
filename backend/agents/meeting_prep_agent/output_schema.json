@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "company_snapshot": { "type": "string" },
+    "attendee_profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "title": { "type": "string" },
+          "background": { "type": "string" },
+          "likely_priorities": { "type": "string" }
+        }
+      }
+    },
+    "strategic_context": { "type": "string" },
+    "crm_history": { "type": "string" },
+    "talking_points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "point": { "type": "string" },
+          "rationale": { "type": "string" }
+        }
+      }
+    },
+    "landmines": { "type": "array", "items": { "type": "string" } },
+    "one_thing_to_accomplish": { "type": "string" },
+    "full_brief_markdown": { "type": "string" }
+  }
+}
