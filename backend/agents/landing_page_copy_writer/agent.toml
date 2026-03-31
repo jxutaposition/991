@@ -1,8 +1,0 @@
-slug = "landing_page_copy_writer"
-name = "Landing Page Copy Writer"
-category = "content_creative"
-description = "Writes full landing page copy matched to campaign theme and ICP. Produces hero, value proposition, social proof, feature/benefit sections, objection handling, and CTA. Optimized for conversion from paid traffic."
-intents = ["landing page", "landing page copy", "lp copy", "conversion copy", "campaign landing page", "sales page", "web copy", "conversion page"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

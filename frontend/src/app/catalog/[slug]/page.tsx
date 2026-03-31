@@ -30,7 +30,7 @@ export default function AgentDetailPage() {
 
   useEffect(() => {
     fetch(`/api/catalog/${slug}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setAgent(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, [slug]);
@@ -41,7 +41,7 @@ export default function AgentDetailPage() {
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       <Link href="/catalog" className="text-ink-3 text-sm hover:text-ink-2 mb-4 inline-block">
-        \u2190 Back to catalog
+        {"\u2190"} Back to catalog
       </Link>
       <div className="flex items-start justify-between mb-6">
         <div>

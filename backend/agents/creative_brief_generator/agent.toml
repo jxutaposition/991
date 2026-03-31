@@ -1,8 +1,0 @@
-slug = "creative_brief_generator"
-name = "Creative Brief Generator"
-category = "content_creative"
-description = "Produces a structured campaign brief from business objectives and ICP data. Defines target audience, key messages, tone, channel mix, success metrics, and creative direction for downstream content and ad agents."
-intents = ["creative brief", "campaign brief", "campaign planning", "marketing brief", "creative direction", "campaign strategy", "content strategy", "brand brief"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false

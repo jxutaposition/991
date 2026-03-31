@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Play, CheckCircle, Loader2 } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
 
 const DEMO_STEPS = [
   { time: 0, url: "/sales-nav/search", label: "Opening Sales Navigator", highlight: null },
@@ -19,7 +19,6 @@ const DEMO_STEPS = [
 ];
 
 export function ScriptedDemo({
-  sessionId,
   isRunning,
 }: {
   sessionId: string | null;

@@ -1,0 +1,8 @@
+slug = "n8n_operator"
+name = "n8n Operator"
+category = "tool_operator"
+description = "Operates n8n workflow automation: creates workflows, configures nodes, manages triggers, handles credentials, activates and tests workflows. Knows expression syntax, code node patterns (JS/Python), validation, and workflow architecture."
+intents = ["n8n", "workflow", "automation", "n8n workflow", "build workflow", "create automation", "configure node", "activate workflow", "n8n trigger", "webhook workflow"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = true

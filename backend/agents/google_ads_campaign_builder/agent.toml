@@ -1,8 +1,0 @@
-slug = "google_ads_campaign_builder"
-name = "Google Ads Campaign Builder"
-category = "advertising"
-description = "Designs a Google Ads campaign structure: campaign type (Search/Performance Max), ad groups, keyword themes with match types, negative keyword lists, bidding strategy, and budget recommendation. Outputs structured campaign spec."
-intents = ["google ads", "google campaign", "search ads", "ppc campaign", "google advertising", "keyword campaign", "search campaign", "performance max", "google ppc"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

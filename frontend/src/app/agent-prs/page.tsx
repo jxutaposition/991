@@ -28,7 +28,7 @@ export default function AgentPRsPage() {
 
   useEffect(() => {
     fetch(`/api/agent-prs?status=${filter}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setPrs(data.prs ?? []); setLoading(false); })
       .catch(() => setLoading(false));
   }, [filter]);

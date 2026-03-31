@@ -7,7 +7,7 @@ export interface DomContext {
 
 export interface CapturedEvent {
   sequence_number: number;
-  event_type: "click" | "navigation" | "form_submit" | "focus_change" | "copy_text" | "paste_event" | "heartbeat";
+  event_type: "click" | "navigation" | "form_submit" | "copy_text";
   url: string;
   domain: string;
   dom_context: DomContext | null;

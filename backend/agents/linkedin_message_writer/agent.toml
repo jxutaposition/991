@@ -1,8 +1,0 @@
-slug = "linkedin_message_writer"
-name = "LinkedIn Message Writer"
-category = "social_outreach"
-description = "Crafts personalized LinkedIn InMail and connection request messages. Uses profile-specific hooks, shared context, and concise value propositions optimized for LinkedIn's format constraints and acceptance rates."
-intents = ["linkedin message", "linkedin outreach", "inmail", "connection request", "linkedin dm", "linkedin cold outreach", "social selling", "linkedin personalization"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false

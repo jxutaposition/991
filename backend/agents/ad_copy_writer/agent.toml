@@ -1,8 +1,0 @@
-slug = "ad_copy_writer"
-name = "Ad Copy Writer"
-category = "content_creative"
-description = "Writes ad creative variants: headlines, body copy, and CTAs for Meta and Google formats. Produces multiple variants per format with different angles (pain-led, curiosity, social proof, urgency) for A/B testing."
-intents = ["ad copy", "ad creative", "ad headline", "ad writing", "facebook ad", "google ad copy", "paid ad copy", "creative variants", "ab test copy"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

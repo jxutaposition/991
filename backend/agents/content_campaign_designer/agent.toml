@@ -1,0 +1,9 @@
+slug = "content_campaign_designer"
+name = "Content Campaign Designer"
+category = "program_operations"
+description = "Designs content campaigns for creator/expert programs: segments participants, creates one-page briefs, staggers posting schedules, tracks full funnel (sent → opened → confirmed → submitted → published), and iterates based on quality signals."
+intents = ["content campaign", "creator campaign", "ugc campaign", "content brief", "campaign design", "creator content", "content strategy", "campaign mechanics", "posting schedule"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = false
+expert_slug = "lele"

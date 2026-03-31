@@ -1,7 +1,0 @@
-tools = [
-  "fetch_ad_performance",
-  "meta_ads_api",
-  "google_ads_api",
-  "read_upstream_output",
-  "write_output",
-]

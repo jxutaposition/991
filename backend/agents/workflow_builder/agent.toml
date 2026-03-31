@@ -1,0 +1,9 @@
+slug = "workflow_builder"
+name = "Workflow Builder"
+category = "program_operations"
+description = "Designs and orchestrates automation workflows across tools. Translates business requirements into workflow architectures, coordinates tool-operator agents for implementation, and validates end-to-end flow."
+intents = ["build workflow", "automate process", "workflow design", "automation workflow", "onboarding automation", "notification workflow", "approval workflow", "csv processing workflow"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = true
+expert_slug = "lele"

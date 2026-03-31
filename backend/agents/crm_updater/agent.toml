@@ -1,8 +1,0 @@
-slug = "crm_updater"
-name = "CRM Updater"
-category = "lead_management"
-description = "Writes structured data back to CRM (HubSpot/Salesforce): creates or updates contacts, companies, activities, and notes. Ensures all outreach activity and research findings are logged."
-intents = ["crm update", "update crm", "log to crm", "hubspot", "salesforce", "crm sync", "record activity", "create contact", "update contact", "crm notes"]
-max_iterations = 8
-skip_judge = true
-flexible_tool_use = false

@@ -31,6 +31,7 @@ struct AgentToml {
     pub skip_judge: bool,
     #[serde(default)]
     pub flexible_tool_use: bool,
+    pub expert_slug: Option<String>,
 }
 
 fn default_max_iterations() -> u32 {
@@ -102,6 +103,7 @@ pub struct AgentDefinition {
     pub model: Option<String>,
     pub skip_judge: bool,
     pub flexible_tool_use: bool,
+    pub expert_id: Option<uuid::Uuid>,
 
     pub version: i32,
     /// Git SHA kept for backward compat; version is the canonical tracker now.
@@ -204,7 +206,7 @@ impl AgentCatalog {
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 version FROM agent_definitions ORDER BY slug",
+                 expert_id, version FROM agent_definitions ORDER BY slug",
             )
             .await?;
 
@@ -277,34 +279,35 @@ impl AgentCatalog {
         parts.join("\n")
     }
 
-    // Keep backward compat for code that still calls load_from_disk
-    pub fn load_from_disk(agents_dir: &Path) -> anyhow::Result<Self> {
-        let git_sha = resolve_git_sha(agents_dir);
-        let mut agents = BTreeMap::new();
-
-        for entry in WalkDir::new(agents_dir)
-            .min_depth(1)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_dir())
-        {
-            let agent_dir = entry.path();
-            match load_agent_from_disk(agent_dir, &git_sha) {
-                Ok(agent) => {
-                    agents.insert(agent.slug.clone(), agent);
-                }
-                Err(e) => {
-                    warn!(dir = %agent_dir.display(), error = %e, "skipping agent");
-                }
+    /// Scoped catalog summary: returns agents where expert_id is NULL (shared)
+    /// or matches the given expert_id.
+    pub fn catalog_summary_for_expert(&self, expert_id: Option<uuid::Uuid>) -> String {
+        let agents = self.agents.read().unwrap();
+        let mut parts = Vec::new();
+        for agent in agents.values() {
+            let include = match (expert_id, agent.expert_id) {
+                (_, None) => true,
+                (Some(eid), Some(aid)) => eid == aid,
+                (None, Some(_)) => false,
+            };
+            if include {
+                parts.push(format!(
+                    "Agent: {} (slug: \"{}\")
+Category: {}
+Description: {}
+Intents: [{}]
+",
+                    agent.name,
+                    agent.slug,
+                    agent.category,
+                    agent.description,
+                    agent.intents.join(", "),
+                ));
             }
         }
-
-        Ok(Self {
-            agents: RwLock::new(agents),
-            git_sha,
-        })
+        parts.join("\n")
     }
+
 }
 
 // ── DB row parsing ───────────────────────────────────────────────────────────
@@ -365,6 +368,11 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    let expert_id = row
+        .get("expert_id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse::<uuid::Uuid>().ok());
+
     Some(AgentDefinition {
         slug,
         name,
@@ -382,6 +390,7 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         model,
         skip_judge,
         flexible_tool_use,
+        expert_id,
         version,
         git_sha: git_sha.to_string(),
     })
@@ -412,7 +421,29 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
     {
         let agent_dir = entry.path();
         match load_agent_from_disk(agent_dir, &git_sha) {
-            Ok(agent) => {
+            Ok(mut agent) => {
+                // Resolve expert_slug from agent.toml to expert_id from DB
+                let toml_path = agent_dir.join("agent.toml");
+                if let Ok(toml_str) = std::fs::read_to_string(&toml_path) {
+                    if let Ok(meta) = toml::from_str::<AgentToml>(&toml_str) {
+                        if let Some(ref expert_slug) = meta.expert_slug {
+                            let slug_escaped = expert_slug.replace('\'', "''");
+                            let rows = db
+                                .execute(&format!(
+                                    "SELECT id FROM experts WHERE slug = '{}'",
+                                    slug_escaped
+                                ))
+                                .await
+                                .unwrap_or_default();
+                            if let Some(row) = rows.first() {
+                                if let Some(id_str) = row.get("id").and_then(Value::as_str) {
+                                    agent.expert_id = id_str.parse::<uuid::Uuid>().ok();
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if let Err(e) = insert_agent_to_db(db, &agent).await {
                     warn!(slug = %agent.slug, error = %e, "failed to seed agent to DB");
                 } else {
@@ -454,20 +485,26 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
         .map(|m| format!("'{}'", m.replace('\'', "''")))
         .unwrap_or_else(|| "NULL".to_string());
 
+    let expert_id_val = agent
+        .expert_id
+        .map(|id| format!("'{}'", id))
+        .unwrap_or_else(|| "NULL".to_string());
+
     let sql = format!(
         r#"INSERT INTO agent_definitions
             (slug, name, category, description, intents, system_prompt, tools,
              judge_config, input_schema, output_schema, examples, knowledge_docs,
-             max_iterations, model, skip_judge, flexible_tool_use, version)
+             max_iterations, model, skip_judge, flexible_tool_use, expert_id, version)
            VALUES
             ('{slug}', '{name}', '{category}', '{description}', {intents_arr}, '{system_prompt}',
              {tools_arr}, '{judge_config_json}'::jsonb, '{input_schema_json}'::jsonb,
              '{output_schema_json}'::jsonb, '{examples_json}'::jsonb, {knowledge_arr},
-             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, 1)
+             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, {expert_id_val}, 1)
            ON CONFLICT (slug) DO NOTHING"#,
         max_iter = agent.max_iterations,
         skip_judge = agent.skip_judge,
         flex_tool = agent.flexible_tool_use,
+        expert_id_val = expert_id_val,
     );
 
     db.execute(&sql).await?;
@@ -566,6 +603,7 @@ fn load_agent_from_disk(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefini
         model: meta.model,
         skip_judge: meta.skip_judge,
         flexible_tool_use: meta.flexible_tool_use,
+        expert_id: None,
         version: 1,
         git_sha: git_sha.to_string(),
     })

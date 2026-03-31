@@ -1,0 +1,1 @@
+tools = ["browser_action", "write_output", "read_upstream_output"]

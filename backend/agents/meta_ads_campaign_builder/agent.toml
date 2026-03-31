@@ -1,8 +1,0 @@
-slug = "meta_ads_campaign_builder"
-name = "Meta Ads Campaign Builder"
-category = "advertising"
-description = "Builds a Meta (Facebook/Instagram) campaign structure: campaign objective, ad sets with audience targeting, placements, budget allocation, and ad-level creative assignment. Outputs a ready-to-launch campaign spec."
-intents = ["meta ads", "facebook ads", "instagram ads", "meta campaign", "facebook campaign", "paid social", "meta advertising", "facebook advertising", "social ads campaign"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

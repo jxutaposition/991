@@ -26,6 +26,7 @@ pub struct FeedbackSignal {
     pub expert_approach: Option<String>,
     pub agent_approach: Option<String>,
     pub impact: String,
+    pub expert_id: Option<Uuid>,
 }
 
 /// Record a feedback signal from an expert correction (ground truth, weight 5.0).
@@ -87,16 +88,23 @@ pub async fn record_reasoning_signal(
         .unwrap_or_else(|| "NULL".to_string());
     let impact_escaped = signal.impact.replace('\'', "''");
 
+    let expert_id_val = signal
+        .expert_id
+        .map(|id| format!("'{}'", id))
+        .unwrap_or_else(|| "NULL".to_string());
+
     let sql = format!(
         r#"INSERT INTO feedback_signals
             (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref,
-             description, expert_approach, agent_approach, impact)
+             description, expert_approach, agent_approach, impact, expert_id)
            VALUES
             ('{signal_id}', '{slug_escaped}', '{signal_type}', '{authority}', {weight},
-             {session}, {seq}, '{desc_escaped}', {expert}, {agent}, '{impact_escaped}')"#,
+             {session}, {seq}, '{desc_escaped}', {expert}, {agent}, '{impact_escaped}',
+             {expert_id_val})"#,
         signal_type = signal.signal_type,
         authority = signal.authority,
         weight = signal.weight,
+        expert_id_val = expert_id_val,
     );
 
     db.execute(&sql).await?;

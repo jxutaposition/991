@@ -219,6 +219,40 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
             }),
         },
 
+        // External API tool
+        ToolDef {
+            name: "http_request".to_string(),
+            description: "Make an HTTP request to an external API. Use your knowledge docs to determine the correct endpoint, headers, and body format.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "HTTP method"},
+                    "url": {"type": "string", "description": "Full URL including protocol"},
+                    "headers": {"type": "object", "description": "Request headers as key-value pairs"},
+                    "body": {"type": "object", "description": "Request body (sent as JSON)"},
+                    "timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30)"}
+                },
+                "required": ["method", "url"]
+            }),
+        },
+
+        // Browser automation tool (for tools without APIs)
+        ToolDef {
+            name: "browser_action".to_string(),
+            description: "Perform a browser automation action: navigate to a URL, click an element, type text, read page content, or take a screenshot. Use for tools that lack API access.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["navigate", "click", "type", "read", "screenshot", "wait"], "description": "Browser action to perform"},
+                    "url": {"type": "string", "description": "URL to navigate to (for navigate action)"},
+                    "selector": {"type": "string", "description": "CSS selector for the target element (for click/type/read)"},
+                    "text": {"type": "string", "description": "Text to type (for type action)"},
+                    "wait_ms": {"type": "integer", "description": "Milliseconds to wait (for wait action, default 1000)"}
+                },
+                "required": ["action"]
+            }),
+        },
+
         // Internal orchestration tools (always available)
         ToolDef {
             name: "read_upstream_output".to_string(),
@@ -408,6 +442,61 @@ pub async fn execute_tool(
                 "id": format!("mock_{}", uuid::Uuid::new_v4()),
                 "status": "active",
                 "note": "Mock response — Phase 0. Real API integration in Phase 3."
+            }).to_string()
+        }
+
+        "http_request" => {
+            let method = input.get("method").and_then(Value::as_str).unwrap_or("GET");
+            let url = input.get("url").and_then(Value::as_str).unwrap_or("");
+            let timeout_secs = input.get("timeout_seconds").and_then(Value::as_u64).unwrap_or(30);
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(timeout_secs))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+
+            let mut request = match method {
+                "POST" => client.post(url),
+                "PUT" => client.put(url),
+                "PATCH" => client.patch(url),
+                "DELETE" => client.delete(url),
+                _ => client.get(url),
+            };
+
+            if let Some(headers) = input.get("headers").and_then(Value::as_object) {
+                for (key, val) in headers {
+                    if let Some(v) = val.as_str() {
+                        request = request.header(key.as_str(), v);
+                    }
+                }
+            }
+
+            if let Some(body) = input.get("body") {
+                request = request.json(body);
+            }
+
+            match request.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body_text = resp.text().await.unwrap_or_default();
+                    let body_preview: String = body_text.chars().take(4000).collect();
+                    json!({
+                        "status": status,
+                        "body": body_preview,
+                    }).to_string()
+                }
+                Err(e) => {
+                    json!({"error": format!("HTTP request failed: {}", e)}).to_string()
+                }
+            }
+        }
+
+        "browser_action" => {
+            let action = input.get("action").and_then(Value::as_str).unwrap_or("");
+            json!({
+                "status": "not_implemented",
+                "action": action,
+                "note": "Browser automation requires a headless browser runtime. This is a placeholder — integrate with Playwright/Puppeteer in Phase 2."
             }).to_string()
         }
 

@@ -1,0 +1,9 @@
+slug = "pipeline_diagnostician"
+name = "Pipeline Diagnostician"
+category = "program_operations"
+description = "Diagnoses broken data flows between systems. Traces pipelines end-to-end, identifies root causes (wrong URLs, expired credentials, deleted sources, schema changes), maps blast radius, and recommends fixes with alternatives."
+intents = ["diagnose pipeline", "data not flowing", "broken pipeline", "debug data flow", "why no data", "pipeline error", "data stopped", "webhook not firing", "integration broken", "fix data flow"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = true
+expert_slug = "lele"

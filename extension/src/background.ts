@@ -1,10 +1,10 @@
 import type { RecordingState, CapturedEvent, MessageToBackground } from "./types";
 
 const BACKEND_URL = "http://localhost:3001";
-const SCREENSHOT_INTERVAL_MS = 500; // 2 per second (Chrome hard limit)
+const SCREENSHOT_INTERVAL_MS = 5_000; // every 5 seconds
 const FLUSH_INTERVAL_MS = 10_000; // 10 second batches
 const MAX_SCREENSHOTS_PER_FLUSH = 3; // Send best 3 per batch
-const SCREENSHOT_BUFFER_MAX = 30; // Keep last 15 seconds
+const SCREENSHOT_BUFFER_MAX = 12; // Keep last 60 seconds
 
 let state: RecordingState = {
   isRecording: false,
@@ -32,7 +32,7 @@ async function startSession(expertId: string): Promise<void> {
     const data = (await res.json()) as { session_id: string };
     state = { ...state, isRecording: true, sessionId: data.session_id, expertId, sequenceCounter: 0 };
 
-    // Start high-frequency screenshot capture (500ms = 2/sec, Chrome max)
+    // Screenshot capture every 5s
     screenshotTimer = setInterval(captureScreenshot, SCREENSHOT_INTERVAL_MS);
 
     // Start batch flush timer (every 10 seconds)
@@ -129,7 +129,7 @@ async function captureScreenshot(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
 
-    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "jpeg", quality: 50 });
+    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "jpeg", quality: 75 });
     const base64 = dataUrl.replace(/^data:image\/jpeg;base64,/, "");
 
     screenshotBuffer.push({
@@ -176,4 +176,4 @@ function broadcast(msg: object): void {
   chrome.runtime.sendMessage(msg).catch(() => { /* sidepanel may be closed */ });
 }
 
-console.log("[lele] Background service worker started (screenshots: 500ms JPEG)");
+console.log("[lele] Background service worker started (screenshots: 5s JPEG@75)");

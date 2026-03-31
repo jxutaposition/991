@@ -1,0 +1,8 @@
+slug = "clay_operator"
+name = "Clay Operator"
+category = "tool_operator"
+description = "Operates Clay tables: creates and configures tables, adds columns (lookups, enrichments, formulas, actions), manages webhooks, and runs data pipelines. Handles social listening, expert enrichment, and scoring workflows."
+intents = ["clay", "clay table", "enrichment", "clay lookup", "clay column", "clay webhook", "social listening", "data enrichment", "clay formula", "clay action"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = true

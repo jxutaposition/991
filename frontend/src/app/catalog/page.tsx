@@ -11,13 +11,8 @@ interface AgentSummary {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  research: "Research",
-  lead_management: "Lead Management",
-  email_outreach: "Email Outreach",
-  social_outreach: "Social / Direct",
-  content_creative: "Content & Creative",
-  advertising: "Advertising",
-  analytics: "Analytics",
+  program_operations: "Program Operations",
+  tool_operator: "Tool Operators",
 };
 
 export default function CatalogPage() {
@@ -28,7 +23,7 @@ export default function CatalogPage() {
 
   useEffect(() => {
     fetch("/api/catalog")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setAgents(data.agents ?? []);
         setLoading(false);

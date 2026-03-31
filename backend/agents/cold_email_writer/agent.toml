@@ -1,8 +1,0 @@
-slug = "cold_email_writer"
-name = "Cold Email Writer"
-category = "email_outreach"
-description = "Writes personalized cold outreach emails using expert-derived heuristics: specific first-line hooks, concise value propositions tied to the prospect's pain, and a single clear CTA. Trained from real expert observation sessions."
-intents = ["cold email", "outbound email", "personalized email", "first touch email", "cold outreach", "email draft", "write email", "outreach email", "prospecting email"]
-max_iterations = 15
-skip_judge = false
-flexible_tool_use = false

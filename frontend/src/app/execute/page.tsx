@@ -40,7 +40,7 @@ export default function ExecutePage() {
 
   useEffect(() => {
     fetch("/api/models")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setModels(data.models ?? []);
         setSelectedModel(data.default ?? "");
@@ -50,7 +50,7 @@ export default function ExecutePage() {
 
   useEffect(() => {
     fetch("/api/execute/sessions")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setSessions(data.sessions ?? []);
         setSessionsLoading(false);

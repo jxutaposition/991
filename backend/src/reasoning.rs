@@ -19,6 +19,7 @@ pub async fn run_reasoning(
     api_key: &str,
     model: &str,
     session_id: &str,
+    expert_id: Option<uuid::Uuid>,
 ) -> anyhow::Result<Vec<Uuid>> {
     info!(session = session_id, "starting post-session reasoning");
 
@@ -34,7 +35,7 @@ pub async fn run_reasoning(
     }
 
     let client = AnthropicClient::new(api_key.to_string(), model.to_string());
-    let catalog_summary = catalog.catalog_summary();
+    let catalog_summary = catalog.catalog_summary_for_expert(expert_id);
 
     let mut narration_text = String::new();
     for d in &distillations {
@@ -134,6 +135,7 @@ If there are no significant gaps, return an empty array: []"#;
             expert_approach,
             agent_approach,
             impact,
+            expert_id,
         };
 
         match feedback::record_reasoning_signal(db, &signal).await {

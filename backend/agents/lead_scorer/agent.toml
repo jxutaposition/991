@@ -1,8 +1,0 @@
-slug = "lead_scorer"
-name = "Lead Scorer"
-category = "lead_management"
-description = "Scores leads against ICP criteria, intent signals, and timing indicators. Produces a numeric score (0-100) with reasoning for each lead to prioritize outreach effort."
-intents = ["lead scoring", "score leads", "prioritize leads", "lead quality", "lead ranking", "qualify leads", "lead fit", "lead priority"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false

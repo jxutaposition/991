@@ -4,10 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Activity, Brain, GitPullRequest, Layers, RefreshCw } from "lucide-react";
 
 interface LiveEvent {
-  source: string;
   event_type: string;
-  context: string | null;
-  detail: string | null;
+  url: string | null;
+  dom_context: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -33,24 +32,7 @@ interface AgentPR {
 interface SessionInfo {
   status: string;
   event_count: number;
-  distillation_count: number;
   coverage_score: number | null;
-}
-
-const SOURCE_COLORS: Record<string, string> = {
-  browser: "bg-blue-100 text-blue-700",
-  narration: "bg-purple-100 text-purple-700",
-  execution: "bg-green-100 text-green-700",
-  slack: "bg-amber-100 text-amber-700",
-};
-
-async function queryDB(sql: string) {
-  const res = await fetch("/api/data/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sql }),
-  });
-  return res.json();
 }
 
 export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
@@ -69,36 +51,22 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
     const sid = sessionIdRef.current;
     if (!sid) return;
 
-    // Fetch events
-    const evRes = await queryDB(
-      `SELECT source, event_type, context, substring(detail from 1 for 200) as detail, created_at FROM live_events WHERE session_id = '${sid}' ORDER BY created_at DESC LIMIT 50`
-    );
-    if (evRes.rows) setEvents(evRes.rows);
-
-    // Fetch session info + narrations
     try {
-      const sessRes = await fetch(`/api/observe/session/${sid}`).then((r) => r.json());
-      if (sessRes.session) setSession(sessRes.session);
-      if (sessRes.distillations) setNarrations(sessRes.distillations);
-    } catch { /* ignore */ }
-
-    // Fetch tasks (only if session completed)
-    const taskRes = await queryDB(
-      `SELECT description, matched_agent_slug, match_confidence FROM abstracted_tasks WHERE session_id = '${sid}' ORDER BY match_confidence DESC`
-    );
-    if (taskRes.rows) setTasks(taskRes.rows);
-
-    // Fetch PRs
-    const prRes = await queryDB(
-      `SELECT target_agent_slug, gap_summary, confidence, status FROM agent_prs WHERE evidence_session_ids @> ARRAY['${sid}'::uuid] ORDER BY created_at DESC`
-    );
-    if (prRes.rows) setPrs(prRes.rows);
+      const res = await fetch(`/api/observe/session/${sid}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.session) setSession(data.session);
+      if (data.distillations) setNarrations(data.distillations);
+      if (data.events) setEvents(data.events);
+      if (data.tasks) setTasks(data.tasks);
+      if (data.prs) setPrs(data.prs);
+    } catch { /* ignore — session may not exist yet */ }
   }, []);
 
   // Poll every 2 seconds
   useEffect(() => {
     if (!sessionId) return;
-    fetchAll(); // Initial fetch
+    fetchAll();
     const interval = setInterval(() => {
       if (pollingRef.current) fetchAll();
     }, 2000);
@@ -157,11 +125,12 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
                 <span className="text-ink-3 shrink-0 w-14 font-mono">
                   {new Date(ev.created_at).toLocaleTimeString()}
                 </span>
-                <span className={`px-1.5 py-0.5 rounded shrink-0 ${SOURCE_COLORS[ev.source] ?? "bg-surface text-ink-3"}`}>
-                  {ev.source}
+                <span className="px-1.5 py-0.5 rounded shrink-0 bg-blue-100 text-blue-700">
+                  {ev.event_type}
                 </span>
-                <span className="text-ink-2 font-medium shrink-0">{ev.event_type}</span>
-                <span className="text-ink-3 truncate flex-1">{ev.context || ev.detail?.slice(0, 60)}</span>
+                <span className="text-ink-3 truncate flex-1">
+                  {(ev.dom_context as any)?.element_text || ev.url?.slice(0, 60) || ""}
+                </span>
               </div>
             ))}
           </div>

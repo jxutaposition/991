@@ -32,7 +32,7 @@ export default function PRDetailPage() {
 
   useEffect(() => {
     fetch(`/api/agent-prs/${pr_id}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setPR(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, [pr_id]);

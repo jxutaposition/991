@@ -136,6 +136,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/clients", post(routes::client_create))
         .route("/api/clients/:slug", get(routes::client_get))
         .route("/api/clients/:slug/state", post(routes::client_set_state))
+        // Experts
+        .route("/api/experts", get(routes::experts_list))
+        .route("/api/experts", post(routes::expert_create))
+        .route("/api/experts/:slug", get(routes::expert_get))
+        // Engagements
+        .route("/api/engagements", get(routes::engagements_list))
+        .route("/api/engagements", post(routes::engagement_create))
         // Feedback
         .route("/api/feedback", get(routes::feedback_list))
         .route("/api/feedback/synthesize", post(routes::feedback_synthesize))

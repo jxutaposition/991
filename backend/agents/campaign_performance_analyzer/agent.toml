@@ -1,8 +1,0 @@
-slug = "campaign_performance_analyzer"
-name = "Campaign Performance Analyzer"
-category = "analytics"
-description = "Analyzes paid ad campaign performance metrics across Meta and Google. Surfaces top/bottom performers, anomalies, ROAS trends, audience saturation signals, and specific optimization recommendations with estimated impact."
-intents = ["campaign performance", "ad performance", "performance analysis", "roas analysis", "campaign analytics", "ad analytics", "campaign optimization", "performance review", "ad reporting"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false

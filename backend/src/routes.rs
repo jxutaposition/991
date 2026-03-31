@@ -49,11 +49,38 @@ pub async fn models_list(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
-pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+#[derive(Deserialize)]
+pub struct CatalogQuery {
+    pub category: Option<String>,
+    pub expert_id: Option<String>,
+}
+
+pub async fn catalog_list(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<CatalogQuery>,
+) -> Json<Value> {
+    let expert_uuid = query.expert_id.as_deref()
+        .and_then(|s| s.parse::<Uuid>().ok());
+
     let agents: Vec<Value> = state
         .catalog
         .all()
         .into_iter()
+        .filter(|a| {
+            if let Some(ref cat) = query.category {
+                if &a.category != cat {
+                    return false;
+                }
+            }
+            if let Some(eid) = expert_uuid {
+                match a.expert_id {
+                    None => {}
+                    Some(aid) if aid == eid => {}
+                    _ => return false,
+                }
+            }
+            true
+        })
         .map(|a| {
             json!({
                 "slug": a.slug,
@@ -62,12 +89,23 @@ pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "description": a.description,
                 "intents": a.intents,
                 "version": a.version,
+                "expert_id": a.expert_id.map(|id| id.to_string()),
             })
         })
         .collect();
 
+    let categories: Vec<String> = {
+        let mut cats: Vec<String> = state.catalog.all().iter()
+            .map(|a| a.category.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        cats.sort();
+        cats
+    };
+
     let count = agents.len();
-    Json(json!({"agents": agents, "count": count}))
+    Json(json!({"agents": agents, "count": count, "categories": categories}))
 }
 
 pub async fn catalog_get(
@@ -93,6 +131,7 @@ pub async fn catalog_get(
         "system_prompt": agent.system_prompt,
         "example_count": agent.examples.len(),
         "knowledge_doc_count": agent.knowledge_docs.len(),
+        "expert_id": agent.expert_id.map(|id| id.to_string()),
     })))
 }
 
@@ -103,6 +142,7 @@ pub struct CreateExecutionRequest {
     pub request_text: String,
     pub customer_id: Option<String>,
     pub model: Option<String>,
+    pub expert_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -136,7 +176,9 @@ pub async fn execution_create(
     let model = body.model.as_deref().unwrap_or(&state.settings.anthropic_model);
     info!(request = %body.request_text, model = %model, "creating execution session");
 
-    let catalog_summary = state.catalog.catalog_summary();
+    let expert_uuid = body.expert_id.as_deref()
+        .and_then(|s| s.parse::<Uuid>().ok());
+    let catalog_summary = state.catalog.catalog_summary_for_expert(expert_uuid);
 
     // Run LLM planner
     let plan = planner::plan_execution(
@@ -253,6 +295,8 @@ pub async fn execution_get(
                judge_score, judge_feedback, judge_config, output, input,
                attempt_count, max_iterations, model, skip_judge,
                parent_uid, variant_group, variant_label, variant_selected,
+               computed_tier, tier_override, breakpoint,
+               workflow_id, workflow_step_id, client_id,
                started_at, completed_at
         FROM execution_nodes WHERE session_id = '{session_id}'
         ORDER BY created_at
@@ -689,6 +733,16 @@ pub async fn observe_session_end(
 
     info!(session = %session_id, coverage = coverage, "observation session ended");
 
+    // Look up expert_id from the observation session
+    let expert_id_for_extraction = {
+        let rows = state.db.execute(&format!(
+            "SELECT expert_id FROM observation_sessions WHERE id = '{}'", session_id
+        )).await.unwrap_or_default();
+        rows.first()
+            .and_then(|r| r.get("expert_id").and_then(serde_json::Value::as_str))
+            .and_then(|s| s.parse::<Uuid>().ok())
+    };
+
     // Trigger extraction + reasoning + synthesis pipeline asynchronously
     {
         let db = state.db.clone();
@@ -705,6 +759,7 @@ pub async fn observe_session_end(
                 &api_key,
                 &model,
                 &session_id_clone,
+                expert_id_for_extraction,
             ).await {
                 tracing::warn!(session = %session_id_clone, error = %e, "extraction pipeline failed");
             }
@@ -753,7 +808,28 @@ pub async fn observe_session_get(
     );
     let distillations = state.db.execute(&dist_sql).await.unwrap_or_default();
 
-    Ok(Json(json!({"session": session, "distillations": distillations})))
+    let events_sql = format!(
+        "SELECT id, event_type, url, domain, dom_context, created_at FROM action_events WHERE session_id = '{session_id}' ORDER BY sequence_number LIMIT 100"
+    );
+    let events = state.db.execute(&events_sql).await.unwrap_or_default();
+
+    let tasks_sql = format!(
+        "SELECT id, description, matched_agent_slug, match_confidence, status FROM abstracted_tasks WHERE session_id = '{session_id}' ORDER BY match_confidence DESC NULLS LAST"
+    );
+    let tasks = state.db.execute(&tasks_sql).await.unwrap_or_default();
+
+    let prs_sql = format!(
+        "SELECT id, pr_type, target_agent_slug, gap_summary, confidence, status FROM agent_prs WHERE evidence_session_ids @> ARRAY['{session_id}'::uuid] ORDER BY created_at DESC"
+    );
+    let prs = state.db.execute(&prs_sql).await.unwrap_or_default();
+
+    Ok(Json(json!({
+        "session": session,
+        "distillations": distillations,
+        "events": events,
+        "tasks": tasks,
+        "prs": prs,
+    })))
 }
 
 // ── Agent PRs ────────────────────────────────────────────────────────────────
@@ -1067,7 +1143,7 @@ pub async fn demo_run(
 
         info!(session = %sid, "demo session ended, starting extraction");
 
-        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid).await {
+        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid, None).await {
             tracing::warn!(session = %sid, error = %e, "demo extraction failed");
         }
 
@@ -1380,6 +1456,135 @@ pub async fn feedback_list(
     );
     let rows = state.db.execute(&sql).await.unwrap_or_default();
     Json(json!({"signals": rows}))
+}
+
+// ── Experts ───────────────────────────────────────────────────────────────────
+
+/// GET /api/experts
+pub async fn experts_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.db.execute("SELECT * FROM experts ORDER BY name").await.unwrap_or_default();
+    Json(json!({"experts": rows}))
+}
+
+#[derive(Deserialize)]
+pub struct CreateExpertRequest {
+    pub slug: String,
+    pub name: String,
+    pub identity: Option<String>,
+    pub voice: Option<String>,
+    pub methodology: Option<String>,
+}
+
+/// POST /api/experts
+pub async fn expert_create(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateExpertRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let id = Uuid::new_v4();
+    let slug = body.slug.replace('\'', "''");
+    let name = body.name.replace('\'', "''");
+    let identity = body.identity.as_deref()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+    let voice = body.voice.as_deref()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+    let methodology = body.methodology.as_deref()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+
+    let sql = format!(
+        "INSERT INTO experts (id, slug, name, identity, voice, methodology) VALUES ('{id}', '{slug}', '{name}', {identity}, {voice}, {methodology})"
+    );
+    state.db.execute(&sql).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"expert_id": id.to_string()})))
+}
+
+/// GET /api/experts/:slug
+pub async fn expert_get(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let slug_escaped = slug.replace('\'', "''");
+    let rows = state.db.execute(&format!(
+        "SELECT * FROM experts WHERE slug = '{slug_escaped}'"
+    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let expert = rows.into_iter().next().ok_or(StatusCode::NOT_FOUND)?;
+
+    let expert_id = expert.get("id").and_then(Value::as_str).unwrap_or("");
+    let agents = state.db.execute(&format!(
+        "SELECT slug, name, category, description FROM agent_definitions WHERE expert_id = '{expert_id}' ORDER BY slug"
+    )).await.unwrap_or_default();
+
+    let engagements = state.db.execute(&format!(
+        "SELECT e.*, c.name as client_name FROM engagements e JOIN clients c ON e.client_id = c.id WHERE e.expert_id = '{expert_id}' ORDER BY e.created_at DESC"
+    )).await.unwrap_or_default();
+
+    Ok(Json(json!({
+        "expert": expert,
+        "agents": agents,
+        "engagements": engagements,
+    })))
+}
+
+// ── Engagements ──────────────────────────────────────────────────────────────
+
+/// GET /api/engagements
+pub async fn engagements_list(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.db.execute(
+        "SELECT e.*, ex.name as expert_name, c.name as client_name FROM engagements e JOIN experts ex ON e.expert_id = ex.id JOIN clients c ON e.client_id = c.id ORDER BY e.created_at DESC"
+    ).await.unwrap_or_default();
+    Json(json!({"engagements": rows}))
+}
+
+#[derive(Deserialize)]
+pub struct CreateEngagementRequest {
+    pub slug: String,
+    pub name: String,
+    pub expert_slug: String,
+    pub client_slug: String,
+    pub scope: Option<String>,
+}
+
+/// POST /api/engagements
+pub async fn engagement_create(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateEngagementRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let expert_slug = body.expert_slug.replace('\'', "''");
+    let client_slug = body.client_slug.replace('\'', "''");
+
+    let expert_rows = state.db.execute(&format!(
+        "SELECT id FROM experts WHERE slug = '{expert_slug}'"
+    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let expert_id = expert_rows.first()
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Expert not found"}))))?;
+
+    let client_rows = state.db.execute(&format!(
+        "SELECT id FROM clients WHERE slug = '{client_slug}'"
+    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let client_id = client_rows.first()
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+
+    let id = Uuid::new_v4();
+    let slug = body.slug.replace('\'', "''");
+    let name = body.name.replace('\'', "''");
+    let scope = body.scope.as_deref()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+
+    let sql = format!(
+        "INSERT INTO engagements (id, slug, name, expert_id, client_id, scope) VALUES ('{id}', '{slug}', '{name}', '{expert_id}', '{client_id}', {scope})"
+    );
+    state.db.execute(&sql).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"engagement_id": id.to_string()})))
 }
 
 #[derive(Deserialize)]

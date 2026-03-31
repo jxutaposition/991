@@ -1,8 +1,0 @@
-slug = "lead_list_builder"
-name = "Lead List Builder"
-category = "lead_management"
-description = "Builds a targeted prospect list from ICP criteria and scoring. Applies filters (company size, industry, location, tech stack, growth signals) to produce a ranked list of companies and contacts ready for outreach."
-intents = ["lead list", "prospect list", "build list", "target list", "find prospects", "prospecting", "outbound list", "account list"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

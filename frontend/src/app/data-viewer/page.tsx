@@ -69,7 +69,7 @@ export default function DataViewerPage() {
   // Load table list
   useEffect(() => {
     fetch("/api/data/schemas")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         const sorted = (data.tables ?? []).sort((a: TableInfo, b: TableInfo) => {
           // Tables with rows first, then views, then alphabetical

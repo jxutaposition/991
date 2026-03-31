@@ -1,8 +1,0 @@
-slug = "contact_finder"
-name = "Contact Finder"
-category = "research"
-description = "Identifies and enriches decision-maker contacts at target companies. Finds name, title, email, LinkedIn URL, and recent activity for the most relevant buyers based on ICP criteria."
-intents = ["find contacts", "contact discovery", "decision maker", "buyer", "find email", "find linkedin", "contact enrichment", "prospect contacts", "who to contact"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

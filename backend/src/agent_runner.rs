@@ -85,10 +85,19 @@ impl AgentRunner {
             String::new()
         };
 
+        let expert_context = if let Some(expert_id) = agent.expert_id {
+            crate::client::build_expert_context(&self.db, expert_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         let system_prompt = build_system_prompt(
             &agent.system_prompt,
             &upstream_context,
             &client_context,
+            &expert_context,
             &agent,
         );
 
@@ -471,9 +480,15 @@ fn build_system_prompt(
     base_prompt: &str,
     upstream_context: &str,
     client_context: &str,
+    expert_context: &str,
     agent: &crate::agent_catalog::AgentDefinition,
 ) -> String {
     let mut prompt = base_prompt.to_string();
+
+    if !expert_context.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(expert_context);
+    }
 
     if !client_context.is_empty() {
         prompt.push_str("\n\n");

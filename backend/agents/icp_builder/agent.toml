@@ -1,8 +1,0 @@
-slug = "icp_builder"
-name = "ICP Builder"
-category = "research"
-description = "Builds an Ideal Customer Profile (ICP) by analyzing existing customer data, market signals, and win/loss patterns. Outputs a structured ICP with firmographic, technographic, and behavioral criteria."
-intents = ["ideal customer profile", "icp", "target customer", "buyer persona", "customer profile", "who to target", "target market", "segmentation"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

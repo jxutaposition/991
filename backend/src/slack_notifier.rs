@@ -118,7 +118,7 @@ pub fn subscribe_to_session(
                         let blocks = slack_messages::session_completed_blocks(
                             &request_text,
                             &nodes,
-                            "http://localhost:3000", // TODO: make configurable
+                            &std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
                             &session_id,
                         );
                         let _ = slack

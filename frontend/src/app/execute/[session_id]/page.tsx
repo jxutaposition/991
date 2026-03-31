@@ -43,7 +43,7 @@ export default function SessionPage() {
 
   const fetchSession = useCallback(() => {
     fetch(`/api/execute/${session_id}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setSession({
           ...data.session,
@@ -78,7 +78,7 @@ export default function SessionPage() {
     }
     setNodeEventsLoading(true);
     fetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/events`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setNodeEvents(data.events ?? []);
         setNodeEventsLoading(false);

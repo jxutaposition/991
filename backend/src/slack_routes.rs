@@ -113,8 +113,8 @@ async fn handle_run_command(
         None => return,
     };
 
-    // Call the planner
-    let catalog_summary = state.catalog.catalog_summary();
+    // Call the planner (expert scoping via Slack user mapping is a future feature)
+    let catalog_summary = state.catalog.catalog_summary_for_expert(None);
     let plan = match crate::planner::plan_execution(
         request_text,
         &catalog_summary,

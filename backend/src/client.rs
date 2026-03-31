@@ -203,3 +203,42 @@ pub async fn build_client_context(
 
     Ok(context)
 }
+
+/// Build a context string from expert identity, voice, and methodology.
+pub async fn build_expert_context(
+    db: &PgClient,
+    expert_id: Uuid,
+) -> anyhow::Result<String> {
+    let rows = db
+        .execute(&format!(
+            "SELECT name, identity, voice, methodology FROM experts WHERE id = '{}'",
+            expert_id
+        ))
+        .await?;
+
+    let mut context = String::new();
+
+    if let Some(expert) = rows.first() {
+        let name = expert.get("name").and_then(Value::as_str).unwrap_or("Unknown");
+        context.push_str(&format!("## Expert: {}
+", name));
+        if let Some(identity) = expert.get("identity").and_then(Value::as_str) {
+            context.push_str(&format!("{}
+", identity));
+        }
+        if let Some(voice) = expert.get("voice").and_then(Value::as_str) {
+            context.push_str(&format!("
+### Voice & Style
+{}
+", voice));
+        }
+        if let Some(methodology) = expert.get("methodology").and_then(Value::as_str) {
+            context.push_str(&format!("
+### Methodology
+{}
+", methodology));
+        }
+    }
+
+    Ok(context)
+}

@@ -1,0 +1,9 @@
+slug = "data_auditor"
+name = "Data Auditor"
+category = "program_operations"
+description = "Cross-checks data across multiple systems to find missing records, inconsistent fields, and stale data. Categorizes issues by actionability and produces remediation plans. Runs as scheduled maintenance or on-demand investigation."
+intents = ["data audit", "cross-check data", "missing records", "data consistency", "data quality", "verify data", "find missing", "reconcile data", "data discrepancy", "stale data"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = true
+expert_slug = "lele"

@@ -1,0 +1,9 @@
+slug = "client_engagement_manager"
+name = "Client Engagement Manager"
+category = "program_operations"
+description = "Manages ongoing client communication: separates consultation and execution modes, proposes options on strategy decisions, proceeds autonomously on tactical, documents decisions in writing, escalates blockers after two check-ins, and extracts tribal knowledge."
+intents = ["client update", "client communication", "status update", "blocker escalation", "client check-in", "proactive update", "engagement management", "client briefing", "weekly update"]
+max_iterations = 10
+skip_judge = false
+flexible_tool_use = false
+expert_slug = "lele"

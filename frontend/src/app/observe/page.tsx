@@ -25,7 +25,7 @@ export default function ObservePage() {
 
   useEffect(() => {
     fetch("/api/observe/sessions")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setSessions(data.sessions ?? []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);

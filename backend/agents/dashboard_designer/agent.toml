@@ -1,0 +1,9 @@
+slug = "dashboard_designer"
+name = "Dashboard Designer"
+category = "program_operations"
+description = "Designs dashboard architecture with audience-appropriate data visibility. Implements internal vs. external views, badges, filters, scoring displays, and tier progression visualization. Follows the principle that dashboard design follows program logic."
+intents = ["dashboard", "dashboard design", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "dashboard feature"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = true
+expert_slug = "lele"

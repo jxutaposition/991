@@ -1,0 +1,9 @@
+slug = "onboarding_flow_designer"
+name = "Onboarding Flow Designer"
+category = "program_operations"
+description = "Designs partner/expert/user onboarding flows. Maps current manual processes, identifies automation targets, designs automated pipelines with appropriate human-in-the-loop gates, and specifies welcome communications."
+intents = ["onboarding", "onboarding flow", "welcome flow", "new partner onboarding", "expert onboarding", "signup flow", "activation flow", "onboarding automation"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = false
+expert_slug = "lele"

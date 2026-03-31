@@ -1,8 +1,0 @@
-slug = "outreach_results_reporter"
-name = "Outreach Results Reporter"
-category = "analytics"
-description = "Aggregates and analyzes outbound outreach performance: open rates, reply rates, positive reply rates, meeting booked rates, and conversion by segment, channel, and message variant. Surfaces what's working and what to change."
-intents = ["outreach results", "outreach analytics", "outreach performance", "email analytics", "reply rate", "open rate", "outbound reporting", "sequence performance", "campaign results"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false

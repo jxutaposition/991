@@ -1,0 +1,8 @@
+slug = "tolt_operator"
+name = "Tolt Operator"
+category = "tool_operator"
+description = "Operates Tolt affiliate/referral platform: manages partner groups, tracks referral revenue, handles commission data, processes CSV group reassignments, and integrates with scoring systems."
+intents = ["tolt", "affiliate", "referral", "commission", "partner group", "tolt group", "referral revenue", "tolt csv", "affiliate tracking"]
+max_iterations = 12
+skip_judge = false
+flexible_tool_use = true

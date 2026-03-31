@@ -20,6 +20,7 @@ pub async fn run_extraction(
     api_key: &str,
     model: &str,
     session_id: &str,
+    expert_id: Option<uuid::Uuid>,
 ) -> anyhow::Result<()> {
     info!(session = %session_id, "starting extraction pipeline");
 
@@ -53,7 +54,7 @@ pub async fn run_extraction(
     }
 
     // Step 2: Match tasks to agents
-    let catalog_summary = catalog.catalog_summary();
+    let catalog_summary = catalog.catalog_summary_for_expert(expert_id);
     let matches = match_tasks_to_agents(&client, &tasks, &catalog_summary, model).await?;
     info!(session = %session_id, matches = matches.len(), "matching complete");
 
@@ -152,7 +153,7 @@ pub async fn run_extraction(
     }
 
     // Step 5: Run reasoning pipeline (analyzes for deeper feedback signals)
-    if let Err(e) = reasoning::run_reasoning(db, catalog, api_key, model, session_id).await {
+    if let Err(e) = reasoning::run_reasoning(db, catalog, api_key, model, session_id, expert_id).await {
         warn!(error = %e, "reasoning pipeline failed");
     }
 

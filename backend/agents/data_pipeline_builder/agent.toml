@@ -1,0 +1,9 @@
+slug = "data_pipeline_builder"
+name = "Data Pipeline Builder"
+category = "program_operations"
+description = "Designs and builds data pipelines connecting multiple systems (Clay, Supabase, n8n, Lovable). Maps source tables, defines transformation logic, configures webhooks and conditional routing, handles edge cases like URL normalization and deduplication."
+intents = ["data pipeline", "connect systems", "data flow", "webhook setup", "data sync", "integration pipeline", "etl", "data routing", "sync data between", "connect clay to"]
+max_iterations = 15
+skip_judge = false
+flexible_tool_use = true
+expert_slug = "lele"

@@ -1,8 +1,0 @@
-slug = "call_script_preparer"
-name = "Call Script Preparer"
-category = "social_outreach"
-description = "Prepares discovery call scripts with agenda, qualifying questions, objection handling, and talk tracks. Tailored to the prospect's industry, role, and known pain points from research."
-intents = ["call script", "call prep", "discovery call", "sales call", "cold call", "call agenda", "qualifying questions", "objection handling", "talk track"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false

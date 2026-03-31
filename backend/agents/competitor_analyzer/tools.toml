@@ -1,1 +1,0 @@
-tools = ["web_search", "fetch_url", "search_company_data", "fetch_company_news", "search_linkedin_profile", "read_upstream_output", "write_output"]
