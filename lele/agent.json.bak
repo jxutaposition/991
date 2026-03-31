@@ -1,0 +1,51 @@
+{
+  "agent_id": "lele-service",
+  "bot_user_id": "U0AD5GLDW9E",
+  "sender_table": [
+    { "id": "U3G9NGS5T", "name": "Lele" },
+    { "id": "U094GLHRE72", "name": "Bojana" },
+    { "id": "U08LXFG5SC8", "name": "Cristina" },
+    { "id": "U07V3CA6L8H", "name": "Umer" }
+  ],
+  "bindings": [
+    {
+      "tier": 1,
+      "match": { "sender_id": "U3G9NGS5T", "channel_id": "D0ACERJTXJQ" },
+      "route": {
+        "dispatch": "main",
+        "sender_role": "owner",
+        "client_id": null,
+        "escalation_target": "D0ACERJTXJQ",
+        "reply_channels": ["D0ACERJTXJQ", "C0ABHP870SF"],
+        "files_rw": ["client/**", "skills/**", "config.json", "progress/**"],
+        "files_ro": ["../../system/skills/**"]
+      }
+    },
+    {
+      "tier": 2,
+      "match": { "channel_id": "C0ABHP870SF" },
+      "route": {
+        "dispatch": "subagent",
+        "sender_role": "client",
+        "client_id": "heyreach",
+        "escalation_target": "D0ACERJTXJQ",
+        "reply_channels": ["C0ABHP870SF"],
+        "files_rw": ["client/heyreach/**", "progress/**"],
+        "files_ro": ["../../system/skills/**"]
+      }
+    },
+    {
+      "tier": 3,
+      "match": {},
+      "route": {
+        "dispatch": "skip",
+        "sender_role": "unknown",
+        "client_id": null,
+        "escalation_target": "",
+        "reply_channels": [],
+        "files_rw": [],
+        "files_ro": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "version": "1.0",
+  "exportedAt": "2026-03-09T01:23:48.867Z",
+  "columnCount": 11,
+  "columns": [
+    {
+      "index": 0,
+      "name": "Author LinkedIn Profile",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "url"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_data?.profile_url",
+        "mappedResultPath": [
+          "post_data",
+          "profile_url"
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "Event: LinkedIn post brand mentions",
+      "type": "source",
+      "typeSettings": {
+        "sourceIds": [
+          "s_0t2u2gefrFYDhzPfbe2"
+        ],
+        "canCreateRecords": true
+      },
+      "sourceDetails": [
+        {
+          "name": "Event: LinkedIn post brand mentions",
+          "type": "trigger-source",
+          "typeSettings": {
+            "signalType": "LinkedinPostMentions",
+            "forwardRecords": false,
+            "triggerDefinitionId": "td_0t2u2gff2aiZsZwx4ax"
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "name": "Author First Name",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_data.actorProfile.localizedFirstName",
+        "mappedResultPath": [
+          "post_data",
+          "actorProfile",
+          "localizedFirstName"
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "Author Last Name",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_data.actorProfile.localizedLastName",
+        "mappedResultPath": [
+          "post_data",
+          "actorProfile",
+          "localizedLastName"
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "name": "Post Published At",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "date"
+        },
+        "formulaType": "text",
+        "formulaText": "new Date({{@Event: LinkedIn post brand mentions}}?.post_data.post_details.publishedAt)",
+        "mappedResultPath": [
+          "post_data",
+          "postDetails",
+          "publishedAt"
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "name": "Post Content",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_data?.post_details?.commentary",
+        "mappedResultPath": [
+          "post_data",
+          "post_details",
+          "commentary"
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "name": "Post Url",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "url"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_url",
+        "mappedResultPath": [
+          "post_url"
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "name": "Send table data",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "json"
+        },
+        "actionKey": "route-row",
+        "actionVersion": 1,
+        "actionPackageId": "b1ab3d5d-b0db-4b30-9251-3f32d8b103c1",
+        "inputsBinding": [
+          {
+            "name": "tableId",
+            "formulaText": "\"t_x5oGwgSy5X9x\""
+          },
+          {
+            "name": "rowData",
+            "formulaMap": {
+              "Post Url": "{{@Post Url}}",
+              "Post Content": "{{@Post Content}}",
+              "f_post_urn}}": "{{@Post Resource URN}}",
+              "Author Last Name": "{{@Author Last Name}}",
+              "Author First Name": "{{@Author First Name}}",
+              "Post Published At": "{{@Post Published At}}",
+              "Author LinkedIn Profile": "{{@Author LinkedIn Profile}}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "index": 8,
+      "name": "Contains \"Instantly\"",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "boolean",
+          "label": "Checkbox",
+          "iconType": {
+            "displayName": "CheckSquare"
+          },
+          "copyPasteHandler": {}
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Post Content}}?.toLowerCase()?.includes(\"instantly\") ? true : false",
+        "formulaPrompt": "\"in this \"+{{@Post Content}}+\" check if you find keyword \\\"Instantly\\\" not case senstive if Yes return true else false\""
+      }
+    },
+    {
+      "index": 9,
+      "name": "Contains \"Smartlead\"",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "boolean",
+          "label": "Checkbox",
+          "iconType": {
+            "displayName": "CheckSquare"
+          },
+          "copyPasteHandler": {}
+        },
+        "formulaType": "text",
+        "formulaText": "!!({{@Post Content}} && {{@Post Content}}?.toLowerCase()?.includes(\"smartlead\"))",
+        "formulaPrompt": "\"in this \"+{{@Post Content}}+\" check if you find keyword \\\"Smartlead\\\" not case senstive if Yes return true else false\""
+      }
+    },
+    {
+      "index": 10,
+      "name": "Post Resource URN",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Event: LinkedIn post brand mentions}}?.post_data?.sourcePost",
+        "mappedResultPath": [
+          "post_data",
+          "sourcePost"
+        ]
+      }
+    }
+  ]
+}

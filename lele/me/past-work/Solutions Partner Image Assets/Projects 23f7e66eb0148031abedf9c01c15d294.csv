@@ -1,0 +1,18 @@
+﻿Name,Issue Type,Next Resolution Date,Priority,Solution,Status,Vis,XFN Collab
+"Referral payments & tracking not automated if customer pays outside of Stripe ",Payout,"January 1, 2026",High,Evaluate Rewardful Managed Payout or PartnerStack,Consolidated,,
+Rewardful incorrectly flags agency-created client workspaces as fraudulent self-referrals,Auto Attribution,"August 29, 2025",Low,Payment Automation,Out of Scope,,
+Affiliates don’t know manual attribution approval status,Manual Attribution,"November 12, 2025",Med,Automate comms as last step of retool workflow,Done,,
+No automated emails from Rewardful to affiliates + us for failed payments,Tracking,"January 1, 2026",Med,Evaluate Rewardful Managed Payout or PartnerStack,Consolidated,,
+No payout methods besides PayPal (impacts int’l partners),Payout,"January 1, 2026",Med,Evaluate Rewardful Managed Payout or PartnerStack,Consolidated,,
+No visibility on leads so partners can follow-up on accounts or whether requirements for higher tiers,Tracking,"December 12, 2025",High,Partner Portal rollout for all Solutions Partners,Done,,
+No visibility on payout processing times,Payout,"November 26, 2025",High,1-2 days,Done,,
+"For already attributed referrals, cannot update meta data in stripe ourselves → need to contact Rewardful support to change existing attribution ",Manual Attribution,"November 26, 2025",Med,Confirm policy against re-attribution,Consolidated,,
+Rewardful affiliate invites still need to be sent manually,Onboarding,"January 1, 2026",Low,Emmet mentioned API possible,Consolidated,,
+Affiliates and/or Customers don’t receive 3K in-platform referral credits (??????),Auto Attribution,"January 1, 2026",High,Evaluate Rewardful Coupon or PartnerStack,Consolidated,Bruno,
+"PAUSING Creator Program — Changelog Dec 19, 2025",Application,"December 19, 2025",High,PAUSE Creator program,Done,"Bruno, Jake Block",
+Manual attribution request gets rejected if customer already attributed but the partner is the same as the partner asking,Manual Attribution,"December 3, 2025",Low,Payment Automation,Done,,
+Give Rewardful Complaints / Evaluate Other Vendors,,,,,In progress,,
+V2 Partner <> Support Escalation System,Support,"December 8, 2025",High,"Use unwrap for total partner-related tickets, set up slack workflow to track & standardize escalations",In progress,Katie Dougherty,Support
+Manually fix 62 accounts with 0 referred ARR before inviting to portal,Tracking,"December 5, 2025",High,,Done,,
+Q1 Promotion,,"January 12, 2026",High,,In progress,"Michael Vitak, Bruno",
+Invite partners to UK Launch,,"January 6, 2026",Med,,Not started,"Bruno, Billie Solomon, Mustafa Khan",

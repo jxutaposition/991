@@ -1,0 +1,371 @@
+{
+  "version": "1.0",
+  "exportedAt": "2026-03-10T10:18:31.101Z",
+  "columnCount": 13,
+  "columns": [
+    {
+      "index": 0,
+      "name": "Webhook",
+      "type": "source",
+      "typeSettings": {
+        "sourceIds": [
+          "s_0t5im4xiCxJ4xVZsnm8"
+        ],
+        "canCreateRecords": true
+      },
+      "sourceDetails": [
+        {
+          "name": "Pull in data from a Webhook",
+          "type": "webhook",
+          "typeSettings": {
+            "hasAuth": false,
+            "name": "Webhook",
+            "stages": [],
+            "iconType": "Webhook",
+            "description": "Send any data to Clay",
+            "urlSlugText": "Pull in data from a Webhook",
+            "createdFromWorkbookId": "wb_2U5ACV8e6dui"
+          }
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "name": "Group Id",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Webhook}}?.data?.group_id",
+        "mappedResultPath": [
+          "data",
+          "group_id"
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "Program Id",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Webhook}}?.data?.program_id",
+        "mappedResultPath": [
+          "data",
+          "program_id"
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "Send to Points Leaderboard",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "json"
+        },
+        "actionKey": "http-api-v2",
+        "actionVersion": 1,
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "inputsBinding": [
+          {
+            "name": "method",
+            "formulaText": "\"POST\""
+          },
+          {
+            "name": "url",
+            "formulaText": "\"https://ygtdnpnizmpthgwtvbjw.supabase.co/functions/v1/webhook-handler\""
+          },
+          {
+            "name": "queryString"
+          },
+          {
+            "name": "body",
+            "formulaText": "\"{\\n  \\\"linkedin_url\\\": \\\"/\\\",\\n  \\\"revenue_generated\\\": \\\"\" + Clay.formatForJSON({{@Total Revenue}}) + \"\\\",\\n  \\\"reactions_count\\\": \\\"\\\",\\n  \\\"comments_count\\\": \\\"\\\",\\n  \\\"post_url\\\": \\\"\\\",\\n  \\\"timestamp\\\": \\\"\\\",\\n  \\\"tag\\\": \\\"expert\\\"\\n}\""
+          },
+          {
+            "name": "headers",
+            "formulaMap": {
+              "X-Api-Key": "\"R7MEfUGzJCClQJ2nD49ejXUniMz8YQZl\"",
+              "Content-Type": "\"Application/json\""
+            }
+          },
+          {
+            "name": "fieldPaths"
+          },
+          {
+            "name": "removeNull",
+            "formulaText": "true"
+          },
+          {
+            "name": "returnResponseMetadata"
+          },
+          {
+            "name": "followRedirects",
+            "formulaText": "true"
+          },
+          {
+            "name": "followRedirectsOptions|maxRedirects"
+          },
+          {
+            "name": "responseTimeout"
+          },
+          {
+            "name": "shouldRetry",
+            "formulaText": "true"
+          },
+          {
+            "name": "retryOptions|maxRetries"
+          },
+          {
+            "name": "retryOptions|statusCodesToRetry"
+          },
+          {
+            "name": "retryOptions|errorCodesToRetry"
+          }
+        ],
+        "conditionalRunFormulaText": "{{@Total Revenue}} && {{@Total Revenue}} !='$0.00'"
+      }
+    },
+    {
+      "index": 4,
+      "name": "Partner id",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Webhook}}?.data?.id",
+        "mappedResultPath": [
+          "data",
+          "id"
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "name": "First Name",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Webhook}}?.data?.first_name",
+        "mappedResultPath": [
+          "data",
+          "first_name"
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "name": "Last Name",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Webhook}}?.data?.last_name",
+        "mappedResultPath": [
+          "data",
+          "last_name"
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "name": "Lookup partner id",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "json"
+        },
+        "actionKey": "lookup-row-in-other-table",
+        "actionVersion": 1,
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "inputsBinding": [
+          {
+            "name": "tableId",
+            "formulaText": "\"t_0szso2eGT3y7WXCkyhY\""
+          },
+          {
+            "name": "fields|targetColumn",
+            "formulaText": "\"f_0szwaefGsPf2ws2Rjbb\""
+          },
+          {
+            "name": "fields|filterOperator",
+            "formulaText": "\"CONTAIN\""
+          },
+          {
+            "name": "fields|rowValue",
+            "formulaText": "{{@Partner id}}"
+          }
+        ]
+      }
+    },
+    {
+      "index": 8,
+      "name": "Lookup name",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "json"
+        },
+        "actionKey": "lookup-row-in-other-table",
+        "actionVersion": 1,
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "inputsBinding": [
+          {
+            "name": "tableId",
+            "formulaText": "\"t_0szso2eGT3y7WXCkyhY\""
+          },
+          {
+            "name": "fields|targetColumn",
+            "formulaText": "\"f_0szsor4JbiSmcwyGXTs\""
+          },
+          {
+            "name": "fields|filterOperator",
+            "formulaText": "\"CONTAIN\""
+          },
+          {
+            "name": "fields|rowValue",
+            "formulaText": "{{@Full Name}}"
+          }
+        ],
+        "conditionalRunFormulaText": "!{{@Lookup partner id}}"
+      }
+    },
+    {
+      "index": 9,
+      "name": "Full Name",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text",
+          "label": "Text",
+          "iconType": {
+            "displayName": "TextT"
+          }
+        },
+        "formulaType": "text",
+        "formulaText": "({{@First Name}} || \"\") + \" \" + ({{@Last Name}} || \"\")",
+        "formulaPrompt": "{{@First Name}}+\" + \"+{{@Last Name}}"
+      }
+    },
+    {
+      "index": 10,
+      "name": "Tolt - get partner",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "json"
+        },
+        "actionKey": "http-api-v2",
+        "actionVersion": 1,
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "inputsBinding": [
+          {
+            "name": "method",
+            "formulaText": "\"GET\""
+          },
+          {
+            "name": "url",
+            "formulaText": "\"https://api.tolt.com/v1/partners/\"+{{@partner id}}+\"?expand[]=group&include[]=stats\""
+          },
+          {
+            "name": "queryString"
+          },
+          {
+            "name": "body"
+          },
+          {
+            "name": "headers",
+            "formulaMap": {
+              "Content-Type": "\"application/json\"",
+              "Authorization": "\"Bearer tlt_live_f7e5GZwmyan5B4f6isgcXXmNQAG9JF3nYhf8v\""
+            }
+          },
+          {
+            "name": "fieldPaths"
+          },
+          {
+            "name": "removeNull",
+            "formulaText": "true"
+          },
+          {
+            "name": "returnResponseMetadata"
+          },
+          {
+            "name": "followRedirects",
+            "formulaText": "true"
+          },
+          {
+            "name": "followRedirectsOptions|maxRedirects"
+          },
+          {
+            "name": "responseTimeout"
+          },
+          {
+            "name": "shouldRetry",
+            "formulaText": "true"
+          },
+          {
+            "name": "retryOptions|maxRetries"
+          },
+          {
+            "name": "retryOptions|statusCodesToRetry"
+          },
+          {
+            "name": "retryOptions|errorCodesToRetry"
+          }
+        ],
+        "conditionalRunFormulaText": "{{@partner id}}"
+      }
+    },
+    {
+      "index": 11,
+      "name": "partner id",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "text"
+        },
+        "formulaType": "waterfall",
+        "formulaWaterfall": [
+          {
+            "formula": "{{@Lookup partner id}}?.record?.[\"Partner ID\"]"
+          },
+          {
+            "formula": "{{@Lookup name}}?.record?.[\"Partner ID\"]"
+          }
+        ]
+      }
+    },
+    {
+      "index": 12,
+      "name": "Total Revenue",
+      "type": "formula",
+      "typeSettings": {
+        "dataTypeSettings": {
+          "type": "currency",
+          "currencyCode": "USD"
+        },
+        "formulaType": "text",
+        "formulaText": "{{@Tolt - get partner}}?.data?.stats?.total_revenue",
+        "mappedResultPath": [
+          "data",
+          "stats",
+          "total_revenue"
+        ]
+      }
+    }
+  ]
+}

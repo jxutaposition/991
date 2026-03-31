@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit(./client/**)", "Edit(./skills/**)", "Edit(./config.json)", "Edit(./progress/**)",
+      "Write(./client/**)", "Write(./skills/**)", "Write(./progress/**)"
+    ],
+    "deny": [
+      "Edit(../../system/skills/**)", "Write(../../system/skills/**)",
+      "Read(../garrett/**)", "Edit(../garrett/**)",
+      "Read(../andreas/**)", "Edit(../andreas/**)",
+      "Edit(../../system/bindings.ts)", "Edit(../../system/channel.ts)"
+    ]
+  }
+}
