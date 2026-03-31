@@ -16,7 +16,11 @@ use serde_json::{json, Value};
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::client as client_mod;
+use crate::feedback;
 use crate::narrator::{self, CapturedEvent};
+use crate::pr_engine;
+use crate::workflow as workflow_mod;
 use url::Url;
 use crate::planner;
 use crate::state::AppState;
@@ -49,6 +53,7 @@ pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
     let agents: Vec<Value> = state
         .catalog
         .all()
+        .into_iter()
         .map(|a| {
             json!({
                 "slug": a.slug,
@@ -56,6 +61,7 @@ pub async fn catalog_list(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "category": a.category,
                 "description": a.description,
                 "intents": a.intents,
+                "version": a.version,
             })
         })
         .collect();
@@ -358,14 +364,19 @@ async fn persist_session(
 
         let task_escaped = node.task_description.replace('\'', "''");
 
+        let computed_tier =
+            crate::tier::compute_tier(db, &node.agent_slug, &node.task_description).await;
+
         let node_sql = format!(
             r#"
             INSERT INTO execution_nodes
               (id, session_id, agent_slug, agent_git_sha, task_description, status,
-               requires, attempt_count, judge_config, max_iterations, model, skip_judge)
+               requires, attempt_count, judge_config, max_iterations, model, skip_judge,
+               computed_tier)
             VALUES
               ('{uid}', '{session_id}', '{slug}', '{sha}', '{task}', '{status}',
-               {requires}, 0, '{judge}'::jsonb, {max_iter}, '{model}', {skip_judge})
+               {requires}, 0, '{judge}'::jsonb, {max_iter}, '{model}', {skip_judge},
+               '{computed_tier}')
             "#,
             uid = node.uid,
             slug = node.agent_slug,
@@ -419,8 +430,15 @@ pub async fn observe_session_start(
 }
 
 #[derive(Deserialize)]
+pub struct ScreenshotPayload {
+    pub timestamp: i64,
+    pub base64: String,
+}
+
+#[derive(Deserialize)]
 pub struct EventBatchRequest {
     pub events: Vec<CapturedEvent>,
+    pub screenshots: Option<Vec<ScreenshotPayload>>,
 }
 
 /// POST /api/observe/session/:session_id/events
@@ -429,11 +447,12 @@ pub async fn observe_session_events(
     Path(session_id): Path<String>,
     Json(body): Json<EventBatchRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if body.events.is_empty() {
-        return Ok(Json(json!({"received": 0, "gaps_detected": []})));
+    if body.events.is_empty() && body.screenshots.as_ref().map_or(true, |s| s.is_empty()) {
+        return Ok(Json(json!({"received": 0, "screenshots_stored": 0, "gaps_detected": []})));
     }
 
     let received = body.events.len();
+    let screenshots_received = body.screenshots.as_ref().map_or(0, |s| s.len());
 
     // Persist events to DB
     for event in &body.events {
@@ -469,6 +488,26 @@ pub async fn observe_session_events(
         "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = '{session_id}') WHERE id = '{session_id}'"
     )).await;
 
+    // Persist screenshots to DB and grab the latest for vision narrator
+    let latest_screenshot_b64: Option<String> = if let Some(screenshots) = &body.screenshots {
+        let mut latest: Option<String> = None;
+        for (i, ss) in screenshots.iter().enumerate() {
+            // Store screenshot as BYTEA using Postgres decode()
+            let _ = state.db.execute(&format!(
+                "INSERT INTO observation_screenshots (session_id, sequence_number, image_jpeg, captured_at) VALUES ('{session_id}', {ts}, decode('{b64}', 'base64'), NOW()) ON CONFLICT DO NOTHING",
+                ts = ss.timestamp,
+                b64 = ss.base64.replace('\'', ""),
+            )).await;
+            // Keep the latest screenshot for the narrator
+            if i == screenshots.len() - 1 {
+                latest = Some(ss.base64.clone());
+            }
+        }
+        latest
+    } else {
+        None
+    };
+
     // Trigger narrator asynchronously (fire and forget)
     {
         let db = state.db.clone();
@@ -477,13 +516,14 @@ pub async fn observe_session_events(
         let events = body.events.clone();
         let session_id_clone = session_id.clone();
         let event_bus = state.event_bus.clone();
+        let screenshot = latest_screenshot_b64;
 
         tokio::spawn(async move {
-            narrate_batch(&db, &api_key, &model, &session_id_clone, &events, &event_bus).await;
+            narrate_batch(&db, &api_key, &model, &session_id_clone, &events, &event_bus, screenshot.as_deref()).await;
         });
     }
 
-    Ok(Json(json!({"received": received, "gaps_detected": []})))
+    Ok(Json(json!({"received": received, "screenshots_stored": screenshots_received, "gaps_detected": []})))
 }
 
 async fn narrate_batch(
@@ -493,6 +533,7 @@ async fn narrate_batch(
     session_id: &str,
     events: &[CapturedEvent],
     event_bus: &crate::session::EventBus,
+    screenshot_b64: Option<&str>,
 ) {
     // Skip heartbeat-only batches
     let meaningful: Vec<&CapturedEvent> = events
@@ -510,7 +551,7 @@ async fn narrate_batch(
     let narr = narrator::Narrator::new(api_key.to_string(), model.to_string());
     let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
 
-    match narr.narrate(&meaningful_owned, &prior).await {
+    match narr.narrate(&meaningful_owned, &prior, screenshot_b64).await {
         Ok(text) => {
             let _ = narrator::persist_narration(db, session_id, max_seq, &text, model).await;
 
@@ -591,15 +632,40 @@ pub async fn observe_correction(
         SET expert_correction = '{correction_escaped}'
         WHERE session_id = '{session_id}'
           AND sequence_ref = {seq}
+        RETURNING narrator_text
         "#,
         seq = body.sequence_ref,
     );
 
-    state.db.execute(&sql).await.map_err(|e| {
+    let rows = state.db.execute(&sql).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
-    info!(session = %session_id, seq = body.sequence_ref, "expert correction stored");
+    let narrator_text = rows
+        .first()
+        .and_then(|r| r.get("narrator_text").and_then(Value::as_str))
+        .unwrap_or("");
+
+    // Record as ground_truth feedback signal (weight 5.0)
+    // Try to find matching agent from prior abstracted_tasks for this session
+    let agent_sql = format!(
+        "SELECT matched_agent_slug FROM abstracted_tasks WHERE session_id = '{session_id}' AND matched_agent_slug IS NOT NULL LIMIT 1"
+    );
+    let agent_slug = state.db.execute(&agent_sql).await.ok()
+        .and_then(|rows| rows.first().and_then(|r| r.get("matched_agent_slug").and_then(Value::as_str).map(String::from)))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let _ = feedback::record_correction_signal(
+        &state.db,
+        &agent_slug,
+        &session_id,
+        body.sequence_ref,
+        &body.correction,
+        narrator_text,
+    )
+    .await;
+
+    info!(session = %session_id, seq = body.sequence_ref, "expert correction stored + feedback recorded");
     Ok(Json(json!({"ok": true})))
 }
 
@@ -623,26 +689,35 @@ pub async fn observe_session_end(
 
     info!(session = %session_id, coverage = coverage, "observation session ended");
 
-    // Trigger extraction pipeline asynchronously
+    // Trigger extraction + reasoning + synthesis pipeline asynchronously
     {
         let db = state.db.clone();
         let catalog = state.catalog.clone();
         let api_key = state.settings.anthropic_api_key.clone();
         let model = state.settings.anthropic_model.clone();
-        let agents_dir = state.settings.agents_dir.display().to_string();
         let session_id_clone = session_id.clone();
 
         tokio::spawn(async move {
-            info!(session = %session_id_clone, "starting post-session extraction");
+            info!(session = %session_id_clone, "starting post-session extraction + reasoning");
             if let Err(e) = crate::extraction::run_extraction(
                 &db,
                 &catalog,
                 &api_key,
                 &model,
                 &session_id_clone,
-                &agents_dir,
             ).await {
                 tracing::warn!(session = %session_id_clone, error = %e, "extraction pipeline failed");
+            }
+
+            // After extraction + reasoning, synthesize accumulated feedback into PRs
+            match crate::feedback::synthesize_feedback(&db, &api_key, &model, Some(&catalog)).await {
+                Ok(prs) if !prs.is_empty() => {
+                    info!(session = %session_id_clone, prs = prs.len(), "post-session feedback synthesized");
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session_id_clone, error = %e, "feedback synthesis failed");
+                }
+                _ => {}
             }
         });
     }
@@ -721,7 +796,8 @@ pub async fn agent_pr_get(
     let sql = format!(
         r#"
         SELECT id, pr_type, target_agent_slug, proposed_slug, file_diffs,
-               reasoning, gap_summary, confidence, evidence_count, status, created_at
+               proposed_changes, reasoning, gap_summary, confidence, evidence_count,
+               status, created_at
         FROM agent_prs
         WHERE id = '{pr_uuid}'
         "#
@@ -733,7 +809,7 @@ pub async fn agent_pr_get(
     Ok(Json(pr.clone()))
 }
 
-/// POST /api/agent-prs/:pr_id/approve — approve a PR.
+/// POST /api/agent-prs/:pr_id/approve — approve and apply a PR to agent definitions.
 pub async fn agent_pr_approve(
     State(state): State<Arc<AppState>>,
     Path(pr_id): Path<String>,
@@ -742,15 +818,14 @@ pub async fn agent_pr_approve(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
     })?;
 
-    let sql = format!(
-        "UPDATE agent_prs SET status = 'approved', reviewed_at = NOW() WHERE id = '{pr_uuid}' AND status = 'open'"
-    );
+    pr_engine::apply_pr(&state.db, &state.catalog, pr_uuid)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "failed to apply PR");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+        })?;
 
-    state.db.execute(&sql).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
-    })?;
-
-    info!(pr = %pr_id, "agent PR approved");
+    info!(pr = %pr_id, "agent PR approved and applied");
     Ok(Json(json!({"ok": true, "status": "approved"})))
 }
 
@@ -945,7 +1020,6 @@ pub async fn demo_run(
     let model = state.settings.anthropic_model.clone();
     let catalog = state.catalog.clone();
     let event_bus = state.event_bus.clone();
-    let agents_dir = state.settings.agents_dir.display().to_string();
     let sid = session_id.to_string();
 
     tokio::spawn(async move {
@@ -993,7 +1067,7 @@ pub async fn demo_run(
 
         info!(session = %sid, "demo session ended, starting extraction");
 
-        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid, &agents_dir).await {
+        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid).await {
             tracing::warn!(session = %sid, error = %e, "demo extraction failed");
         }
 
@@ -1051,11 +1125,449 @@ async fn run_narrator(
     let narr = narrator::Narrator::new(api_key.to_string(), model.to_string());
     let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
 
-    match narr.narrate(&meaningful_owned, &prior).await {
+    match narr.narrate(&meaningful_owned, &prior, None).await {
         Ok(text) => {
             let _ = narrator::persist_narration(db, session_id, max_seq, &text, model).await;
             event_bus.send(session_id, serde_json::json!({"type": "narration_chunk", "text": &text, "sequence_ref": max_seq})).await;
         }
         Err(e) => tracing::warn!(session = %session_id, error = %e, "demo narrator failed"),
     }
+}
+
+// ── Workflow Routes ──────────────────────────────────────────────────────────
+
+/// GET /api/workflows — list all workflows.
+pub async fn workflows_list(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let workflows = workflow_mod::list_workflows(&state.db).await.unwrap_or_default();
+    Json(json!({"workflows": workflows}))
+}
+
+#[derive(Deserialize)]
+pub struct CreateWorkflowRequest {
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub client_id: Option<String>,
+    pub steps: Vec<CreateWorkflowStepRequest>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateWorkflowStepRequest {
+    pub agent_slug: String,
+    pub task_description_template: Option<String>,
+    pub requires: Option<Vec<usize>>,
+    pub tier_override: Option<String>,
+    pub breakpoint: Option<bool>,
+}
+
+/// POST /api/workflows — create a new workflow with steps.
+pub async fn workflow_create(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateWorkflowRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client_uuid = body.client_id
+        .as_deref()
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    let workflow_id = workflow_mod::create_workflow(
+        &state.db, &body.slug, &body.name, body.description.as_deref(), client_uuid,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let mut step_ids: Vec<Uuid> = Vec::new();
+
+    for (i, step) in body.steps.iter().enumerate() {
+        let requires: Vec<Uuid> = step.requires
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|&idx| step_ids.get(idx).copied())
+            .collect();
+
+        let step_id = workflow_mod::add_step(
+            &state.db,
+            workflow_id,
+            i as i32,
+            &step.agent_slug,
+            step.task_description_template.as_deref(),
+            &requires,
+            step.tier_override.as_deref(),
+            step.breakpoint.unwrap_or(false),
+            None,
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+        step_ids.push(step_id);
+    }
+
+    Ok(Json(json!({"workflow_id": workflow_id.to_string(), "steps": step_ids.len()})))
+}
+
+/// GET /api/workflows/:slug — get workflow detail with steps.
+pub async fn workflow_get(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let workflow = workflow_mod::get_workflow(&state.db, &slug)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let steps = workflow_mod::get_workflow_steps(&state.db, workflow.id)
+        .await
+        .unwrap_or_default();
+
+    Ok(Json(json!({"workflow": workflow, "steps": steps})))
+}
+
+#[derive(Deserialize)]
+pub struct RunWorkflowRequest {
+    pub request_text: String,
+}
+
+/// POST /api/workflows/:slug/run — instantiate a workflow into an execution session.
+pub async fn workflow_run(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Json(body): Json<RunWorkflowRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_id = workflow_mod::instantiate_workflow(
+        &state.db, &state.catalog, &slug, &body.request_text,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"session_id": session_id.to_string()})))
+}
+
+#[derive(Deserialize)]
+pub struct SaveAsWorkflowRequest {
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+/// POST /api/execute/:session_id/save-as-workflow — save session DAG as workflow template.
+pub async fn execution_save_as_workflow(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<SaveAsWorkflowRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    let workflow_id = workflow_mod::save_session_as_workflow(
+        &state.db, session_uuid, &body.slug, &body.name, body.description.as_deref(),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"workflow_id": workflow_id.to_string()})))
+}
+
+// ── Client Routes ────────────────────────────────────────────────────────────
+
+/// GET /api/clients — list clients.
+pub async fn clients_list(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let clients = client_mod::list_clients(&state.db).await.unwrap_or_default();
+    Json(json!({"clients": clients}))
+}
+
+#[derive(Deserialize)]
+pub struct CreateClientRequest {
+    pub slug: String,
+    pub name: String,
+    pub brief: Option<String>,
+    pub industry: Option<String>,
+}
+
+/// POST /api/clients — create a client.
+pub async fn client_create(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateClientRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let id = client_mod::create_client(
+        &state.db, &body.slug, &body.name, body.brief.as_deref(), body.industry.as_deref(), None,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"client_id": id.to_string()})))
+}
+
+/// GET /api/clients/:slug — get client detail with contacts and state.
+pub async fn client_get(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let client_id: Uuid = client.get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let contacts = client_mod::get_contacts(&state.db, client_id).await.unwrap_or_default();
+    let state_items = client_mod::list_state(&state.db, client_id, None).await.unwrap_or_default();
+
+    Ok(Json(json!({
+        "client": client,
+        "contacts": contacts,
+        "state": state_items,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct SetClientStateRequest {
+    pub workflow_slug: Option<String>,
+    pub state_key: String,
+    pub state_value: Value,
+}
+
+/// POST /api/clients/:slug/state — set client state.
+pub async fn client_set_state(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Json(body): Json<SetClientStateRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+
+    let client_id: Uuid = client.get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Invalid client ID"}))))?;
+
+    client_mod::set_state(
+        &state.db, client_id, body.workflow_slug.as_deref(), &body.state_key, &body.state_value,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
+// ── Feedback Routes ──────────────────────────────────────────────────────────
+
+/// GET /api/feedback — list feedback signals for an agent.
+pub async fn feedback_list(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<FeedbackQuery>,
+) -> Json<Value> {
+    let mut clauses = vec!["1=1".to_string()];
+    if let Some(slug) = &query.agent_slug {
+        clauses.push(format!("agent_slug = '{}'", slug.replace('\'', "''")));
+    }
+    if query.unresolved_only.unwrap_or(false) {
+        clauses.push("resolution IS NULL".to_string());
+    }
+
+    let sql = format!(
+        "SELECT * FROM feedback_signals WHERE {} ORDER BY created_at DESC LIMIT 100",
+        clauses.join(" AND ")
+    );
+    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    Json(json!({"signals": rows}))
+}
+
+#[derive(Deserialize)]
+pub struct FeedbackQuery {
+    pub agent_slug: Option<String>,
+    pub unresolved_only: Option<bool>,
+}
+
+/// POST /api/feedback/synthesize — trigger feedback synthesis into PRs.
+/// Ground truth PRs are auto-applied to the agent definitions.
+pub async fn feedback_synthesize(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pr_ids = feedback::synthesize_feedback(
+        &state.db,
+        &state.settings.anthropic_api_key,
+        &state.settings.anthropic_model,
+        Some(&state.catalog),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({
+        "created_prs": pr_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+        "count": pr_ids.len(),
+    })))
+}
+
+// ── DAG Editor Routes ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct UpdateNodeRequest {
+    pub agent_slug: Option<String>,
+    pub task_description: Option<String>,
+    pub tier_override: Option<String>,
+    pub breakpoint: Option<bool>,
+}
+
+/// PATCH /api/execute/:session_id/nodes/:node_id — update a node (DAG editor).
+pub async fn execution_node_update(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, node_id)): Path<(String, String)>,
+    Json(body): Json<UpdateNodeRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
+    })?;
+
+    let mut set_clauses = Vec::new();
+
+    if let Some(slug) = &body.agent_slug {
+        set_clauses.push(format!("agent_slug = '{}'", slug.replace('\'', "''")));
+    }
+    if let Some(desc) = &body.task_description {
+        set_clauses.push(format!("task_description = '{}'", desc.replace('\'', "''")));
+    }
+    if let Some(tier) = &body.tier_override {
+        set_clauses.push(format!("tier_override = '{tier}'"));
+    }
+    if let Some(bp) = body.breakpoint {
+        set_clauses.push(format!("breakpoint = {bp}"));
+    }
+
+    if set_clauses.is_empty() {
+        return Ok(Json(json!({"ok": true, "updated": false})));
+    }
+
+    let sql = format!(
+        "UPDATE execution_nodes SET {} WHERE id = '{}' AND session_id = '{}'",
+        set_clauses.join(", "), node_uuid, session_id
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({"ok": true, "updated": true})))
+}
+
+#[derive(Deserialize)]
+pub struct AddNodeRequest {
+    pub agent_slug: String,
+    pub task_description: String,
+    pub requires: Option<Vec<String>>,
+    pub tier_override: Option<String>,
+    pub breakpoint: Option<bool>,
+}
+
+/// POST /api/execute/:session_id/nodes — add a new node to a session (DAG editor).
+pub async fn execution_node_add(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<AddNodeRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let node_id = Uuid::new_v4();
+    let slug_escaped = body.agent_slug.replace('\'', "''");
+    let desc_escaped = body.task_description.replace('\'', "''");
+
+    let requires = body.requires.unwrap_or_default();
+    let requires_arr = if requires.is_empty() {
+        "ARRAY[]::uuid[]".to_string()
+    } else {
+        let items: Vec<String> = requires.iter().map(|u| format!("'{u}'::uuid")).collect();
+        format!("ARRAY[{}]", items.join(","))
+    };
+
+    let status = if requires.is_empty() { "pending" } else { "waiting" };
+    let tier_val = body.tier_override
+        .as_deref()
+        .map(|t| format!("'{t}'"))
+        .unwrap_or_else(|| "NULL".to_string());
+    let breakpoint = body.breakpoint.unwrap_or(false);
+
+    let agent = state.catalog.get(&body.agent_slug);
+    let model = agent.as_ref().and_then(|a| a.model.as_deref()).unwrap_or("claude-haiku-4-5-20251001");
+    let max_iter = agent.as_ref().map(|a| a.max_iterations).unwrap_or(15);
+    let skip_judge = agent.as_ref().map(|a| a.skip_judge).unwrap_or(false);
+    let judge_config = agent.as_ref()
+        .map(|a| serde_json::to_string(&a.judge_config).unwrap_or_default())
+        .unwrap_or_else(|| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string())
+        .replace('\'', "''");
+
+    let sql = format!(
+        r#"INSERT INTO execution_nodes
+            (id, session_id, agent_slug, agent_git_sha, task_description, status,
+             requires, attempt_count, judge_config, max_iterations, model, skip_judge,
+             tier_override, breakpoint)
+           VALUES
+            ('{node_id}', '{session_id}', '{slug_escaped}', 'manual', '{desc_escaped}',
+             '{status}', {requires_arr}, 0, '{judge_config}'::jsonb, {max_iter},
+             '{model}', {skip_judge}, {tier_val}, {breakpoint})"#
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({"node_id": node_id.to_string()})))
+}
+
+/// DELETE /api/execute/:session_id/nodes/:node_id — remove a node (DAG editor).
+pub async fn execution_node_delete(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, node_id)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let sql = format!(
+        "DELETE FROM execution_nodes WHERE id = '{node_id}' AND session_id = '{session_id}' AND status IN ('pending', 'waiting', 'ready')"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
+/// POST /api/execute/:session_id/nodes/:node_id/release — release a breakpoint node.
+pub async fn execution_node_release(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, node_id)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let sql = format!(
+        "UPDATE execution_nodes SET breakpoint = false WHERE id = '{node_id}' AND session_id = '{session_id}' AND status = 'ready'"
+    );
+
+    state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({"ok": true, "released": true})))
+}
+
+// ── Agent Version Routes ─────────────────────────────────────────────────────
+
+/// GET /api/catalog/:slug/versions — list agent versions.
+pub async fn catalog_versions(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let slug_escaped = slug.replace('\'', "''");
+    let sql = format!(
+        r#"SELECT av.id, av.version, av.change_summary, av.change_source, av.created_at
+           FROM agent_versions av
+           JOIN agent_definitions ad ON av.agent_id = ad.id
+           WHERE ad.slug = '{slug_escaped}'
+           ORDER BY av.version DESC"#
+    );
+
+    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"versions": rows})))
 }

@@ -1,6 +1,10 @@
 import type { RecordingState, CapturedEvent, MessageToBackground } from "./types";
 
 const BACKEND_URL = "http://localhost:3001";
+const SCREENSHOT_INTERVAL_MS = 500; // 2 per second (Chrome hard limit)
+const FLUSH_INTERVAL_MS = 10_000; // 10 second batches
+const MAX_SCREENSHOTS_PER_FLUSH = 3; // Send best 3 per batch
+const SCREENSHOT_BUFFER_MAX = 30; // Keep last 15 seconds
 
 let state: RecordingState = {
   isRecording: false,
@@ -9,6 +13,11 @@ let state: RecordingState = {
   sequenceCounter: 0,
   eventBuffer: [],
 };
+
+// Separate screenshot buffer (not mixed with events)
+let screenshotBuffer: Array<{ timestamp: number; base64: string; url: string }> = [];
+let screenshotTimer: ReturnType<typeof setInterval> | null = null;
+let flushTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Session management ──────────────────────────────────────────────────────
 
@@ -21,10 +30,13 @@ async function startSession(expertId: string): Promise<void> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as { session_id: string };
-    state = { ...state, isRecording: true, sessionId: data.session_id, expertId };
+    state = { ...state, isRecording: true, sessionId: data.session_id, expertId, sequenceCounter: 0 };
 
-    chrome.alarms.create("batch_flush", { periodInMinutes: 1 / 6 });
-    chrome.alarms.create("screenshot", { periodInMinutes: 0.5 });
+    // Start high-frequency screenshot capture (500ms = 2/sec, Chrome max)
+    screenshotTimer = setInterval(captureScreenshot, SCREENSHOT_INTERVAL_MS);
+
+    // Start batch flush timer (every 10 seconds)
+    flushTimer = setInterval(flushBatch, FLUSH_INTERVAL_MS);
 
     broadcast({ type: "SESSION_STARTED", sessionId: data.session_id });
   } catch (err) {
@@ -34,12 +46,20 @@ async function startSession(expertId: string): Promise<void> {
 
 async function stopSession(): Promise<void> {
   if (!state.sessionId) return;
+
+  // Stop timers
+  if (screenshotTimer) { clearInterval(screenshotTimer); screenshotTimer = null; }
+  if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+
+  // Final flush
   await flushBatch();
+
   try {
     await fetch(`${BACKEND_URL}/api/observe/session/${state.sessionId}/end`, { method: "POST" });
   } catch (_) { /* best effort */ }
+
   state = { ...state, isRecording: false, sessionId: null };
-  chrome.alarms.clearAll();
+  screenshotBuffer = [];
   broadcast({ type: "SESSION_ENDED" });
 }
 
@@ -56,47 +76,74 @@ function addToBuffer(event: CapturedEvent): void {
 }
 
 async function flushBatch(): Promise<void> {
-  if (!state.sessionId || state.eventBuffer.length === 0) return;
+  if (!state.sessionId) return;
+
   const events = [...state.eventBuffer];
   state = { ...state, eventBuffer: [] };
+
+  // Pick screenshots: latest + evenly spaced from the buffer
+  const screenshots = pickScreenshots();
+
+  // Nothing to send?
+  if (events.length === 0 && screenshots.length === 0) return;
+
   try {
     await fetch(`${BACKEND_URL}/api/observe/session/${state.sessionId}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events }),
+      body: JSON.stringify({ events, screenshots }),
     });
   } catch (_) {
+    // Re-add events on failure (screenshots are dropped — they're large)
     state = { ...state, eventBuffer: [...events, ...state.eventBuffer] };
   }
 }
 
-// ── Screenshot capture ──────────────────────────────────────────────────────
+function pickScreenshots(): Array<{ timestamp: number; base64: string }> {
+  if (screenshotBuffer.length === 0) return [];
+
+  if (screenshotBuffer.length <= MAX_SCREENSHOTS_PER_FLUSH) {
+    const picked = screenshotBuffer.map(({ timestamp, base64 }) => ({ timestamp, base64 }));
+    screenshotBuffer = [];
+    return picked;
+  }
+
+  // Pick: first, middle, and latest
+  const first = screenshotBuffer[0];
+  const mid = screenshotBuffer[Math.floor(screenshotBuffer.length / 2)];
+  const last = screenshotBuffer[screenshotBuffer.length - 1];
+  screenshotBuffer = [];
+
+  return [
+    { timestamp: first.timestamp, base64: first.base64 },
+    { timestamp: mid.timestamp, base64: mid.base64 },
+    { timestamp: last.timestamp, base64: last.base64 },
+  ];
+}
+
+// ── Screenshot capture (500ms interval, JPEG, downscaled) ───────────────────
 
 async function captureScreenshot(): Promise<void> {
   if (!state.isRecording) return;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
-    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png", quality: 60 });
-    const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");
-    addToBuffer({
-      sequence_number: nextSeq(),
-      event_type: "heartbeat",
-      url: tab.url ?? "",
-      domain: tab.url ? new URL(tab.url).hostname : "",
-      dom_context: null,
-      screenshot_b64: b64,
+
+    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "jpeg", quality: 50 });
+    const base64 = dataUrl.replace(/^data:image\/jpeg;base64,/, "");
+
+    screenshotBuffer.push({
       timestamp: Date.now(),
+      base64,
+      url: tab.url ?? "",
     });
+
+    // Cap buffer size
+    if (screenshotBuffer.length > SCREENSHOT_BUFFER_MAX) {
+      screenshotBuffer.splice(0, screenshotBuffer.length - SCREENSHOT_BUFFER_MAX);
+    }
   } catch (_) { /* tab may not support capture */ }
 }
-
-// ── Alarm handler ────────────────────────────────────────────────────────────
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "batch_flush") await flushBatch();
-  else if (alarm.name === "screenshot") await captureScreenshot();
-});
 
 // ── Message handler ──────────────────────────────────────────────────────────
 
@@ -129,4 +176,4 @@ function broadcast(msg: object): void {
   chrome.runtime.sendMessage(msg).catch(() => { /* sidepanel may be closed */ });
 }
 
-console.log("[lele] Background service worker started");
+console.log("[lele] Background service worker started (screenshots: 500ms JPEG)");

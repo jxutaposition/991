@@ -164,6 +164,7 @@ pub fn plan_to_execution_nodes(
             variant_group: None,
             variant_label: None,
             variant_selected: None,
+            client_id: None,
         });
     }
 

@@ -144,6 +144,28 @@ pub fn user_message(text: impl Into<String>) -> Value {
     json!({"role": "user", "content": text.into()})
 }
 
+/// Build a user message with an image (for vision models).
+/// Combines a base64 JPEG screenshot with text in a single message.
+pub fn user_message_with_image(text: impl Into<String>, image_b64: &str, media_type: &str) -> Value {
+    json!({
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": image_b64,
+                }
+            },
+            {
+                "type": "text",
+                "text": text.into(),
+            }
+        ]
+    })
+}
+
 pub fn assistant_message_from_response(content: &[Value]) -> Value {
     json!({"role": "assistant", "content": content})
 }

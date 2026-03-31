@@ -1,27 +1,21 @@
-/// Agent catalog — loads agent definitions from the agents/ directory on disk.
+/// Agent catalog — loads agent definitions from the database.
 ///
-/// Each agent is a folder under agents/<slug>/ containing:
-///   agent.toml       — identity, config, intents
-///   prompt.md        — system prompt (the core artifact)
-///   tools.toml       — tool access list
-///   input_schema.json
-///   output_schema.json
-///   judge_config.toml
-///   examples/NNN.json — few-shot examples
-///   knowledge/*.md   — reference docs
-///
-/// The file system is the source of truth. Git provides versioning.
-/// The DB only caches embeddings for planner search (not implemented in Phase 0).
+/// On first startup (empty DB), seeds from the agents/ directory on disk.
+/// After that, the DB is the source of truth. Agent PRs update the DB directly.
+/// An in-memory BTreeMap cache is maintained for fast lookups.
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
-// ── Agent file formats ────────────────────────────────────────────────────────
+use crate::pg::PgClient;
+
+// ── Agent file formats (used only for disk seeding) ──────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
 struct AgentToml {
@@ -109,7 +103,8 @@ pub struct AgentDefinition {
     pub skip_judge: bool,
     pub flexible_tool_use: bool,
 
-    /// Git SHA of the agents/ dir at load time (for provenance).
+    pub version: i32,
+    /// Git SHA kept for backward compat; version is the canonical tracker now.
     pub git_sha: String,
 }
 
@@ -164,69 +159,112 @@ pub struct ExecutionPlanNode {
     pub max_iterations: u32,
     pub model: String,
     pub skip_judge: bool,
-    // Branching variant support
     pub variant_group: Option<uuid::Uuid>,
     pub variant_label: Option<String>,
     pub variant_selected: Option<bool>,
+    pub client_id: Option<uuid::Uuid>,
 }
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 pub struct AgentCatalog {
-    agents: BTreeMap<String, AgentDefinition>,
+    agents: RwLock<BTreeMap<String, AgentDefinition>>,
     git_sha: String,
 }
 
 impl AgentCatalog {
-    /// Load all agent definitions from the agents/ directory.
-    pub fn load_from_disk(agents_dir: &Path) -> anyhow::Result<Self> {
-        let git_sha = resolve_git_sha(agents_dir);
+    /// Load all agent definitions from the database.
+    /// If the agent_definitions table is empty, seed from disk first.
+    pub async fn load(db: &PgClient, agents_dir: &Path) -> anyhow::Result<Self> {
+        let count_rows = db
+            .execute("SELECT COUNT(*) as cnt FROM agent_definitions")
+            .await?;
+        let count = count_rows
+            .first()
+            .and_then(|r| r.get("cnt").and_then(Value::as_i64))
+            .unwrap_or(0);
 
-        let mut agents = BTreeMap::new();
+        if count == 0 {
+            info!("agent_definitions table empty — seeding from disk");
+            seed_from_disk(db, agents_dir).await?;
+        }
 
-        for entry in WalkDir::new(agents_dir)
-            .min_depth(1)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_dir())
-        {
-            let agent_dir = entry.path();
-            match load_agent(agent_dir, &git_sha) {
-                Ok(agent) => {
-                    info!(slug = %agent.slug, "loaded agent");
-                    agents.insert(agent.slug.clone(), agent);
-                }
-                Err(e) => {
-                    warn!(dir = %agent_dir.display(), error = %e, "skipping agent (load error)");
-                }
+        let catalog = Self {
+            agents: RwLock::new(BTreeMap::new()),
+            git_sha: resolve_git_sha(agents_dir),
+        };
+        catalog.reload_all(db).await?;
+        Ok(catalog)
+    }
+
+    /// Reload all agents from DB into the in-memory cache.
+    pub async fn reload_all(&self, db: &PgClient) -> anyhow::Result<()> {
+        let rows = db
+            .execute(
+                "SELECT slug, name, category, description, intents, system_prompt, \
+                 tools, judge_config, input_schema, output_schema, examples, \
+                 knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
+                 version FROM agent_definitions ORDER BY slug",
+            )
+            .await?;
+
+        let mut map = BTreeMap::new();
+        for row in &rows {
+            if let Some(agent) = parse_agent_row(row, &self.git_sha) {
+                map.insert(agent.slug.clone(), agent);
             }
         }
 
-        info!(count = agents.len(), "agent catalog loaded");
-        Ok(Self { agents, git_sha })
+        info!(count = map.len(), "agent catalog loaded from DB");
+        let mut agents = self.agents.write().unwrap();
+        *agents = map;
+        Ok(())
     }
 
-    pub fn get(&self, slug: &str) -> Option<&AgentDefinition> {
-        self.agents.get(slug)
+    /// Reload a single agent from DB (called after PR approval).
+    pub async fn reload_agent(&self, db: &PgClient, slug: &str) -> anyhow::Result<()> {
+        let slug_escaped = slug.replace('\'', "''");
+        let rows = db
+            .execute(&format!(
+                "SELECT slug, name, category, description, intents, system_prompt, \
+                 tools, judge_config, input_schema, output_schema, examples, \
+                 knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
+                 version FROM agent_definitions WHERE slug = '{slug_escaped}'"
+            ))
+            .await?;
+
+        if let Some(row) = rows.first() {
+            if let Some(agent) = parse_agent_row(row, &self.git_sha) {
+                info!(slug = %slug, version = agent.version, "reloaded agent from DB");
+                let mut agents = self.agents.write().unwrap();
+                agents.insert(agent.slug.clone(), agent);
+            }
+        } else {
+            warn!(slug = %slug, "agent not found in DB during reload");
+        }
+        Ok(())
     }
 
-    pub fn all(&self) -> impl Iterator<Item = &AgentDefinition> {
-        self.agents.values()
+    pub fn get(&self, slug: &str) -> Option<AgentDefinition> {
+        self.agents.read().unwrap().get(slug).cloned()
+    }
+
+    pub fn all(&self) -> Vec<AgentDefinition> {
+        self.agents.read().unwrap().values().cloned().collect()
     }
 
     pub fn len(&self) -> usize {
-        self.agents.len()
+        self.agents.read().unwrap().len()
     }
 
     pub fn git_sha(&self) -> &str {
         &self.git_sha
     }
 
-    /// Build a catalog summary string for the LLM planner prompt.
     pub fn catalog_summary(&self) -> String {
+        let agents = self.agents.read().unwrap();
         let mut parts = Vec::new();
-        for agent in self.agents.values() {
+        for agent in agents.values() {
             parts.push(format!(
                 "Agent: {} (slug: \"{}\")\nCategory: {}\nDescription: {}\nIntents: [{}]\n",
                 agent.name,
@@ -238,23 +276,248 @@ impl AgentCatalog {
         }
         parts.join("\n")
     }
+
+    // Keep backward compat for code that still calls load_from_disk
+    pub fn load_from_disk(agents_dir: &Path) -> anyhow::Result<Self> {
+        let git_sha = resolve_git_sha(agents_dir);
+        let mut agents = BTreeMap::new();
+
+        for entry in WalkDir::new(agents_dir)
+            .min_depth(1)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_dir())
+        {
+            let agent_dir = entry.path();
+            match load_agent_from_disk(agent_dir, &git_sha) {
+                Ok(agent) => {
+                    agents.insert(agent.slug.clone(), agent);
+                }
+                Err(e) => {
+                    warn!(dir = %agent_dir.display(), error = %e, "skipping agent");
+                }
+            }
+        }
+
+        Ok(Self {
+            agents: RwLock::new(agents),
+            git_sha,
+        })
+    }
 }
 
-// ── Loading helpers ───────────────────────────────────────────────────────────
+// ── DB row parsing ───────────────────────────────────────────────────────────
 
-fn load_agent(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefinition> {
-    // agent.toml — required
+fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
+    let slug = row.get("slug")?.as_str()?.to_string();
+    let name = row.get("name")?.as_str()?.to_string();
+    let category = row
+        .get("category")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let description = row
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let system_prompt = row.get("system_prompt")?.as_str()?.to_string();
+    let version = row.get("version").and_then(Value::as_i64).unwrap_or(1) as i32;
+
+    let intents = parse_text_array(row.get("intents"));
+    let tools = parse_text_array(row.get("tools"));
+    let knowledge_docs = parse_text_array(row.get("knowledge_docs"));
+
+    let judge_config = row
+        .get("judge_config")
+        .and_then(|v| serde_json::from_value::<JudgeConfig>(v.clone()).ok())
+        .unwrap_or_default();
+
+    let input_schema = row
+        .get("input_schema")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+    let output_schema = row
+        .get("output_schema")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+
+    let examples = row
+        .get("examples")
+        .and_then(|v| serde_json::from_value::<Vec<AgentExample>>(v.clone()).ok())
+        .unwrap_or_default();
+
+    let max_iterations = row
+        .get("max_iterations")
+        .and_then(Value::as_i64)
+        .unwrap_or(15) as u32;
+    let model = row
+        .get("model")
+        .and_then(Value::as_str)
+        .map(String::from);
+    let skip_judge = row
+        .get("skip_judge")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let flexible_tool_use = row
+        .get("flexible_tool_use")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    Some(AgentDefinition {
+        slug,
+        name,
+        category,
+        description,
+        intents,
+        system_prompt,
+        tools,
+        input_schema,
+        output_schema,
+        judge_config,
+        examples,
+        knowledge_docs,
+        max_iterations,
+        model,
+        skip_judge,
+        flexible_tool_use,
+        version,
+        git_sha: git_sha.to_string(),
+    })
+}
+
+fn parse_text_array(val: Option<&Value>) -> Vec<String> {
+    val.and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+// ── Seeding from disk ────────────────────────────────────────────────────────
+
+async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> {
+    let git_sha = resolve_git_sha(agents_dir);
+
+    for entry in WalkDir::new(agents_dir)
+        .min_depth(1)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_dir())
+    {
+        let agent_dir = entry.path();
+        match load_agent_from_disk(agent_dir, &git_sha) {
+            Ok(agent) => {
+                if let Err(e) = insert_agent_to_db(db, &agent).await {
+                    warn!(slug = %agent.slug, error = %e, "failed to seed agent to DB");
+                } else {
+                    info!(slug = %agent.slug, "seeded agent to DB");
+                }
+            }
+            Err(e) => {
+                warn!(dir = %agent_dir.display(), error = %e, "skipping agent during seed");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::Result<()> {
+    let slug = agent.slug.replace('\'', "''");
+    let name = agent.name.replace('\'', "''");
+    let category = agent.category.replace('\'', "''");
+    let description = agent.description.replace('\'', "''");
+    let system_prompt = agent.system_prompt.replace('\'', "''");
+
+    let intents_arr = format_pg_text_array(&agent.intents);
+    let tools_arr = format_pg_text_array(&agent.tools);
+    let knowledge_arr = format_pg_text_array(&agent.knowledge_docs);
+
+    let judge_config_json = serde_json::to_string(&agent.judge_config)
+        .unwrap_or_else(|_| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string())
+        .replace('\'', "''");
+    let input_schema_json = agent.input_schema.to_string().replace('\'', "''");
+    let output_schema_json = agent.output_schema.to_string().replace('\'', "''");
+    let examples_json = serde_json::to_string(&agent.examples)
+        .unwrap_or_else(|_| "[]".to_string())
+        .replace('\'', "''");
+
+    let model_val = agent
+        .model
+        .as_deref()
+        .map(|m| format!("'{}'", m.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+
+    let sql = format!(
+        r#"INSERT INTO agent_definitions
+            (slug, name, category, description, intents, system_prompt, tools,
+             judge_config, input_schema, output_schema, examples, knowledge_docs,
+             max_iterations, model, skip_judge, flexible_tool_use, version)
+           VALUES
+            ('{slug}', '{name}', '{category}', '{description}', {intents_arr}, '{system_prompt}',
+             {tools_arr}, '{judge_config_json}'::jsonb, '{input_schema_json}'::jsonb,
+             '{output_schema_json}'::jsonb, '{examples_json}'::jsonb, {knowledge_arr},
+             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, 1)
+           ON CONFLICT (slug) DO NOTHING"#,
+        max_iter = agent.max_iterations,
+        skip_judge = agent.skip_judge,
+        flex_tool = agent.flexible_tool_use,
+    );
+
+    db.execute(&sql).await?;
+
+    // Create initial version snapshot
+    let snapshot = serde_json::json!({
+        "slug": agent.slug,
+        "name": agent.name,
+        "category": agent.category,
+        "description": agent.description,
+        "system_prompt": agent.system_prompt,
+        "version": 1,
+    });
+    let snapshot_json = snapshot.to_string().replace('\'', "''");
+
+    let version_sql = format!(
+        r#"INSERT INTO agent_versions (agent_id, version, snapshot, change_summary, change_source)
+           SELECT id, 1, '{snapshot_json}'::jsonb, 'Initial seed from disk', 'seed'
+           FROM agent_definitions WHERE slug = '{slug}'
+           ON CONFLICT (agent_id, version) DO NOTHING"#,
+    );
+    let _ = db.execute(&version_sql).await;
+
+    Ok(())
+}
+
+fn format_pg_text_array(items: &[String]) -> String {
+    if items.is_empty() {
+        "'{}'::text[]".to_string()
+    } else {
+        let escaped: Vec<String> = items
+            .iter()
+            .map(|s| format!("\"{}\"", s.replace('"', r#"\""#)))
+            .collect();
+        format!("'{{{}}}'::text[]", escaped.join(","))
+    }
+}
+
+// ── Disk loading helpers (used for seeding and backward compat) ──────────────
+
+fn load_agent_from_disk(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefinition> {
     let toml_path = dir.join("agent.toml");
     let toml_str = std::fs::read_to_string(&toml_path)
         .map_err(|e| anyhow::anyhow!("missing agent.toml in {}: {}", dir.display(), e))?;
     let meta: AgentToml = toml::from_str(&toml_str)
         .map_err(|e| anyhow::anyhow!("invalid agent.toml in {}: {}", dir.display(), e))?;
 
-    // prompt.md — required
     let prompt = std::fs::read_to_string(dir.join("prompt.md"))
         .map_err(|e| anyhow::anyhow!("missing prompt.md in {}: {}", dir.display(), e))?;
 
-    // tools.toml — optional (empty list if absent)
     let tools = if dir.join("tools.toml").exists() {
         let s = std::fs::read_to_string(dir.join("tools.toml"))?;
         let t: ToolsToml = toml::from_str(&s)
@@ -264,19 +527,16 @@ fn load_agent(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefinition> {
         Vec::new()
     };
 
-    // input_schema.json — optional
-    let input_schema = read_optional_json(dir.join("input_schema.json"))
-        .unwrap_or_else(|| serde_json::json!({}));
+    let input_schema =
+        read_optional_json(dir.join("input_schema.json")).unwrap_or_else(|| serde_json::json!({}));
+    let output_schema =
+        read_optional_json(dir.join("output_schema.json")).unwrap_or_else(|| serde_json::json!({}));
 
-    // output_schema.json — optional
-    let output_schema = read_optional_json(dir.join("output_schema.json"))
-        .unwrap_or_else(|| serde_json::json!({}));
-
-    // judge_config.toml — optional
     let judge_config = if dir.join("judge_config.toml").exists() {
         let s = std::fs::read_to_string(dir.join("judge_config.toml"))?;
-        let jc: JudgeConfigToml = toml::from_str(&s)
-            .map_err(|e| anyhow::anyhow!("invalid judge_config.toml in {}: {}", dir.display(), e))?;
+        let jc: JudgeConfigToml = toml::from_str(&s).map_err(|e| {
+            anyhow::anyhow!("invalid judge_config.toml in {}: {}", dir.display(), e)
+        })?;
         JudgeConfig {
             threshold: jc.threshold,
             rubric: jc.rubric,
@@ -286,10 +546,7 @@ fn load_agent(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefinition> {
         JudgeConfig::default()
     };
 
-    // examples/*.json — optional
     let examples = load_examples(dir);
-
-    // knowledge/*.md — optional
     let knowledge_docs = load_knowledge(dir);
 
     Ok(AgentDefinition {
@@ -309,6 +566,7 @@ fn load_agent(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefinition> {
         model: meta.model,
         skip_judge: meta.skip_judge,
         flexible_tool_use: meta.flexible_tool_use,
+        version: 1,
         git_sha: git_sha.to_string(),
     })
 }
@@ -377,7 +635,6 @@ fn load_knowledge(dir: &Path) -> Vec<String> {
 }
 
 fn resolve_git_sha(path: &Path) -> String {
-    // Try to get the git SHA for the agents/ directory
     Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .current_dir(path)
@@ -385,7 +642,9 @@ fn resolve_git_sha(path: &Path) -> String {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
             } else {
                 None
             }

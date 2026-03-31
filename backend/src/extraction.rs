@@ -1,16 +1,17 @@
 /// Post-session extraction pipeline.
 ///
 /// Converts distillations → abstracted_tasks → agent PRs.
-/// Uses Claude Sonnet for segmentation, matching, and drift detection
-/// (skipping embeddings/pgvector for simplicity).
-use serde_json::{json, Value};
+/// Uses Claude Sonnet for segmentation, matching, and drift detection.
+/// Now also triggers reasoning pipeline and genesis path for unmatched tasks.
+use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::agent_catalog::AgentCatalog;
 use crate::anthropic::{user_message, AnthropicClient};
 use crate::pg::PgClient;
-use crate::pr_engine;
+use crate::pr_engine::{self, DriftResult};
+use crate::reasoning;
 
 /// Run the full extraction pipeline for a completed observation session.
 pub async fn run_extraction(
@@ -19,11 +20,9 @@ pub async fn run_extraction(
     api_key: &str,
     model: &str,
     session_id: &str,
-    agents_dir: &str,
 ) -> anyhow::Result<()> {
     info!(session = %session_id, "starting extraction pipeline");
 
-    // Load distillations for this session
     let dist_sql = format!(
         "SELECT narrator_text, expert_correction, sequence_ref FROM distillations WHERE session_id = '{}' ORDER BY sequence_ref",
         session_id
@@ -41,14 +40,14 @@ pub async fn run_extraction(
     let tasks = segment_distillations(&client, &distillations, model).await?;
     info!(session = %session_id, tasks = tasks.len(), "segmentation complete");
 
-    // Persist tasks
+    // Persist tasks (now includes expert_heuristic)
     for task in &tasks {
         let desc_escaped = task.description.replace('\'', "''");
         let heuristic_escaped = task.expert_heuristic.replace('\'', "''");
         let sql = format!(
-            r#"INSERT INTO abstracted_tasks (id, session_id, description, status)
-               VALUES ('{}', '{}', '{}', 'pending')"#,
-            task.id, session_id, desc_escaped
+            r#"INSERT INTO abstracted_tasks (id, session_id, description, expert_heuristic, status)
+               VALUES ('{}', '{}', '{}', '{}', 'pending')"#,
+            task.id, session_id, desc_escaped, heuristic_escaped
         );
         let _ = db.execute(&sql).await;
     }
@@ -58,17 +57,11 @@ pub async fn run_extraction(
     let matches = match_tasks_to_agents(&client, &tasks, &catalog_summary, model).await?;
     info!(session = %session_id, matches = matches.len(), "matching complete");
 
-    // Update tasks with match results
     for m in &matches {
-        let status = if m.confidence >= 0.85 {
-            "matched"
-        } else if m.confidence >= 0.60 {
-            "matched"
-        } else {
-            "unmatched"
-        };
-
-        let slug_val = m.matched_agent_slug.as_deref()
+        let status = if m.confidence >= 0.60 { "matched" } else { "unmatched" };
+        let slug_val = m
+            .matched_agent_slug
+            .as_deref()
             .map(|s| format!("'{}'", s.replace('\'', "''")))
             .unwrap_or_else(|| "NULL".to_string());
 
@@ -80,7 +73,8 @@ pub async fn run_extraction(
     }
 
     // Step 3: Drift detection for high-confidence matches
-    let high_confidence: Vec<_> = matches.iter()
+    let high_confidence: Vec<_> = matches
+        .iter()
         .filter(|m| m.confidence >= 0.85 && m.matched_agent_slug.is_some())
         .collect();
 
@@ -88,8 +82,7 @@ pub async fn run_extraction(
 
     for m in high_confidence {
         let slug = m.matched_agent_slug.as_deref().unwrap();
-        let task = tasks.iter().find(|t| t.id == m.task_id);
-        let task = match task {
+        let task = match tasks.iter().find(|t| t.id == m.task_id) {
             Some(t) => t,
             None => continue,
         };
@@ -107,20 +100,16 @@ pub async fn run_extraction(
             &agent.system_prompt,
             &agent.judge_config.rubric,
             model,
-        ).await;
+        )
+        .await;
 
         match drift {
             Ok(drift) if drift.drift_detected => {
                 info!(agent = slug, gap = %drift.gap_description, "drift detected — creating PR");
                 let _ = pr_engine::create_enhancement_pr(
-                    db,
-                    slug,
-                    &drift,
-                    task,
-                    session_id,
-                    m.confidence,
-                    agents_dir,
-                ).await;
+                    db, slug, &drift, task, session_id, m.confidence,
+                )
+                .await;
             }
             Ok(_) => {
                 info!(agent = slug, "no drift detected");
@@ -129,6 +118,42 @@ pub async fn run_extraction(
                 warn!(agent = slug, error = %e, "drift detection failed");
             }
         }
+    }
+
+    // Step 4: Genesis path — propose new agents for unmatched tasks
+    let unmatched: Vec<_> = matches
+        .iter()
+        .filter(|m| m.confidence < 0.60)
+        .collect();
+
+    if !unmatched.is_empty() {
+        info!(session = %session_id, unmatched = unmatched.len(), "checking genesis path for unmatched tasks");
+
+        let unmatched_tasks: Vec<&AbstractedTask> = unmatched
+            .iter()
+            .filter_map(|m| tasks.iter().find(|t| t.id == m.task_id))
+            .collect();
+
+        if unmatched_tasks.len() >= 2 {
+            let proposed_slug = infer_slug(api_key, model, &unmatched_tasks).await;
+            let descriptions: Vec<String> = unmatched_tasks.iter().map(|t| t.description.clone()).collect();
+            let heuristics: Vec<String> = unmatched_tasks.iter().map(|t| t.expert_heuristic.clone()).collect();
+            let session_ids = vec![session_id.to_string()];
+
+            match pr_engine::create_new_agent_pr(
+                db, api_key, model, &proposed_slug, &descriptions, &heuristics, &session_ids,
+            )
+            .await
+            {
+                Ok(pr_id) => info!(pr = %pr_id, slug = proposed_slug, "genesis PR created"),
+                Err(e) => warn!(error = %e, "genesis PR creation failed"),
+            }
+        }
+    }
+
+    // Step 5: Run reasoning pipeline (analyzes for deeper feedback signals)
+    if let Err(e) = reasoning::run_reasoning(db, catalog, api_key, model, session_id).await {
+        warn!(error = %e, "reasoning pipeline failed");
     }
 
     info!(session = %session_id, "extraction pipeline complete");
@@ -152,13 +177,6 @@ pub struct MatchResult {
     pub reasoning: String,
 }
 
-pub struct DriftResult {
-    pub drift_detected: bool,
-    pub gap_description: String,
-    pub prompt_addition: String,
-    pub rubric_additions: Vec<String>,
-}
-
 // ── Step 1: Segmentation ─────────────────────────────────────────────────────
 
 async fn segment_distillations(
@@ -168,7 +186,10 @@ async fn segment_distillations(
 ) -> anyhow::Result<Vec<AbstractedTask>> {
     let mut narration_text = String::new();
     for d in distillations {
-        let text = d.get("narrator_text").and_then(Value::as_str).unwrap_or("");
+        let text = d
+            .get("narrator_text")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let correction = d.get("expert_correction").and_then(Value::as_str);
         let seq = d.get("sequence_ref").and_then(Value::as_i64).unwrap_or(0);
 
@@ -217,20 +238,33 @@ Output a JSON array (no other text):
 
     let tasks = parsed
         .into_iter()
-        .map(|v| {
-            AbstractedTask {
-                id: Uuid::new_v4(),
-                description: v.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
-                expert_heuristic: v.get("expert_heuristic").and_then(Value::as_str).unwrap_or("").to_string(),
-                tools_used: v.get("tools_used")
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
-                    .unwrap_or_default(),
-                sequence_refs: v.get("sequence_refs")
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(Value::as_i64).collect())
-                    .unwrap_or_default(),
-            }
+        .map(|v| AbstractedTask {
+            id: Uuid::new_v4(),
+            description: v
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            expert_heuristic: v
+                .get("expert_heuristic")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            tools_used: v
+                .get("tools_used")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            sequence_refs: v
+                .get("sequence_refs")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                .unwrap_or_default(),
         })
         .collect();
 
@@ -299,12 +333,17 @@ If no agent matches, set matched_agent_slug to null and confidence to 0.0."#;
             let task = tasks.get(idx)?;
             Some(MatchResult {
                 task_id: task.id,
-                matched_agent_slug: v.get("matched_agent_slug")
+                matched_agent_slug: v
+                    .get("matched_agent_slug")
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(String::from),
                 confidence: v.get("confidence").and_then(Value::as_f64).unwrap_or(0.0),
-                reasoning: v.get("reasoning").and_then(Value::as_str).unwrap_or("").to_string(),
+                reasoning: v
+                    .get("reasoning")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
             })
         })
         .collect();
@@ -352,12 +391,56 @@ async fn detect_drift(
         .map_err(|e| anyhow::anyhow!("drift detection JSON parse error: {e}"))?;
 
     Ok(DriftResult {
-        drift_detected: parsed.get("drift_detected").and_then(Value::as_bool).unwrap_or(false),
-        gap_description: parsed.get("gap_description").and_then(Value::as_str).unwrap_or("").to_string(),
-        prompt_addition: parsed.get("prompt_addition").and_then(Value::as_str).unwrap_or("").to_string(),
-        rubric_additions: parsed.get("rubric_additions")
+        drift_detected: parsed
+            .get("drift_detected")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        gap_description: parsed
+            .get("gap_description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        prompt_addition: parsed
+            .get("prompt_addition")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        rubric_additions: parsed
+            .get("rubric_additions")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
             .unwrap_or_default(),
     })
+}
+
+// ── Genesis helpers ──────────────────────────────────────────────────────────
+
+async fn infer_slug(api_key: &str, model: &str, tasks: &[&AbstractedTask]) -> String {
+    let client = AnthropicClient::new(api_key.to_string(), model.to_string());
+
+    let mut desc_text = String::new();
+    for (i, t) in tasks.iter().enumerate() {
+        desc_text.push_str(&format!("{}: {}\n", i + 1, t.description));
+    }
+
+    let system = "Given a list of similar tasks, generate a short snake_case slug (2-4 words) for the agent that would handle them. Output only the slug, nothing else.";
+    let prompt = format!("Tasks:\n{desc_text}");
+
+    match client
+        .messages(system, &[user_message(prompt)], &[], 64, Some(model))
+        .await
+    {
+        Ok(resp) => {
+            let slug = resp.text().trim().to_lowercase().replace(' ', "_");
+            slug.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_')
+                .collect::<String>()
+        }
+        Err(_) => "auto_generated_agent".to_string(),
+    }
 }

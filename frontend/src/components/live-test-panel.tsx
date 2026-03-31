@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Globe, AlertCircle } from "lucide-react";
 
 export function LiveTestPanel({
@@ -14,7 +14,29 @@ export function LiveTestPanel({
   onEndSession: () => void;
   isRecording: boolean;
 }) {
-  const [url, setUrl] = useState("/mock-gtm/sales-nav/search");
+  const [iframeSrc, setIframeSrc] = useState("/mock-gtm/sales-nav/search");
+  const [inputValue, setInputValue] = useState("/mock-gtm/sales-nav/search");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  function normalizeUrl(raw: string): string {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("/")) return trimmed;
+    if (/^https?:\/\//.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  }
+
+  function toIframeSrc(raw: string): string {
+    const normalized = normalizeUrl(raw);
+    // Local/mock paths load directly; external URLs go through the proxy
+    if (normalized.startsWith("/")) return normalized;
+    return `/proxy?url=${encodeURIComponent(normalized)}`;
+  }
+
+  function navigateTo(raw: string) {
+    const normalized = normalizeUrl(raw);
+    setInputValue(normalized);
+    setIframeSrc(toIframeSrc(raw));
+  }
 
   return (
     <div className="flex flex-col h-full bg-surface">
@@ -23,11 +45,11 @@ export function LiveTestPanel({
         <Globe className="w-3.5 h-3.5 text-ink-3 shrink-0" />
         <input
           type="text"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && setUrl(url)}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && navigateTo(inputValue)}
           className="flex-1 bg-surface border border-rim rounded px-2 py-1 text-xs font-mono text-ink focus:outline-none focus:border-brand"
-          placeholder="Enter URL..."
+          placeholder="Enter URL (e.g. google.com or /mock-gtm/sales-nav/search)"
         />
         {!isRecording ? (
           <button
@@ -60,8 +82,8 @@ export function LiveTestPanel({
           <AlertCircle className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
           <div className="text-[10px] text-blue-700">
             <p className="font-medium">How Live Test works:</p>
-            <p className="mt-0.5">1. Click "Start Recording" to create an observation session</p>
-            <p>2. Browse mock pages in the iframe below, or real sites in a separate tab with the Chrome extension</p>
+            <p className="mt-0.5">1. Click &quot;Start Recording&quot; to create an observation session</p>
+            <p>2. Browse mock pages or any website in the iframe below</p>
             <p>3. Events appear in the live feed on the right</p>
           </div>
         </div>
@@ -70,9 +92,11 @@ export function LiveTestPanel({
       {/* Iframe */}
       <div className="flex-1">
         <iframe
-          src={url}
+          ref={iframeRef}
+          src={iframeSrc}
           className="w-full h-full border-0"
           title="Live browsing"
+          sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
         />
       </div>
     </div>

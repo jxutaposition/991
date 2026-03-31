@@ -15,6 +15,7 @@ use crate::anthropic::{
     ToolDef,
 };
 use crate::config::Settings;
+use crate::pg::PgClient;
 use crate::tools;
 
 const MAX_JUDGE_RETRIES: u32 = 2;
@@ -33,12 +34,13 @@ pub struct AgentResult {
 #[derive(Clone)]
 pub struct AgentRunner {
     settings: Arc<Settings>,
+    db: PgClient,
     catalog: Arc<AgentCatalog>,
 }
 
 impl AgentRunner {
-    pub fn new(settings: Arc<Settings>, _db: crate::pg::PgClient, catalog: Arc<AgentCatalog>) -> Self {
-        Self { settings, catalog }
+    pub fn new(settings: Arc<Settings>, db: PgClient, catalog: Arc<AgentCatalog>) -> Self {
+        Self { settings, db, catalog }
     }
 
     pub async fn run(
@@ -72,9 +74,23 @@ impl AgentRunner {
             }
         };
 
-        // Build system prompt with upstream context injected
+        // Build system prompt with upstream context and client context injected
         let upstream_context = build_upstream_context(upstream_outputs);
-        let system_prompt = build_system_prompt(&agent.system_prompt, &upstream_context, agent);
+
+        let client_context = if let Some(client_id) = plan_node.client_id {
+            crate::client::build_client_context(&self.db, client_id, None)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let system_prompt = build_system_prompt(
+            &agent.system_prompt,
+            &upstream_context,
+            &client_context,
+            &agent,
+        );
 
         // Build tool list for this agent
         let agent_tools = tools::tools_for_agent(
@@ -454,11 +470,16 @@ impl AgentRunner {
 fn build_system_prompt(
     base_prompt: &str,
     upstream_context: &str,
+    client_context: &str,
     agent: &crate::agent_catalog::AgentDefinition,
 ) -> String {
     let mut prompt = base_prompt.to_string();
 
-    // Inject knowledge docs
+    if !client_context.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(client_context);
+    }
+
     if !agent.knowledge_docs.is_empty() {
         prompt.push_str("\n\n## Reference Knowledge\n");
         for doc in &agent.knowledge_docs {
@@ -467,7 +488,6 @@ fn build_system_prompt(
         }
     }
 
-    // Inject few-shot examples
     if !agent.examples.is_empty() {
         prompt.push_str("\n\n## Examples\n");
         for (i, ex) in agent.examples.iter().enumerate() {

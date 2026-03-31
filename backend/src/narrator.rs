@@ -10,14 +10,21 @@ use tracing::{info, warn};
 use crate::anthropic::{user_message, AnthropicClient};
 use crate::pg::PgClient;
 
-const NARRATOR_SYSTEM: &str = r#"You are a real-time observer of a GTM expert's workflow. You receive batches of browser events capturing what they are doing. Your job is to narrate what you observe in plain English — specifically: what task are they performing, what decision are they making, and what heuristic or judgment are they applying?
+const NARRATOR_SYSTEM: &str = r#"You are a real-time observer of a GTM expert's workflow. You receive browser events AND a screenshot of what the expert is currently looking at.
 
-Focus on: WHAT they did, WHY they likely did it, and any decision logic you can infer.
+Your job: narrate what you observe — what task are they performing, what decision are they making, and what heuristic or judgment are they applying?
+
+When a screenshot is provided, use it to understand:
+- What information is visible on screen (company names, funding amounts, contact details, etc.)
+- What the expert is evaluating or reading
+- What signals on the page are driving their actions
+
+Focus on: WHAT they did, WHY they likely did it, and any decision logic you can infer from both their actions AND what's visible on screen.
 Be concise (1-3 sentences per batch). Flag when you're uncertain with "(inferred)".
 
-Do not describe mechanical events (clicked button, typed text). Describe the expert's *intent* and *judgment* (researched the prospect's recent funding round to personalize the outreach, decided to filter leads by hiring growth signal rather than company size).
+Do not describe mechanical events. Describe the expert's *intent* and *judgment*.
 
-The expert can correct you in real-time. Their corrections are the ground truth. When prior corrections are shown, incorporate that understanding into your narration."#;
+The expert can correct you in real-time. Their corrections are ground truth."#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedEvent {
@@ -46,11 +53,12 @@ impl Narrator {
         Self { api_key, model }
     }
 
-    /// Narrate a batch of events given prior context.
+    /// Narrate a batch of events given prior context and optional screenshot.
     pub async fn narrate(
         &self,
         events: &[CapturedEvent],
         prior_narrations: &[PriorNarration],
+        screenshot_b64: Option<&str>,
     ) -> anyhow::Result<String> {
         let client = AnthropicClient::new(
             self.api_key.clone(),
@@ -60,12 +68,19 @@ impl Narrator {
         let prior_context = build_prior_context(prior_narrations);
         let events_text = build_events_text(events);
 
-        let prompt = format!(
+        let prompt_text = format!(
             "{prior_context}\n## Current Event Batch\n{events_text}\n\nNarrate:"
         );
 
+        // Use vision message if screenshot available, otherwise text-only
+        let message = if let Some(img_b64) = screenshot_b64 {
+            crate::anthropic::user_message_with_image(prompt_text, img_b64, "image/jpeg")
+        } else {
+            user_message(prompt_text)
+        };
+
         let response = client
-            .messages(NARRATOR_SYSTEM, &[user_message(prompt)], &[], 512, None)
+            .messages(NARRATOR_SYSTEM, &[message], &[], 512, None)
             .await
             .map_err(|e| anyhow::anyhow!("narrator LLM call failed: {e}"))?;
 

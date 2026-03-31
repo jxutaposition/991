@@ -15,8 +15,10 @@ use uuid::Uuid;
 use crate::agent_catalog::{AgentCatalog, ExecutionPlanNode, NodeStatus};
 use crate::agent_runner::{AgentResult, AgentRunner};
 use crate::config::Settings;
+use crate::feedback;
 use crate::pg::PgClient;
 use crate::session::EventBus;
+use crate::tier;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const STALE_NODE_TIMEOUT: Duration = Duration::from_secs(600); // 10 min
@@ -151,6 +153,32 @@ async fn execute_node(
         return;
     }
 
+    // Record run history for tier computation
+    let _ = tier::record_run(
+        &db,
+        &agent_slug,
+        &node.task_description,
+        &session_id.to_string(),
+        &uid.to_string(),
+        result.status.as_str(),
+        result.judge_score,
+    )
+    .await;
+
+    // Record judge failures as feedback signals for agent learning
+    if result.status == NodeStatus::Failed {
+        if let Some(judge_fb) = &result.judge_feedback {
+            let _ = feedback::record_judge_failure_signal(
+                &db,
+                &agent_slug,
+                &session_id.to_string(),
+                judge_fb,
+                &node.task_description,
+            )
+            .await;
+        }
+    }
+
     // Unblock or skip downstream nodes
     match result.status {
         NodeStatus::Passed => {
@@ -177,6 +205,7 @@ async fn claim_ready_nodes(
     limit: usize,
 ) -> anyhow::Result<Vec<ExecutionPlanNode>> {
     // Mark nodes as running atomically using a CTE
+    // Skip breakpoint nodes — they stay "ready" until user explicitly removes the breakpoint
     let sql = format!(
         r#"
         WITH claimed AS (
@@ -188,6 +217,7 @@ async fn claim_ready_nodes(
                 SELECT id FROM execution_nodes
                 WHERE status = 'ready'
                   AND attempt_count < {MAX_ATTEMPTS}
+                  AND (breakpoint IS NULL OR breakpoint = false)
                 ORDER BY created_at
                 LIMIT {limit}
                 FOR UPDATE SKIP LOCKED
@@ -199,7 +229,7 @@ async fn claim_ready_nodes(
             status, requires, attempt_count, parent_uid,
             input, output, judge_score, judge_feedback,
             judge_config, max_iterations, model, skip_judge,
-            variant_group, variant_label, variant_selected
+            variant_group, variant_label, variant_selected, client_id
         FROM claimed
         "#
     );
@@ -261,6 +291,7 @@ fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
         variant_group: row.get("variant_group").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()),
         variant_label: row.get("variant_label").and_then(Value::as_str).map(String::from),
         variant_selected: row.get("variant_selected").and_then(Value::as_bool),
+        client_id: row.get("client_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()),
     })
 }
 

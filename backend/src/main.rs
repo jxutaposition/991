@@ -18,6 +18,7 @@ use lele2_backend::{
     session::EventBus,
     state::AppState,
     work_queue,
+    workflow,
 };
 
 #[tokio::main]
@@ -36,9 +37,12 @@ async fn main() -> anyhow::Result<()> {
 
     let settings = Arc::new(Settings::from_env());
 
-    info!("loading agent catalog from {:?}", settings.agents_dir);
+    let db = PgClient::new(&settings.database_url).await?;
+
+    info!("loading agent catalog from DB (seed dir: {:?})", settings.agents_dir);
     let catalog = Arc::new(
-        AgentCatalog::load_from_disk(&settings.agents_dir)
+        AgentCatalog::load(&db, &settings.agents_dir)
+            .await
             .expect("failed to load agent catalog"),
     );
     info!(
@@ -46,8 +50,6 @@ async fn main() -> anyhow::Result<()> {
         catalog.len(),
         catalog.git_sha()
     );
-
-    let db = PgClient::new(&settings.database_url).await?;
     let event_bus = EventBus::new();
 
     // Initialize Slack client if configured
@@ -79,6 +81,13 @@ async fn main() -> anyhow::Result<()> {
         db.clone(),
         catalog.clone(),
         event_bus.clone(),
+        shutdown_rx.clone(),
+    );
+
+    // Spawn workflow scheduler
+    workflow::spawn_scheduler(
+        db.clone(),
+        catalog.clone(),
         shutdown_rx,
     );
 
@@ -115,7 +124,28 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/data/query", post(routes::data_query))
         .route("/api/data/tables/:table/rows", get(routes::data_table_rows))
         // Demo
-        .route("/api/demo/run", post(routes::demo_run));
+        .route("/api/demo/run", post(routes::demo_run))
+        // Workflows
+        .route("/api/workflows", get(routes::workflows_list))
+        .route("/api/workflows", post(routes::workflow_create))
+        .route("/api/workflows/:slug", get(routes::workflow_get))
+        .route("/api/workflows/:slug/run", post(routes::workflow_run))
+        .route("/api/execute/:session_id/save-as-workflow", post(routes::execution_save_as_workflow))
+        // Clients
+        .route("/api/clients", get(routes::clients_list))
+        .route("/api/clients", post(routes::client_create))
+        .route("/api/clients/:slug", get(routes::client_get))
+        .route("/api/clients/:slug/state", post(routes::client_set_state))
+        // Feedback
+        .route("/api/feedback", get(routes::feedback_list))
+        .route("/api/feedback/synthesize", post(routes::feedback_synthesize))
+        // DAG editor
+        .route("/api/execute/:session_id/nodes", post(routes::execution_node_add))
+        .route("/api/execute/:session_id/nodes/:node_id", axum::routing::patch(routes::execution_node_update))
+        .route("/api/execute/:session_id/nodes/:node_id", axum::routing::delete(routes::execution_node_delete))
+        .route("/api/execute/:session_id/nodes/:node_id/release", post(routes::execution_node_release))
+        // Agent versions
+        .route("/api/catalog/:slug/versions", get(routes::catalog_versions));
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]
