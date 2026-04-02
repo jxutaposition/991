@@ -252,24 +252,6 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
             required_credential: None, // Generic — credential depends on agent context
         },
 
-        // Browser automation tool (for tools without APIs)
-        ToolDef {
-            name: "browser_action".to_string(),
-            description: "Perform a browser automation action: navigate to a URL, click an element, type text, read page content, or take a screenshot. Use for tools that lack API access.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["navigate", "click", "type", "read", "screenshot", "wait"], "description": "Browser action to perform"},
-                    "url": {"type": "string", "description": "URL to navigate to (for navigate action)"},
-                    "selector": {"type": "string", "description": "CSS selector for the target element (for click/type/read)"},
-                    "text": {"type": "string", "description": "Text to type (for type action)"},
-                    "wait_ms": {"type": "integer", "description": "Milliseconds to wait (for wait action, default 1000)"}
-                },
-                "required": ["action"]
-            }),
-            required_credential: None,
-        },
-
         // Internal orchestration tools (always available)
         ToolDef {
             name: "read_upstream_output".to_string(),
@@ -285,12 +267,13 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "write_output".to_string(),
-            description: "Write this agent's final structured output. Call once when the task is complete.".to_string(),
+            description: "Write this agent's final structured output. Call ONLY after verifying your work is complete: all acceptance criteria met, deliverables exist and are functional (not just planned), and results verified by reading them back or testing. If you haven't verified, do that first.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "result": {"type": "object", "description": "The structured output matching this agent's output_schema"},
-                    "summary": {"type": "string", "description": "Human-readable summary of what was produced"}
+                    "summary": {"type": "string", "description": "Human-readable summary of what was produced"},
+                    "verification": {"type": "string", "description": "How you verified the work is correct (e.g. 'fetched the created workflow via GET and confirmed 3 nodes configured', 'loaded the dashboard URL and confirmed data displays')"}
                 },
                 "required": ["result", "summary"]
             }),
@@ -824,11 +807,13 @@ pub async fn execute_tool(
                 _ => client.get(url),
             };
 
-            // Check if agent already provided Authorization header
-            let has_auth = input
-                .get("headers")
-                .and_then(Value::as_object)
+            // Check which headers the agent already provided
+            let agent_headers = input.get("headers").and_then(Value::as_object);
+            let has_auth = agent_headers
                 .map(|h| h.keys().any(|k| k.eq_ignore_ascii_case("authorization")))
+                .unwrap_or(false);
+            let has_notion_version = agent_headers
+                .map(|h| h.keys().any(|k| k.eq_ignore_ascii_case("notion-version")))
                 .unwrap_or(false);
 
             if let Some(headers) = input.get("headers").and_then(Value::as_object) {
@@ -858,7 +843,9 @@ pub async fn execute_tool(
                                 .unwrap_or_else(|| cred.value.clone())
                         } else { cred.value.clone() };
                         request = request.header("Authorization", format!("Bearer {token}"));
-                        request = request.header("Notion-Version", "2022-06-28");
+                        if !has_notion_version {
+                            request = request.header("Notion-Version", "2022-06-28");
+                        }
                     }
                 } else if url.contains("api.clay.com") || url.contains("app.clay.com") {
                     if let Some(cred) = credentials.get("clay") {
@@ -922,29 +909,31 @@ pub async fn execute_tool(
                 request = request.json(body);
             }
 
+            tracing::info!(
+                %method, %url,
+                has_auth = %has_auth,
+                has_body = input.get("body").is_some(),
+                "http_request outgoing"
+            );
+
             match request.send().await {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     let body_text = resp.text().await.unwrap_or_default();
                     let body_preview: String = body_text.chars().take(4000).collect();
+                    if status >= 400 {
+                        tracing::warn!(%method, %url, %status, body = %body_preview.chars().take(500).collect::<String>(), "http_request error response");
+                    }
                     json!({
                         "status": status,
                         "body": body_preview,
                     }).to_string()
                 }
                 Err(e) => {
+                    tracing::error!(%method, %url, error = %e, "http_request failed");
                     json!({"error": format!("HTTP request failed: {}", e)}).to_string()
                 }
             }
-        }
-
-        "browser_action" => {
-            let action = input.get("action").and_then(Value::as_str).unwrap_or("");
-            json!({
-                "status": "not_implemented",
-                "action": action,
-                "note": "Browser automation requires a headless browser runtime. This is a placeholder — integrate with Playwright/Puppeteer in Phase 2."
-            }).to_string()
         }
 
         _ => {

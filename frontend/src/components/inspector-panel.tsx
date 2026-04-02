@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Activity,
   Brain,
@@ -19,6 +19,11 @@ import {
   ExternalLink,
   Pencil,
   Save,
+  MessageCircle,
+  Send,
+  User,
+  Bot,
+  Wrench,
 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -42,11 +47,19 @@ interface ToolCredentialInfo {
   icon?: string;
 }
 
+interface SetupStep {
+  label: string;
+  help?: string;
+  doc_url?: string;
+  required?: boolean;
+}
+
 interface IntegrationDetail {
   slug: string;
   display_name: string;
   icon: string;
   status: "connected" | "missing";
+  setup_steps?: SetupStep[];
 }
 
 interface AgentCredentialInfo {
@@ -80,6 +93,15 @@ export interface ThinkingBlock {
   created_at: string;
 }
 
+export interface NodeMessage {
+  id: string;
+  node_id: string;
+  role: "user" | "assistant" | "tool_use" | "tool_result";
+  content: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 interface InspectorPanelProps {
   selectedNode: ExecutionNode | null;
   nodeEvents: ExecutionEvent[];
@@ -92,6 +114,9 @@ interface InspectorPanelProps {
   thinkingBlocks?: ThinkingBlock[];
   thinkingBlocksLoading?: boolean;
   liveThinkingChunks?: Record<number, string>;
+  nodeMessages?: NodeMessage[];
+  nodeMessagesLoading?: boolean;
+  onReply?: (nodeId: string, message: string) => Promise<void>;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
@@ -131,6 +156,9 @@ function NodeDetailContent({
 
   const hasIntegrations = (credInfo?.required_integrations?.length ?? 0) > 0;
   const isBlocked = credInfo?.status === "blocked";
+  const hasSetupSteps = (credInfo?.integration_details ?? []).some(
+    (d) => d.status === "connected" && d.setup_steps && d.setup_steps.some((s) => s.required)
+  );
 
   const handleSaveTask = useCallback(async () => {
     if (!onNodeUpdate || taskDraft === selectedNode.task_description) {
@@ -201,9 +229,11 @@ function NodeDetailContent({
         <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
           isBlocked
             ? "bg-amber-50 border border-amber-200 text-amber-800"
-            : hasIntegrations
-              ? "bg-green-50 border border-green-200 text-green-800"
-              : "bg-gray-50 border border-rim text-ink-3"
+            : hasIntegrations && hasSetupSteps
+              ? "bg-orange-50 border border-orange-200 text-orange-800"
+              : hasIntegrations
+                ? "bg-green-50 border border-green-200 text-green-800"
+                : "bg-gray-50 border border-rim text-ink-3"
         }`}>
           {isBlocked ? (
             <>
@@ -215,6 +245,11 @@ function NodeDetailContent({
               >
                 Configure <ExternalLink className="w-2.5 h-2.5" />
               </a>
+            </>
+          ) : hasIntegrations && hasSetupSteps ? (
+            <>
+              <LockOpen className="w-3.5 h-3.5 shrink-0" />
+              <span>Credentials connected — <strong className="text-amber-700">extra setup needed</strong></span>
             </>
           ) : hasIntegrations ? (
             <>
@@ -473,6 +508,35 @@ function NodeDetailContent({
                 Configure integrations <ExternalLink className="w-2.5 h-2.5" />
               </a>
             )}
+
+            {/* Setup steps for connected integrations that need extra config */}
+            {(credInfo?.integration_details ?? [])
+              .filter((d) => d.status === "connected" && d.setup_steps && d.setup_steps.length > 0)
+              .map((detail) => (
+                <div
+                  key={`setup-${detail.slug}`}
+                  className="mt-2 border border-amber-200 bg-amber-50 rounded-lg px-2.5 py-2"
+                >
+                  <p className="text-[10px] font-semibold text-amber-800 mb-1">
+                    {detail.display_name} — additional setup needed
+                  </p>
+                  {detail.setup_steps!.filter((s) => s.required).map((step, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[10px] text-amber-700 mt-1">
+                      <span className="shrink-0 mt-px">&#9888;</span>
+                      <span>
+                        {step.label}
+                        {step.doc_url && (
+                          <>
+                            {" "}<a href={step.doc_url} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
+                              Docs &rarr;
+                            </a>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
           </div>
         )}
 
@@ -480,6 +544,189 @@ function NodeDetailContent({
           <p className="text-[10px] text-ink-3">No external tools or integrations required</p>
         )}
       </CollapsibleSection>
+    </div>
+  );
+}
+
+function NodeChatContent({
+  selectedNode,
+  messages,
+  loading,
+  onReply,
+}: {
+  selectedNode: ExecutionNode;
+  messages: NodeMessage[];
+  loading: boolean;
+  onReply?: (nodeId: string, message: string) => Promise<void>;
+}) {
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSend = useCallback(async () => {
+    if (!replyText.trim() || !onReply || sending) return;
+    setSending(true);
+    try {
+      await onReply(selectedNode.id, replyText.trim());
+      setReplyText("");
+    } finally {
+      setSending(false);
+    }
+  }, [replyText, onReply, sending, selectedNode.id]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend]
+  );
+
+  const canReply = selectedNode.status === "awaiting_reply" ||
+    selectedNode.status === "passed" ||
+    selectedNode.status === "failed";
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Messages area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+        {loading ? (
+          <p className="text-xs text-ink-3">Loading conversation...</p>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-8">
+            <MessageCircle className="w-8 h-8 text-ink-3/30 mx-auto mb-2" />
+            <p className="text-xs text-ink-3">
+              {selectedNode.status === "running"
+                ? "Conversation will appear as the agent runs..."
+                : selectedNode.status === "pending" || selectedNode.status === "ready"
+                  ? "Conversation will appear once execution starts."
+                  : "No conversation recorded for this node."}
+            </p>
+          </div>
+        ) : (
+          messages.map((msg) => (
+            <ChatBubble key={msg.id} message={msg} />
+          ))
+        )}
+        {selectedNode.status === "running" && messages.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+            <span className="text-xs text-ink-3">Agent is working...</span>
+          </div>
+        )}
+        {selectedNode.status === "awaiting_reply" && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200">
+            <MessageCircle className="w-3.5 h-3.5 text-amber-600" />
+            <span className="text-xs text-amber-700">Agent is waiting for your reply</span>
+          </div>
+        )}
+      </div>
+
+      {/* Reply input */}
+      {canReply && onReply && (
+        <div className="border-t border-rim p-3 shrink-0">
+          <div className="flex items-end gap-2">
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                selectedNode.status === "awaiting_reply"
+                  ? "Reply to the agent..."
+                  : "Continue the conversation..."
+              }
+              className="flex-1 text-xs text-ink border border-rim rounded-lg p-2 leading-relaxed resize-none min-h-[36px] max-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand"
+              rows={1}
+              disabled={sending}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!replyText.trim() || sending}
+              className="shrink-0 p-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 transition-colors"
+              title="Send reply"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[10px] text-ink-3 mt-1.5">
+            Press Enter to send, Shift+Enter for new line
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatBubble({ message }: { message: NodeMessage }) {
+  const isUser = message.role === "user";
+  const isAssistant = message.role === "assistant";
+  const isTool = message.role === "tool_use" || message.role === "tool_result";
+  const isHumanReply = message.metadata && (message.metadata as Record<string, unknown>).source === "human_reply";
+
+  if (isTool) {
+    const toolName = (message.metadata as Record<string, unknown>)?.tool_name as string || message.content;
+    return (
+      <div className="flex items-start gap-2 px-2">
+        <Wrench className="w-3 h-3 text-ink-3 mt-0.5 shrink-0" />
+        <div className="text-[10px] text-ink-3 min-w-0">
+          <span className="font-mono font-medium">
+            {message.role === "tool_use" ? `${toolName}()` : `${toolName} result`}
+          </span>
+          {message.role === "tool_result" && message.content && (
+            <div className="mt-0.5 bg-surface rounded p-1.5 max-h-[80px] overflow-y-auto">
+              <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                {message.content.slice(0, 500)}
+                {message.content.length > 500 ? "..." : ""}
+              </pre>
+            </div>
+          )}
+        </div>
+        <span className="text-[9px] text-ink-3 ml-auto shrink-0">
+          {new Date(message.created_at).toLocaleTimeString()}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
+      <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
+        isUser
+          ? isHumanReply ? "bg-brand/10" : "bg-gray-100"
+          : "bg-violet-100"
+      }`}>
+        {isUser ? (
+          <User className={`w-3 h-3 ${isHumanReply ? "text-brand" : "text-ink-3"}`} />
+        ) : (
+          <Bot className="w-3 h-3 text-violet-600" />
+        )}
+      </div>
+      <div className={`max-w-[85%] rounded-lg px-3 py-2 ${
+        isUser
+          ? isHumanReply
+            ? "bg-brand/10 border border-brand/20"
+            : "bg-gray-100"
+          : "bg-surface border border-rim"
+      }`}>
+        {isHumanReply && (
+          <span className="text-[9px] text-brand font-medium block mb-0.5">You</span>
+        )}
+        <p className="text-xs text-ink whitespace-pre-wrap leading-relaxed break-words">
+          {message.content}
+        </p>
+        <span className={`text-[9px] block mt-1 ${isUser ? "text-right" : ""} text-ink-3`}>
+          {new Date(message.created_at).toLocaleTimeString()}
+        </span>
+      </div>
     </div>
   );
 }
@@ -496,6 +743,9 @@ export function InspectorPanel({
   thinkingBlocks = [],
   thinkingBlocksLoading = false,
   liveThinkingChunks = {},
+  nodeMessages = [],
+  nodeMessagesLoading = false,
+  onReply,
 }: InspectorPanelProps) {
   const [selectedEvent, setSelectedEvent] = useState<ExecutionEvent | null>(
     null
@@ -626,6 +876,12 @@ export function InspectorPanel({
                 className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-violet-500 rounded-none h-10"
               >
                 <Brain className="w-3 h-3 mr-1" /> Thinking
+              </TabsTrigger>
+              <TabsTrigger
+                value="chat"
+                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 rounded-none h-10"
+              >
+                <MessageCircle className="w-3 h-3 mr-1" /> Chat
               </TabsTrigger>
               <TabsTrigger
                 value="output"
@@ -963,6 +1219,22 @@ export function InspectorPanel({
               )}
             </div>
           </ScrollArea>
+        </TabsContent>
+
+        {/* ── Chat tab ─────────────────────────────────── */}
+        <TabsContent value="chat" className="flex-1 min-h-0 m-0 flex flex-col">
+          {!selectedNode ? (
+            <div className="p-4">
+              <p className="text-xs text-ink-3">Select a node to view its conversation.</p>
+            </div>
+          ) : (
+            <NodeChatContent
+              selectedNode={selectedNode}
+              messages={nodeMessages}
+              loading={nodeMessagesLoading}
+              onReply={onReply}
+            />
+          )}
         </TabsContent>
 
         {/* ── Output tab ──────────────────────────────── */}
@@ -1575,6 +1847,8 @@ function statusBadgeClass(status: string): string {
       return "bg-red-50 text-red-700";
     case "skipped":
       return "bg-surface text-ink-3";
+    case "awaiting_reply":
+      return "bg-amber-50 text-amber-700";
     default:
       return "bg-surface text-ink-2";
   }
@@ -1594,6 +1868,8 @@ function dotClass(status: string): string {
       return "bg-red-500";
     case "skipped":
       return "bg-gray-300";
+    case "awaiting_reply":
+      return "bg-amber-500 animate-pulse";
     default:
       return "bg-gray-300";
   }

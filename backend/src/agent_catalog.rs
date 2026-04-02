@@ -125,6 +125,7 @@ pub enum NodeStatus {
     Passed,
     Failed,
     Skipped,
+    AwaitingReply,
 }
 
 impl NodeStatus {
@@ -137,11 +138,16 @@ impl NodeStatus {
             Self::Passed => "passed",
             Self::Failed => "failed",
             Self::Skipped => "skipped",
+            Self::AwaitingReply => "awaiting_reply",
         }
     }
 
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Passed | Self::Failed | Self::Skipped)
+    }
+
+    pub fn is_interactive(&self) -> bool {
+        matches!(self, Self::AwaitingReply)
     }
 }
 
@@ -261,14 +267,10 @@ impl AgentCatalog {
         let agents = self.agents.read().unwrap();
         let mut parts = Vec::new();
         for agent in agents.values() {
-            parts.push(format!(
-                "Agent: {} (slug: \"{}\")\nCategory: {}\nDescription: {}\nIntents: [{}]\n",
-                agent.name,
-                agent.slug,
-                agent.category,
-                agent.description,
-                agent.intents.join(", "),
-            ));
+            if agent.slug == "master_orchestrator" || agent.slug == "evaluator" {
+                continue;
+            }
+            parts.push(Self::format_agent_summary(agent));
         }
         parts.join("\n")
     }
@@ -279,27 +281,60 @@ impl AgentCatalog {
         let agents = self.agents.read().unwrap();
         let mut parts = Vec::new();
         for agent in agents.values() {
+            if agent.slug == "master_orchestrator" || agent.slug == "evaluator" {
+                continue;
+            }
             let include = match (expert_id, agent.expert_id) {
                 (_, None) => true,
                 (Some(eid), Some(aid)) => eid == aid,
                 (None, Some(_)) => false,
             };
             if include {
-                parts.push(format!(
-                    "Agent: {} (slug: \"{}\")
-Category: {}
-Description: {}
-Intents: [{}]
-",
-                    agent.name,
-                    agent.slug,
-                    agent.category,
-                    agent.description,
-                    agent.intents.join(", "),
-                ));
+                parts.push(Self::format_agent_summary(agent));
             }
         }
         parts.join("\n")
+    }
+
+    fn format_agent_summary(agent: &AgentDefinition) -> String {
+        let tools_str = if agent.tools.is_empty() {
+            "text-only (read_upstream_output, write_output)".to_string()
+        } else {
+            let user_tools: Vec<&String> = agent.tools.iter()
+                .filter(|t| !["read_upstream_output", "write_output"].contains(&t.as_str()))
+                .collect();
+            if user_tools.is_empty() {
+                "text-only (read_upstream_output, write_output)".to_string()
+            } else {
+                user_tools.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            }
+        };
+        let integrations_str = if agent.required_integrations.is_empty() {
+            "none".to_string()
+        } else {
+            agent.required_integrations.join(", ")
+        };
+        let mode = if agent.skip_judge {
+            "skip_judge (self-validated)"
+        } else {
+            "judge + critic evaluated"
+        };
+        let need_to_know = if agent.judge_config.need_to_know.is_empty() {
+            String::new()
+        } else {
+            format!("\n  Hard requirements: {}", agent.judge_config.need_to_know.join("; "))
+        };
+        format!(
+            "### {} (slug: \"{}\")\n  Category: {}\n  {}\n  Tools: [{}]\n  Required credentials: [{}]\n  Quality: {}{}\n",
+            agent.name,
+            agent.slug,
+            agent.category,
+            agent.description,
+            tools_str,
+            integrations_str,
+            mode,
+            need_to_know,
+        )
     }
 
 }

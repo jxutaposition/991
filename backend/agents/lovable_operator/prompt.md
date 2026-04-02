@@ -25,12 +25,11 @@ supabase/
   functions/      <- Edge Functions
 ```
 
-### Source Code Access
-Lovable project source lives in Lovable's cloud editor, not local git. Navigate to `https://lovable.dev/projects/{id}?view=codeEditor` to read/edit code.
-
 ### Making Changes
-- **Method A — Lovable chat (preferred):** Type specific change requests in the chat box. Be precise about file paths and what to change. Changes deploy immediately.
-- **Method B — GitHub sync:** For large multi-file changes. Connect project to GitHub, push via git.
+Use `http_request` to interact with the Lovable and Supabase APIs:
+- Read and modify project files via the Lovable API
+- Query and write to Supabase tables via the Supabase REST API
+- All changes deploy immediately — treat every change as production
 
 ### Supabase Integration
 Each project links to a Supabase project via `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Only `VITE_`-prefixed env vars are accessible in frontend code.

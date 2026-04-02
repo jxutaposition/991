@@ -13,6 +13,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::agent_catalog::{AgentCatalog, ExecutionPlanNode, NodeStatus};
+use crate::pg_args;
 use crate::agent_runner::{AgentResult, AgentRunner};
 use crate::config::Settings;
 use crate::feedback;
@@ -126,13 +127,11 @@ async fn execute_node(
     );
 
     // Persist + broadcast node_started event
-    let start_event_sql = format!(
-        r#"
-        INSERT INTO execution_events (session_id, node_id, event_type, payload)
-        VALUES ('{session_id}', '{uid}', 'node_started', '{{"agent_slug": "{agent_slug}"}}'::jsonb)
-        "#
-    );
-    let _ = db.execute(&start_event_sql).await;
+    let start_payload = serde_json::json!({"agent_slug": &agent_slug});
+    let _ = db.execute_with(
+        "INSERT INTO execution_events (session_id, node_id, event_type, payload) VALUES ($1, $2, $3, $4)",
+        pg_args!(session_id, uid, "node_started".to_string(), start_payload),
+    ).await;
 
     event_bus.send(
         &session_id.to_string(),
@@ -188,6 +187,17 @@ async fn execute_node(
             )
             .await;
         }
+    }
+
+    // Extract blockers/errors from agent output and record as feedback signals
+    if let Some(ref output) = result.output {
+        let _ = feedback::record_blockers_from_output(
+            &db,
+            &agent_slug,
+            &session_id.to_string(),
+            output,
+        )
+        .await;
     }
 
     // Unblock or skip downstream nodes
@@ -311,67 +321,46 @@ async fn persist_node_result(
     uid: &Uuid,
     result: &AgentResult,
 ) -> anyhow::Result<()> {
-    let status = result.status.as_str();
-    let output_json = result
-        .output
-        .as_ref()
-        .map(|v| format!("'{}'", v.to_string().replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let judge_score = result
-        .judge_score
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let judge_feedback = result
-        .judge_feedback
-        .as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
+    let status = result.status.as_str().to_string();
 
     // If there's an error but no judge_feedback, surface the error in judge_feedback
-    // so it's visible in the frontend
-    let effective_feedback = if result.judge_feedback.is_some() {
-        judge_feedback.clone()
-    } else if let Some(err) = &result.error {
-        format!("'{}'", err.replace('\'', "''"))
+    let effective_feedback: Option<String> = result
+        .judge_feedback
+        .clone()
+        .or_else(|| result.error.clone());
+
+    let completed_clause = if result.status.is_terminal() {
+        "completed_at = NOW()"
     } else {
-        "NULL".to_string()
+        "completed_at = completed_at" // no-op for awaiting_reply
     };
-
     let sql = format!(
-        r#"
-        UPDATE execution_nodes
-        SET status = '{status}',
-            output = {output_json},
-            judge_score = {judge_score},
-            judge_feedback = {effective_feedback},
-            completed_at = NOW()
-        WHERE id = '{uid}'
-        "#
+        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, {} WHERE id = $5",
+        completed_clause
     );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        &sql,
+        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid),
+    ).await?;
 
     // Log execution event with rich payload
-    let narrative_preview = result
+    let narrative_preview: String = result
         .final_summary
         .as_ref()
-        .map(|s| s.chars().take(300).collect::<String>())
-        .unwrap_or_default()
-        .replace('\'', "''");
-    let duration_ms = result.duration_ms;
-    let event_payload = format!(
-        r#"{{"status": "{status}", "duration_ms": {duration_ms}, "narrative_preview": "{narrative_preview}", "score": {judge_score}}}"#,
-    );
-    let event_sql = format!(
-        r#"
-        INSERT INTO execution_events (session_id, node_id, event_type, payload)
-        SELECT session_id, id, 'node_completed', '{event_payload}'::jsonb
-        FROM execution_nodes WHERE id = '{uid}'
-        "#
-    );
-    let _ = db.execute(&event_sql).await;
+        .map(|s| s.chars().take(300).collect())
+        .unwrap_or_default();
+    let event_payload = serde_json::json!({
+        "status": result.status.as_str(),
+        "duration_ms": result.duration_ms,
+        "narrative_preview": narrative_preview,
+        "score": result.judge_score,
+    });
+    let _ = db.execute_with(
+        r#"INSERT INTO execution_events (session_id, node_id, event_type, payload)
+           SELECT session_id, id, 'node_completed', $1
+           FROM execution_nodes WHERE id = $2"#,
+        pg_args!(event_payload, *uid),
+    ).await;
 
     Ok(())
 }
@@ -516,12 +505,13 @@ async fn skip_downstream_recursive(
 }
 
 /// Mark session as completed if all nodes are in a terminal state.
+/// Preview nodes (spawned but never started) are treated as terminal.
 async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &EventBus) {
     let sql = format!(
         r#"
         SELECT
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped')) as terminal
+            COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped', 'preview')) as terminal
         FROM execution_nodes
         WHERE session_id = '{session_id}'
         "#

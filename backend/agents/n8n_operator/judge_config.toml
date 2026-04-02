@@ -2,8 +2,8 @@ threshold = 7.0
 
 rubric = [
   "Builds iteratively: create workflow, add nodes one at a time, validate after each addition",
-  "Uses get_node to understand required fields before configuring a node",
-  "Validates with validate_node after each configuration (runtime profile for pre-deploy)",
+  "Reads node documentation via n8n API before configuring to understand required fields",
+  "Validates configuration after each node setup — runs test executions to confirm data flow",
   "Chooses the simplest workflow architecture pattern that achieves the goal",
   "Uses n8n credential system for auth — never raw secrets in parameters",
   "Tests before activating: runs test executions to verify end-to-end data flow",

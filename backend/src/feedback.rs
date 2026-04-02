@@ -138,6 +138,71 @@ pub async fn record_judge_failure_signal(
     Ok(signal_id)
 }
 
+/// Extract blockers from a completed node's output and record them as feedback signals.
+/// Agents include blockers in their write_output verification section. This parses them
+/// out and feeds them into the existing feedback → PR pipeline.
+pub async fn record_blockers_from_output(
+    db: &PgClient,
+    agent_slug: &str,
+    session_id: &str,
+    output: &Value,
+) -> anyhow::Result<u32> {
+    let mut count = 0u32;
+
+    // Look for blockers in verification.blockers (array of strings)
+    let blockers = output
+        .get("verification")
+        .and_then(|v| v.get("blockers"))
+        .and_then(Value::as_array);
+
+    if let Some(blockers) = blockers {
+        for b in blockers {
+            let text = b.as_str().unwrap_or("").trim();
+            if text.is_empty() {
+                continue;
+            }
+            let signal_id = Uuid::new_v4();
+            let slug_escaped = agent_slug.replace('\'', "''");
+            let desc = format!("Execution blocker: {}", text).replace('\'', "''");
+
+            let sql = format!(
+                r#"INSERT INTO feedback_signals
+                    (id, agent_slug, signal_type, authority, weight, session_id,
+                     description, impact)
+                   VALUES
+                    ('{signal_id}', '{slug_escaped}', 'execution_blocker', 'agent_self_report', 1.0,
+                     '{session_id}'::uuid, '{desc}', 'prompt')"#,
+            );
+            let _ = db.execute(&sql).await;
+            info!(signal = %signal_id, agent = agent_slug, "recorded execution blocker signal");
+            count += 1;
+        }
+    }
+
+    // Also check for top-level error/status fields that indicate blockers
+    if let Some(error) = output.get("error").and_then(Value::as_str) {
+        if !error.is_empty() {
+            let signal_id = Uuid::new_v4();
+            let slug_escaped = agent_slug.replace('\'', "''");
+            let desc = format!("Agent-reported error: {}", &error[..error.len().min(500)]).replace('\'', "''");
+
+            let sql = format!(
+                r#"INSERT INTO feedback_signals
+                    (id, agent_slug, signal_type, authority, weight, session_id,
+                     description, impact)
+                   VALUES
+                    ('{signal_id}', '{slug_escaped}', 'execution_blocker', 'agent_self_report', 1.0,
+                     '{session_id}'::uuid, '{desc}', 'prompt')"#,
+            );
+            let _ = db.execute(&sql).await;
+            info!(signal = %signal_id, agent = agent_slug, "recorded execution error signal");
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
+
 /// Synthesize unresolved feedback signals into agent PRs.
 /// Groups by (agent_slug, impact) and triggers PR creation when weight >= threshold.
 /// Auto-applies PRs where all signals are ground_truth (expert corrections).

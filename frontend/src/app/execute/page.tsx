@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
 const EXAMPLE_REQUESTS = [
@@ -59,6 +60,19 @@ export default function ExecutePage() {
       })
       .catch(() => setSessionsLoading(false));
   }, [apiFetch]);
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm("Delete this session? This cannot be undone.")) return;
+    try {
+      const res = await apiFetch(`/api/execute/${sessionId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!request.trim()) return;
@@ -166,6 +180,13 @@ export default function ExecutePage() {
                 <div className="flex items-center gap-3 shrink-0 text-xs text-ink-3">
                   <span>{session.passed_count}/{session.node_count} passed</span>
                   <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="p-1 rounded hover:bg-red-50 hover:text-red-500 text-ink-3 transition-colors"
+                    title="Delete session"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </Link>
             ))}

@@ -9,7 +9,7 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
-import { ArrowDown, Brain, GitBranch, Lock, LockOpen, Check, X, Wrench } from "lucide-react";
+import { ArrowDown, Brain, GitBranch, Lock, LockOpen, Check, X, Wrench, MessageCircle } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
 import {
   TransformWrapper,
@@ -63,6 +63,7 @@ interface IntegrationDetail {
   display_name: string;
   icon: string;
   status: "connected" | "missing";
+  setup_steps?: { label: string; help?: string; doc_url?: string; required?: boolean }[];
 }
 
 interface AgentCredentialInfo {
@@ -109,6 +110,8 @@ const NODE_BG: Record<string, string> = {
   failed:  "bg-red-50 border-red-400 text-red-700",
   skipped: "bg-surface border-rim text-ink-3 line-through",
   pending: "bg-surface border-rim text-ink-3",
+  preview: "bg-purple-50/50 border-dashed border-purple-200 text-purple-400",
+  awaiting_reply: "bg-amber-50 border-amber-400 text-amber-700 shadow-lg shadow-amber-100",
 };
 
 const DOT: Record<string, string> = {
@@ -119,6 +122,8 @@ const DOT: Record<string, string> = {
   failed:  "bg-red-500",
   skipped: "bg-gray-300",
   pending: "bg-gray-300",
+  preview: "bg-purple-300",
+  awaiting_reply: "bg-amber-500 animate-pulse",
 };
 
 function truncate(s: string, max: number) {
@@ -176,6 +181,9 @@ function NodeBox({
       <div className="absolute top-2 right-2.5 flex items-center gap-1">
         {status === "running" && !isVariantAlt && (
           <Brain className="w-3 h-3 text-violet-400 animate-pulse" />
+        )}
+        {status === "awaiting_reply" && !isVariantAlt && (
+          <MessageCircle className="w-3 h-3 text-amber-500 animate-pulse" />
         )}
         <div
           className={`w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : DOT[status] ?? DOT.pending}`}

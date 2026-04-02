@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
-import { Lock, LockOpen, GripHorizontal } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { Lock, LockOpen, GripHorizontal, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ExecutionCanvas,
@@ -13,6 +13,7 @@ import {
   InspectorPanel,
   type ExecutionEvent,
   type ThinkingBlock,
+  type NodeMessage,
 } from "@/components/inspector-panel";
 import { CanvasToolbar } from "@/components/canvas-toolbar";
 import { DragResizeLayout } from "@/components/drag-resize-layout";
@@ -63,6 +64,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function SessionPage() {
   const { session_id } = useParams();
+  const router = useRouter();
   const { activeClient, apiFetch } = useAuth();
   const [session, setSession] = useState<ExecutionSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,6 +81,8 @@ export default function SessionPage() {
   const [thinkingBlocks, setThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [thinkingBlocksLoading, setThinkingBlocksLoading] = useState(false);
   const [liveThinkingChunks, setLiveThinkingChunks] = useState<Record<number, string>>({});
+  const [nodeMessages, setNodeMessages] = useState<NodeMessage[]>([]);
+  const [nodeMessagesLoading, setNodeMessagesLoading] = useState(false);
   const selectedNodeIdRef = useRef(selectedNodeId);
   selectedNodeIdRef.current = selectedNodeId;
 
@@ -200,11 +204,30 @@ export default function SessionPage() {
       });
   }, [selectedNodeId, session_id, apiFetch]);
 
-  // Fetch thinking blocks when selected node changes
+  const fetchNodeMessages = useCallback(() => {
+    if (!selectedNodeId || !session_id) {
+      setNodeMessages([]);
+      return;
+    }
+    setNodeMessagesLoading(true);
+    apiFetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/messages`)
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((data) => {
+        setNodeMessages(data.messages ?? []);
+        setNodeMessagesLoading(false);
+      })
+      .catch(() => {
+        setNodeMessages([]);
+        setNodeMessagesLoading(false);
+      });
+  }, [selectedNodeId, session_id, apiFetch]);
+
+  // Fetch thinking blocks and messages when selected node changes
   useEffect(() => {
     fetchThinkingBlocks();
+    fetchNodeMessages();
     setLiveThinkingChunks({}); // Reset live chunks when switching nodes
-  }, [fetchThinkingBlocks]);
+  }, [fetchThinkingBlocks, fetchNodeMessages]);
 
   useEffect(() => {
     if (
@@ -217,6 +240,7 @@ export default function SessionPage() {
     es.onmessage = (msg) => {
       fetchSession();
       fetchNodeEvents();
+      fetchNodeMessages();
 
       // Handle thinking events for live display
       try {
@@ -240,6 +264,7 @@ export default function SessionPage() {
         pollTimer = setInterval(() => {
           fetchSession();
           fetchNodeEvents();
+          fetchNodeMessages();
         }, 5000);
       }
     };
@@ -253,12 +278,37 @@ export default function SessionPage() {
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [session_id, session?.status, fetchSession, fetchNodeEvents, fetchThinkingBlocks]);
+  }, [session_id, session?.status, fetchSession, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages]);
 
   useEffect(() => {
     setNodeEventsLoading(true);
     fetchNodeEvents();
   }, [fetchNodeEvents]);
+
+  const handleReply = useCallback(
+    async (nodeId: string, message: string) => {
+      await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      // Immediately refetch to show the user's message
+      fetchNodeMessages();
+      fetchSession();
+    },
+    [session_id, apiFetch, fetchNodeMessages, fetchSession]
+  );
+
+  const handleDeleteSession = async () => {
+    if (!confirm("Delete this session? This cannot be undone.")) return;
+    try {
+      const res = await apiFetch(`/api/execute/${session_id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      router.push("/execute");
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+    }
+  };
 
   const handleApprove = async () => {
     setApproving(true);
@@ -301,15 +351,24 @@ export default function SessionPage() {
             {session.request_text}
           </span>
         </div>
-        {session.status === "awaiting_approval" && (
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          {session.status === "awaiting_approval" && (
+            <button
+              onClick={handleApprove}
+              disabled={approving}
+              className="bg-brand text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
+            >
+              {approving ? "Approving\u2026" : "Approve & Execute \u2192"}
+            </button>
+          )}
           <button
-            onClick={handleApprove}
-            disabled={approving}
-            className="bg-brand text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 shrink-0 ml-4 transition-colors"
+            onClick={handleDeleteSession}
+            className="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-ink-3 transition-colors"
+            title="Delete session"
           >
-            {approving ? "Approving\u2026" : "Approve & Execute \u2192"}
+            <Trash2 className="w-4 h-4" />
           </button>
-        )}
+        </div>
       </div>
 
       {/* Main content: canvas + inspector */}
@@ -350,6 +409,9 @@ export default function SessionPage() {
             thinkingBlocks={thinkingBlocks}
             thinkingBlocksLoading={thinkingBlocksLoading}
             liveThinkingChunks={liveThinkingChunks}
+            nodeMessages={nodeMessages}
+            nodeMessagesLoading={nodeMessagesLoading}
+            onReply={handleReply}
           />
         }
       />

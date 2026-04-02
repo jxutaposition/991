@@ -122,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/sessions", get(routes::execution_sessions_list))
         .route("/api/execute", post(routes::execution_create))
         .route("/api/execute/:session_id/approve", post(routes::execution_approve))
-        .route("/api/execute/:session_id", get(routes::execution_get))
+        .route("/api/execute/:session_id", get(routes::execution_get).delete(routes::execution_session_delete))
         .route("/api/execute/:session_id/nodes/:node_id/events", get(routes::execution_node_events))
         .route("/api/execute/:session_id/nodes/:node_id/thinking", get(routes::execution_node_thinking))
         .route("/api/execute/:session_id/events", get(routes::execution_events_sse))
@@ -189,6 +189,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/:session_id/nodes/:node_id", axum::routing::patch(routes::execution_node_update))
         .route("/api/execute/:session_id/nodes/:node_id", axum::routing::delete(routes::execution_node_delete))
         .route("/api/execute/:session_id/nodes/:node_id/release", post(routes::execution_node_release))
+        // Node conversation
+        .route("/api/execute/:session_id/nodes/:node_id/messages", get(routes::execution_node_messages))
+        .route("/api/execute/:session_id/nodes/:node_id/reply", post(routes::execution_node_reply))
         // Agent versions & stats
         .route("/api/catalog/:slug/versions", get(routes::catalog_versions))
         .route("/api/catalog/:slug/stats", get(routes::catalog_agent_stats))

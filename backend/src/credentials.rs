@@ -138,18 +138,30 @@ pub async fn load_credentials_for_client(
             .get("encrypted_value")
             .and_then(Value::as_str)
             .unwrap_or("");
+        if enc_hex.is_empty() {
+            tracing::warn!(slug = %slug, "encrypted_value is empty/null — bytea column may not be decoded properly");
+            continue;
+        }
         // Strip \x prefix if present
         let clean_hex = enc_hex.strip_prefix("\\x").unwrap_or(enc_hex);
-        if let Ok(enc_bytes) = hex::decode(clean_hex) {
-            if let Ok(plaintext) = decrypt(master_key_hex, &enc_bytes) {
-                map.insert(
-                    slug,
-                    DecryptedCredential {
-                        credential_type: cred_type,
-                        value: plaintext,
-                        metadata,
-                    },
-                );
+        match hex::decode(clean_hex) {
+            Ok(enc_bytes) => match decrypt(master_key_hex, &enc_bytes) {
+                Ok(plaintext) => {
+                    map.insert(
+                        slug,
+                        DecryptedCredential {
+                            credential_type: cred_type,
+                            value: plaintext,
+                            metadata,
+                        },
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(slug = %slug, error = %e, "failed to decrypt credential");
+                }
+            },
+            Err(e) => {
+                tracing::warn!(slug = %slug, error = %e, "failed to hex-decode encrypted_value");
             }
         }
     }

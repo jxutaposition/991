@@ -38,6 +38,33 @@ impl PgClient {
         let query_id = uuid::Uuid::new_v4().to_string();
         Ok((rows, Some(query_id)))
     }
+
+    /// Execute a parameterized query. Use `pg_args!` to build the arguments.
+    pub async fn execute_with(
+        &self,
+        sql: &str,
+        args: sqlx::postgres::PgArguments,
+    ) -> anyhow::Result<Vec<Value>> {
+        let rows = sqlx::query_with(sql, args)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("SQL error: {}", e))?;
+        Ok(rows.iter().map(pg_row_to_json).collect())
+    }
+}
+
+/// Build `PgArguments` for parameterized queries.
+///
+/// Usage: `pg_args!(session_id, &slug, 42_i32, some_json_value)`
+#[macro_export]
+macro_rules! pg_args {
+    ($($val:expr),* $(,)?) => {{
+        use ::sqlx::Arguments as _;
+        #[allow(unused_mut)]
+        let mut args = ::sqlx::postgres::PgArguments::default();
+        $(args.add($val).expect("pg_args: encode failed");)*
+        args
+    }};
 }
 
 fn pg_row_to_json(row: &PgRow) -> Value {
@@ -138,6 +165,13 @@ fn decode_pg_column(row: &PgRow, col_name: &str, type_name: &str) -> Value {
             .flatten()
             .map(|arr| Value::Array(arr.into_iter().map(Value::String).collect()))
             .unwrap_or(Value::Array(vec![])),
+
+        "bytea" => row
+            .try_get::<Option<Vec<u8>>, _>(col_name)
+            .ok()
+            .flatten()
+            .map(|bytes| Value::String(format!("\\x{}", hex::encode(bytes))))
+            .unwrap_or(Value::Null),
 
         _ => row
             .try_get::<Option<String>, _>(col_name)

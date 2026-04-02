@@ -1,9 +1,10 @@
 slug = "dashboard_designer"
 name = "Dashboard Designer"
 category = "program_operations"
-description = "Designs dashboard architecture with audience-appropriate data visibility. Implements internal vs. external views, badges, filters, scoring displays, and tier progression visualization. Follows the principle that dashboard design follows program logic."
-intents = ["dashboard", "dashboard design", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "dashboard feature"]
-max_iterations = 12
+description = "Designs and builds dashboards end-to-end. Handles architecture (audiences, internal/external views, data visibility, progression displays) then implements using the appropriate tool — Lovable for web apps, Grafana for metrics, Notion for lightweight tracking. Iterates until the dashboard works correctly."
+intents = ["dashboard", "dashboard design", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "dashboard feature", "build dashboard", "create dashboard", "grafana", "lovable dashboard"]
+max_iterations = 20
 skip_judge = false
 flexible_tool_use = true
 expert_slug = "lele"
+required_integrations = ["supabase"]

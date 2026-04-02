@@ -1,9 +1,10 @@
 slug = "onboarding_flow_designer"
-name = "Onboarding Flow Designer"
+name = "Onboarding Flow Builder"
 category = "program_operations"
-description = "Designs partner/expert/user onboarding flows. Maps current manual processes, identifies automation targets, designs automated pipelines with appropriate human-in-the-loop gates, and specifies welcome communications."
+description = "Designs and builds onboarding flows end-to-end. Maps manual processes, designs automated pipelines with human-in-the-loop gates, then implements them using n8n workflows and direct API calls for Slack notifications, CRM updates, and welcome communications."
 intents = ["onboarding", "onboarding flow", "welcome flow", "new partner onboarding", "expert onboarding", "signup flow", "activation flow", "onboarding automation"]
-max_iterations = 12
+max_iterations = 20
 skip_judge = false
-flexible_tool_use = false
+flexible_tool_use = true
 expert_slug = "lele"
+required_integrations = ["n8n"]

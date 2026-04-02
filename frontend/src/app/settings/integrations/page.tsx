@@ -5,6 +5,13 @@ import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import { IntegrationIcon } from "@/components/integration-icon";
 
+interface SetupStep {
+  label: string;
+  help?: string;
+  doc_url?: string;
+  required?: boolean;
+}
+
 interface Integration {
   slug: string;
   name: string;
@@ -15,6 +22,7 @@ interface Integration {
   oauth_configured?: boolean;
   key_url?: string;
   key_help?: string;
+  setup_steps?: SetupStep[];
 }
 
 interface ConnectedCredential {
@@ -308,6 +316,59 @@ export default function IntegrationsPage() {
                   <p className="text-[10px] text-ink-3 mt-2">
                     Last updated: {new Date(cred.updated_at).toLocaleDateString()}
                   </p>
+                )}
+
+                {/* Post-connect setup steps */}
+                {integration.setup_steps && integration.setup_steps.length > 0 && (
+                  <div className={`mt-3 rounded-lg border px-3 py-2.5 ${
+                    isConnected
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-rim bg-surface"
+                  }`}>
+                    <p className={`text-[11px] font-semibold mb-1.5 ${isConnected ? "text-amber-800" : "text-ink-2"}`}>
+                      {isConnected ? "Required setup — complete these in " + integration.name : "After connecting, you'll also need to:"}
+                    </p>
+                    <ul className="space-y-2">
+                      {integration.setup_steps.map((step, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                            step.required
+                              ? isConnected ? "bg-amber-200 text-amber-800" : "bg-surface text-ink-3 border border-rim"
+                              : "bg-surface text-ink-3 border border-rim"
+                          }`}>
+                            {i + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className={`text-xs font-medium ${isConnected ? "text-amber-900" : "text-ink-2"}`}>
+                              {step.label}
+                              {step.required && (
+                                <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                  isConnected ? "bg-amber-200 text-amber-800" : "bg-red-100 text-red-600"
+                                }`}>
+                                  Required
+                                </span>
+                              )}
+                            </p>
+                            {step.help && (
+                              <p className={`text-[11px] mt-0.5 leading-snug ${isConnected ? "text-amber-700" : "text-ink-3"}`}>
+                                {step.help}
+                              </p>
+                            )}
+                            {step.doc_url && (
+                              <a
+                                href={step.doc_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-brand hover:underline mt-0.5 inline-block"
+                              >
+                                View docs &rarr;
+                              </a>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             );

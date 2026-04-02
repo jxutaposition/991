@@ -25,46 +25,47 @@ const PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM workflow orchestrator. Your
 - Each node must have a specific task_description scoped to that agent's capability and the customer's request context.
 - depends_on is an array of 0-based indices of EARLIER nodes (strictly lower indices) that must complete first. A node at index N can only depend on indices 0..N-1. Never reference the node's own index or higher. No cycles.
 - Prefer parallelism: if two agents don't need each other's output, give them empty depends_on arrays.
-- Keep the plan focused — typically 3-9 agents. Don't use agents that aren't relevant to the request.
-- Use tool_operator agents (clay_operator, n8n_operator, lovable_operator, etc.) for implementation steps after program_operations agents have designed the approach.
+- Keep the plan focused — typically 3-12 agents. Don't use agents that aren't relevant to the request.
+- IMPORTANT: Design-then-build. Use program_operations agents (designers) for design, then use tool_operator agents (notion_operator, n8n_operator, lovable_operator, clay_operator, etc.) to create real artifacts in external systems. If the request implies building or creating things in tools (dashboards, pages, workflows, automations), you MUST include the corresponding operator agents — not just designers.
+- Keep task_description values concise (under 120 chars). Details come from upstream outputs at runtime.
 
 ## Examples
 
-Request: "Design an expert scoring and tiering program with a leaderboard"
+Request: "Build an expert scoring and tiering program with a leaderboard and document it"
 Plan:
 [
-  {"agent_slug": "program_designer", "task_description": "Design the tiering structure, scoring vectors, and point thresholds", "depends_on": []},
-  {"agent_slug": "data_pipeline_builder", "task_description": "Design the data pipeline connecting scoring data sources to storage", "depends_on": [0]},
-  {"agent_slug": "dashboard_designer", "task_description": "Design the leaderboard with public and internal views", "depends_on": [0]},
-  {"agent_slug": "impact_measurement_designer", "task_description": "Design the measurement framework for program health", "depends_on": [0]},
-  {"agent_slug": "clay_operator", "task_description": "Set up Clay tables for social listening data collection", "depends_on": [1]},
-  {"agent_slug": "lovable_operator", "task_description": "Build the leaderboard dashboard in Lovable", "depends_on": [2, 1]}
+  {"agent_slug": "program_designer", "task_description": "Design 4-tier structure, scoring vectors, and point thresholds", "depends_on": []},
+  {"agent_slug": "data_pipeline_builder", "task_description": "Design data pipeline from scoring sources to Supabase storage", "depends_on": [0]},
+  {"agent_slug": "dashboard_designer", "task_description": "Design leaderboard with public and internal views", "depends_on": [0]},
+  {"agent_slug": "impact_measurement_designer", "task_description": "Design measurement framework for program health", "depends_on": [0]},
+  {"agent_slug": "notion_operator", "task_description": "Create program documentation page in Notion", "depends_on": [0]},
+  {"agent_slug": "clay_operator", "task_description": "Set up Clay tables for social listening data", "depends_on": [1]},
+  {"agent_slug": "lovable_operator", "task_description": "Build expert-facing leaderboard dashboard in Lovable", "depends_on": [2, 1]},
+  {"agent_slug": "n8n_operator", "task_description": "Build onboarding automation workflow in n8n", "depends_on": [0]}
 ]
 
 Request: "Set up an onboarding automation from application to campaign assignment"
 Plan:
 [
-  {"agent_slug": "onboarding_flow_designer", "task_description": "Design the onboarding flow from application through approval to assignment", "depends_on": []},
-  {"agent_slug": "automation_scoper", "task_description": "Evaluate the tool stack and identify automation opportunities", "depends_on": [0]},
-  {"agent_slug": "n8n_operator", "task_description": "Build the automation workflow connecting the tools", "depends_on": [1]}
+  {"agent_slug": "onboarding_flow_designer", "task_description": "Design onboarding flow from application through approval", "depends_on": []},
+  {"agent_slug": "n8n_operator", "task_description": "Build the automation workflow in n8n", "depends_on": [0]}
 ]
 
 Request: "Audit our data across Clay, Supabase, and Notion then fix the pipeline"
 Plan:
 [
-  {"agent_slug": "data_auditor", "task_description": "Cross-check data across Clay, Supabase, and Notion for inconsistencies", "depends_on": []},
-  {"agent_slug": "pipeline_diagnostician", "task_description": "Diagnose the broken data flows between systems", "depends_on": [0]},
-  {"agent_slug": "data_pipeline_builder", "task_description": "Rebuild the pipeline to fix identified issues", "depends_on": [1]}
+  {"agent_slug": "data_auditor", "task_description": "Cross-check data across Clay, Supabase, and Notion", "depends_on": []},
+  {"agent_slug": "pipeline_diagnostician", "task_description": "Diagnose broken data flows between systems", "depends_on": [0]},
+  {"agent_slug": "data_pipeline_builder", "task_description": "Rebuild pipeline to fix identified issues", "depends_on": [1]}
 ]
 
 ## Output Format
 
-Return ONLY a JSON array. No explanation, no markdown fences.
+Return ONLY a JSON array. No explanation, no markdown fences. Keep task_description values short.
 
 [
   {"agent_slug": "program_designer", "task_description": "...", "depends_on": []},
-  {"agent_slug": "data_pipeline_builder", "task_description": "...", "depends_on": [0]},
-  ...
+  {"agent_slug": "notion_operator", "task_description": "...", "depends_on": [0]}
 ]"#;
 
 /// Call the LLM to decompose a customer request into a DAG of agent nodes.
@@ -83,35 +84,56 @@ pub async fn plan_execution(
 
     info!(request = %request, "running GTM planner");
 
-    let response = client
-        .messages(&system, &messages, &[], 2048, Some(model))
-        .await
-        .map_err(|e| anyhow::anyhow!("planner LLM call failed: {e}"))?;
+    let max_tokens_attempts = [4096u32, 8192];
+    let mut last_error = String::new();
 
-    let text = response.text();
-    if text.is_empty() {
-        return Err(anyhow::anyhow!("planner returned empty response"));
+    for (attempt, &max_tokens) in max_tokens_attempts.iter().enumerate() {
+        let response = client
+            .messages(&system, &messages, &[], max_tokens, Some(model))
+            .await
+            .map_err(|e| anyhow::anyhow!("planner LLM call failed: {e}"))?;
+
+        let text = response.text();
+        if text.is_empty() {
+            return Err(anyhow::anyhow!("planner returned empty response"));
+        }
+
+        let cleaned = text
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        match serde_json::from_str::<Vec<PlannedNode>>(cleaned) {
+            Ok(nodes) if !nodes.is_empty() => {
+                let mut nodes = nodes;
+                sanitize_depends_on(&mut nodes);
+                info!(node_count = nodes.len(), "planner produced DAG");
+                return Ok(nodes);
+            }
+            Ok(_) => {
+                return Err(anyhow::anyhow!("planner returned empty node list"));
+            }
+            Err(e) => {
+                last_error = format!("{e}");
+                if attempt < max_tokens_attempts.len() - 1 {
+                    warn!(
+                        error = %e,
+                        max_tokens,
+                        "planner JSON parse failed, retrying with higher token limit"
+                    );
+                } else {
+                    warn!(raw = %text, error = %e, "planner output parse failed after retries");
+                }
+            }
+        }
     }
 
-    // Strip markdown fences if LLM wraps the JSON
-    let cleaned = text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
+    Err(anyhow::anyhow!("planner output is not valid JSON: {last_error}"))
+}
 
-    let nodes: Vec<PlannedNode> = serde_json::from_str(cleaned).map_err(|e| {
-        warn!(raw = %text, error = %e, "planner output parse failed");
-        anyhow::anyhow!("planner output is not valid JSON: {e}")
-    })?;
-
-    if nodes.is_empty() {
-        return Err(anyhow::anyhow!("planner returned empty node list"));
-    }
-
-    // Sanitize depends_on: drop self-references and forward references instead of failing
-    let mut nodes = nodes;
+fn sanitize_depends_on(nodes: &mut Vec<PlannedNode>) {
     for i in 0..nodes.len() {
         let original_len = nodes[i].depends_on.len();
         nodes[i].depends_on.retain(|&dep| dep < i);
@@ -123,15 +145,10 @@ pub async fn plan_execution(
             );
         }
     }
-
-    // Also clamp any out-of-bounds indices
     let node_count = nodes.len();
-    for node in &mut nodes {
+    for node in nodes.iter_mut() {
         node.depends_on.retain(|&dep| dep < node_count);
     }
-
-    info!(node_count = nodes.len(), "planner produced DAG");
-    Ok(nodes)
 }
 
 /// Convert a list of PlannedNodes into ExecutionPlanNodes with stable UUIDs.

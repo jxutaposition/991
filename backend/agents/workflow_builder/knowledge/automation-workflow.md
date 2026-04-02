@@ -1,8 +1,8 @@
 # Use Case: Automation / Workflow
 
-**Tools:** all, including browser automation, API calls
+**Tools:** http_request, web_search, fetch_url for API-driven automation
 
-Handles execution only. Planning is handled by `skills/planning/SKILL.md` before this file is reached.
+Handles execution only. Planning is handled upstream before this file is reached.
 
 ---
 
@@ -16,25 +16,25 @@ Any change request in Clay, Tolt, Notion, n8n, Lovable, or Typeform. Anything th
 
 ### 1. Before any API call
 
-Check `skills/{service}/resources/api-reference.md`. If it doesn't exist: look up the docs (WebFetch or browser), write the reference file, then proceed.
+Check knowledge docs and upstream context for API reference information. Get credentials from the system — they are auto-injected based on required_integrations.
 
-Get credentials from `client/access/{service}.md`. Never hardcode keys. After using a new API successfully, update the access file with any IDs or discoveries.
+### 2. Tool-specific approach
 
-### 2. Tool-specific navigation
+All tool operations use the `http_request` tool to interact with REST APIs:
+- **Clay:** Use Clay REST API for table operations, column creation, row management
+- **n8n:** Use n8n REST API for workflow CRUD, node configuration, execution
+- **Notion:** Use Notion API for page/database/block operations
+- **Other tools:** Use their respective REST APIs via http_request
 
-**Clay:** read `client/access/access.md` → browser navigate → wait for SPA load → snapshot. Use browser evaluate if snapshot isn't enough.
-
-Before designing any Clay table structure, lookup, enrichment column, or send-to-table action:
-- Read the "Important Notes" sections in the relevant Clay sub-skill files
-- Design against those constraints before proposing anything
-- If a Clay workaround required more than one attempt, add it to the sub-skill's "Important Notes" after
-
-**Other tools:** follow the same navigate → wait → snapshot pattern. Read access notes in `client/access/{tool}.md` first.
+Before designing any table structure, workflow, or integration:
+- Read relevant knowledge docs for the tool
+- Design against known constraints before executing
+- Document any workarounds discovered during execution
 
 ### 3. Execute
 
-Run the task. If anything errors mid-execution: stop, do not retry blindly. DM Lele per `skills/slack/SKILL.md` with what was attempted, what failed, and the current state.
+Run the task via API calls. If anything errors mid-execution: read the error response, diagnose, and retry with a corrected approach. Document persistent failures as blockers.
 
 ### 4. Produce
 
-Outcome summary + links for logging under the relevant thread in `progress/threads/T-{NNN}.md` and `progress/log.md`.
+Call `write_output` with outcome summary, resource IDs created, and any issues encountered.

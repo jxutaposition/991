@@ -1,1 +1,1 @@
-tools = ["spawn_agent", "web_search", "fetch_url", "http_request"]
+tools = ["spawn_agent", "web_search", "fetch_url", "http_request", "read_upstream_output", "write_output"]

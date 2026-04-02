@@ -1,1 +1,1 @@
-tools = ["browser_action", "http_request", "fetch_url"]
+tools = ["http_request", "fetch_url", "web_search", "read_upstream_output", "write_output"]

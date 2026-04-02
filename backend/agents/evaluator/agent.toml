@@ -1,7 +1,7 @@
 slug = "evaluator"
 name = "Evaluator"
 category = "validation"
-description = "Detail-level validation agent that verifies built artifacts against acceptance criteria using browser inspection, data queries, and systematic checking."
+description = "Detail-level validation agent that verifies built artifacts against acceptance criteria using API queries, URL fetching, and systematic checking."
 intents = ["validate", "evaluate", "verify", "check", "inspect"]
 max_iterations = 20
 skip_judge = true

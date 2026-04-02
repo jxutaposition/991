@@ -1,8 +1,8 @@
 slug = "lovable_operator"
 name = "Lovable Operator"
 category = "tool_operator"
-description = "Operates Lovable projects: reads code, makes changes via chat or GitHub sync, manages Supabase integration, diagnoses data display issues, and verifies dashboard functionality. Understands Lovable's project structure, deployment model, and Supabase backend."
-intents = ["lovable", "dashboard", "lovable project", "supabase", "fix dashboard", "dashboard data", "lovable app", "deploy lovable", "dashboard feature"]
+description = "Operates Lovable projects: reads code, makes changes via chat or GitHub sync, manages Supabase integration, diagnoses data display issues, and verifies dashboard functionality. Use dashboard_designer for design+build tasks; use this agent for Lovable-specific fixes and maintenance."
+intents = ["lovable", "lovable project", "supabase", "fix dashboard", "dashboard data", "lovable app", "deploy lovable", "lovable bug", "lovable fix"]
 max_iterations = 15
 skip_judge = false
 flexible_tool_use = true
