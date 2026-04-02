@@ -29,6 +29,7 @@ pub fn spawn(
     settings: Arc<Settings>,
     db: PgClient,
     catalog: Arc<AgentCatalog>,
+    skill_catalog: Arc<crate::skills::SkillCatalog>,
     event_bus: EventBus,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
@@ -84,10 +85,11 @@ pub fn spawn(
                 let settings = settings.clone();
                 let db = db.clone();
                 let catalog = catalog.clone();
+                let skill_catalog = skill_catalog.clone();
                 let event_bus = event_bus.clone();
 
                 let handle = tokio::spawn(async move {
-                    execute_node(settings, db, catalog, event_bus, node).await;
+                    execute_node(settings, db, catalog, skill_catalog, event_bus, node).await;
                 });
                 handles.push(handle);
             }
@@ -108,6 +110,7 @@ async fn execute_node(
     settings: Arc<Settings>,
     db: PgClient,
     catalog: Arc<AgentCatalog>,
+    skill_catalog: Arc<crate::skills::SkillCatalog>,
     event_bus: EventBus,
     node: ExecutionPlanNode,
 ) {
@@ -122,7 +125,15 @@ async fn execute_node(
         "executing node"
     );
 
-    // Broadcast node_started event (consumed by SSE frontend and Slack notifier)
+    // Persist + broadcast node_started event
+    let start_event_sql = format!(
+        r#"
+        INSERT INTO execution_events (session_id, node_id, event_type, payload)
+        VALUES ('{session_id}', '{uid}', 'node_started', '{{"agent_slug": "{agent_slug}"}}'::jsonb)
+        "#
+    );
+    let _ = db.execute(&start_event_sql).await;
+
     event_bus.send(
         &session_id.to_string(),
         serde_json::json!({
@@ -141,7 +152,7 @@ async fn execute_node(
         }
     };
 
-    let runner = AgentRunner::new(settings.clone(), db.clone(), catalog.clone());
+    let runner = AgentRunner::new(settings.clone(), db.clone(), catalog.clone(), skill_catalog.clone(), event_bus.clone());
     let result = runner.run(&node, &upstream_outputs).await;
 
     // Broadcast via the event bus channel (currently just logs; SSE route polls DB)
@@ -342,11 +353,21 @@ async fn persist_node_result(
 
     db.execute(&sql).await?;
 
-    // Log execution event
+    // Log execution event with rich payload
+    let narrative_preview = result
+        .final_summary
+        .as_ref()
+        .map(|s| s.chars().take(300).collect::<String>())
+        .unwrap_or_default()
+        .replace('\'', "''");
+    let duration_ms = result.duration_ms;
+    let event_payload = format!(
+        r#"{{"status": "{status}", "duration_ms": {duration_ms}, "narrative_preview": "{narrative_preview}", "score": {judge_score}}}"#,
+    );
     let event_sql = format!(
         r#"
         INSERT INTO execution_events (session_id, node_id, event_type, payload)
-        SELECT session_id, id, 'node_completed', '{{"status": "{status}"}}'::jsonb
+        SELECT session_id, id, 'node_completed', '{event_payload}'::jsonb
         FROM execution_nodes WHERE id = '{uid}'
         "#
     );
@@ -512,10 +533,16 @@ async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &
             let terminal = row.get("terminal").and_then(Value::as_i64).unwrap_or(0);
 
             if total > 0 && total == terminal {
+                // Use WHERE status != 'completed' to prevent duplicate completion
+                // when multiple nodes finish concurrently.
                 let update_sql = format!(
-                    "UPDATE execution_sessions SET status = 'completed', completed_at = NOW() WHERE id = '{session_id}'"
+                    "UPDATE execution_sessions SET status = 'completed', completed_at = NOW() WHERE id = '{session_id}' AND status != 'completed' RETURNING id"
                 );
-                let _ = db.execute(&update_sql).await;
+                let updated = db.execute(&update_sql).await.unwrap_or_default();
+                if updated.is_empty() {
+                    // Another task already completed this session
+                    return;
+                }
 
                 // Broadcast session_completed (consumed by SSE and Slack notifier)
                 event_bus.send(
@@ -597,6 +624,7 @@ async fn emit_to_session(event_bus: &EventBus, session_id: &str, result: &AgentR
         "node_uid": result.node_uid,
         "status": result.status.as_str(),
         "judge_score": result.judge_score,
+        "duration_ms": result.duration_ms,
     });
 
     event_bus.send(session_id, event).await;

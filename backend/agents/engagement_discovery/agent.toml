@@ -7,3 +7,4 @@ max_iterations = 12
 skip_judge = false
 flexible_tool_use = false
 expert_slug = "lele"
+required_integrations = ["apollo", "tavily"]

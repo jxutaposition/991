@@ -93,6 +93,7 @@ export default function DataViewerPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sql: q }),
       });
+      if (!res.ok) throw new Error(`Query failed: ${res.statusText}`);
       const data = await res.json();
       setResult(data);
       setLastRefresh(new Date());
@@ -120,7 +121,7 @@ export default function DataViewerPage() {
   }, [autoRefresh, executeQuery]);
 
   const handleTableClick = (tableName: string) => {
-    const newSql = `SELECT * FROM ${tableName} ORDER BY created_at DESC LIMIT 100`;
+    const newSql = `SELECT * FROM ${tableName} LIMIT 100`;
     setSql(newSql);
     executeQuery(newSql);
     setSelectedCell(null);

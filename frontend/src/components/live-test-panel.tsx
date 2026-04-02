@@ -1,7 +1,23 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Globe, AlertCircle } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Globe, AlertCircle, CheckCircle2, XCircle, Plug } from "lucide-react";
+
+function useExtensionDetected(): boolean {
+  const [detected, setDetected] = useState(false);
+
+  useEffect(() => {
+    function check() {
+      setDetected(document.documentElement.dataset.leleObserver === "active");
+    }
+    check();
+    // Re-check periodically (extension may load after page)
+    const interval = setInterval(check, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return detected;
+}
 
 export function LiveTestPanel({
   sessionId,
@@ -17,6 +33,7 @@ export function LiveTestPanel({
   const [iframeSrc, setIframeSrc] = useState("/mock-gtm/sales-nav/search");
   const [inputValue, setInputValue] = useState("/mock-gtm/sales-nav/search");
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const extensionDetected = useExtensionDetected();
 
   function normalizeUrl(raw: string): string {
     const trimmed = raw.trim();
@@ -51,6 +68,19 @@ export function LiveTestPanel({
           className="flex-1 bg-surface border border-rim rounded px-2 py-1 text-xs font-mono text-ink focus:outline-none focus:border-brand"
           placeholder="Enter URL (e.g. google.com or /mock-gtm/sales-nav/search)"
         />
+
+        {/* Extension status pill */}
+        <div
+          className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium shrink-0 ${
+            extensionDetected
+              ? "bg-green-100 text-green-700"
+              : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          <Plug className="w-3 h-3" />
+          {extensionDetected ? "Extension active" : "No extension"}
+        </div>
+
         {!isRecording ? (
           <button
             onClick={onStartSession}
@@ -76,17 +106,37 @@ export function LiveTestPanel({
         </div>
       )}
 
-      {/* Info banner */}
+      {/* Extension setup / instructions banner */}
       {!isRecording && !sessionId && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-blue-50 border-b border-blue-200 shrink-0">
-          <AlertCircle className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
-          <div className="text-[10px] text-blue-700">
-            <p className="font-medium">How Live Test works:</p>
-            <p className="mt-0.5">1. Click &quot;Start Recording&quot; to create an observation session</p>
-            <p>2. Browse mock pages or any website in the iframe below</p>
-            <p>3. Events appear in the live feed on the right</p>
+        extensionDetected ? (
+          <div className="flex items-start gap-2 px-3 py-2 bg-green-50 border-b border-green-200 shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
+            <div className="text-[10px] text-green-800">
+              <p className="font-semibold">Extension connected</p>
+              <p className="mt-0.5">1. Click &quot;Start Recording&quot; to begin an observation session</p>
+              <p>2. Browse mock pages in the iframe below, or any site in a separate tab</p>
+              <p>3. The extension captures clicks, navigation, and form submissions automatically</p>
+              <p>4. Events and AI narrations appear in the live feed on the right</p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
+            <XCircle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-[10px] text-amber-900">
+              <p className="font-semibold">Extension not detected — install it to capture browser events</p>
+              <div className="mt-1.5 space-y-1 text-amber-800">
+                <p>1. Open <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[9px]">chrome://extensions</code> in Chrome</p>
+                <p>2. Enable <strong>Developer mode</strong> (toggle in top-right corner)</p>
+                <p>3. Click <strong>Load unpacked</strong> and select the <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[9px]">extension/</code> folder from this repo</p>
+                <p>4. Reload this page — the status above will turn green when the extension is active</p>
+              </div>
+              <p className="mt-1.5 text-amber-600">
+                Without the extension, &quot;Start Recording&quot; will still create a session,
+                but no DOM events will be captured automatically.
+              </p>
+            </div>
+          </div>
+        )
       )}
 
       {/* Iframe */}

@@ -32,6 +32,8 @@ struct AgentToml {
     #[serde(default)]
     pub flexible_tool_use: bool,
     pub expert_slug: Option<String>,
+    #[serde(default)]
+    pub required_integrations: Vec<String>,
 }
 
 fn default_max_iterations() -> u32 {
@@ -105,6 +107,8 @@ pub struct AgentDefinition {
     pub flexible_tool_use: bool,
     pub expert_id: Option<uuid::Uuid>,
 
+    pub required_integrations: Vec<String>,
+
     pub version: i32,
     /// Git SHA kept for backward compat; version is the canonical tracker now.
     pub git_sha: String,
@@ -176,20 +180,10 @@ pub struct AgentCatalog {
 
 impl AgentCatalog {
     /// Load all agent definitions from the database.
-    /// If the agent_definitions table is empty, seed from disk first.
+    /// Always syncs from disk on startup (upsert), then loads into memory.
     pub async fn load(db: &PgClient, agents_dir: &Path) -> anyhow::Result<Self> {
-        let count_rows = db
-            .execute("SELECT COUNT(*) as cnt FROM agent_definitions")
-            .await?;
-        let count = count_rows
-            .first()
-            .and_then(|r| r.get("cnt").and_then(Value::as_i64))
-            .unwrap_or(0);
-
-        if count == 0 {
-            info!("agent_definitions table empty — seeding from disk");
-            seed_from_disk(db, agents_dir).await?;
-        }
+        info!("syncing agent definitions from disk to DB");
+        seed_from_disk(db, agents_dir).await?;
 
         let catalog = Self {
             agents: RwLock::new(BTreeMap::new()),
@@ -206,7 +200,7 @@ impl AgentCatalog {
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 expert_id, version FROM agent_definitions ORDER BY slug",
+                 expert_id, required_integrations, version FROM agent_definitions ORDER BY slug",
             )
             .await?;
 
@@ -231,7 +225,7 @@ impl AgentCatalog {
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 version FROM agent_definitions WHERE slug = '{slug_escaped}'"
+                 required_integrations, version FROM agent_definitions WHERE slug = '{slug_escaped}'"
             ))
             .await?;
 
@@ -373,6 +367,8 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         .and_then(Value::as_str)
         .and_then(|s| s.parse::<uuid::Uuid>().ok());
 
+    let required_integrations = parse_text_array(row.get("required_integrations"));
+
     Some(AgentDefinition {
         slug,
         name,
@@ -391,6 +387,7 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         skip_judge,
         flexible_tool_use,
         expert_id,
+        required_integrations,
         version,
         git_sha: git_sha.to_string(),
     })
@@ -469,6 +466,7 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
     let intents_arr = format_pg_text_array(&agent.intents);
     let tools_arr = format_pg_text_array(&agent.tools);
     let knowledge_arr = format_pg_text_array(&agent.knowledge_docs);
+    let required_integrations_arr = format_pg_text_array(&agent.required_integrations);
 
     let judge_config_json = serde_json::to_string(&agent.judge_config)
         .unwrap_or_else(|_| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string())
@@ -494,17 +492,37 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
         r#"INSERT INTO agent_definitions
             (slug, name, category, description, intents, system_prompt, tools,
              judge_config, input_schema, output_schema, examples, knowledge_docs,
-             max_iterations, model, skip_judge, flexible_tool_use, expert_id, version)
+             max_iterations, model, skip_judge, flexible_tool_use, expert_id,
+             required_integrations, version)
            VALUES
             ('{slug}', '{name}', '{category}', '{description}', {intents_arr}, '{system_prompt}',
              {tools_arr}, '{judge_config_json}'::jsonb, '{input_schema_json}'::jsonb,
              '{output_schema_json}'::jsonb, '{examples_json}'::jsonb, {knowledge_arr},
-             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, {expert_id_val}, 1)
-           ON CONFLICT (slug) DO NOTHING"#,
+             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, {expert_id_val},
+             {required_integrations_arr}, 1)
+           ON CONFLICT (slug) DO UPDATE SET
+             name = EXCLUDED.name,
+             category = EXCLUDED.category,
+             description = EXCLUDED.description,
+             intents = EXCLUDED.intents,
+             system_prompt = EXCLUDED.system_prompt,
+             tools = EXCLUDED.tools,
+             judge_config = EXCLUDED.judge_config,
+             input_schema = EXCLUDED.input_schema,
+             output_schema = EXCLUDED.output_schema,
+             examples = EXCLUDED.examples,
+             knowledge_docs = EXCLUDED.knowledge_docs,
+             max_iterations = EXCLUDED.max_iterations,
+             model = EXCLUDED.model,
+             skip_judge = EXCLUDED.skip_judge,
+             flexible_tool_use = EXCLUDED.flexible_tool_use,
+             expert_id = EXCLUDED.expert_id,
+             required_integrations = EXCLUDED.required_integrations"#,
         max_iter = agent.max_iterations,
         skip_judge = agent.skip_judge,
         flex_tool = agent.flexible_tool_use,
         expert_id_val = expert_id_val,
+        required_integrations_arr = required_integrations_arr,
     );
 
     db.execute(&sql).await?;
@@ -535,11 +553,18 @@ fn format_pg_text_array(items: &[String]) -> String {
     if items.is_empty() {
         "'{}'::text[]".to_string()
     } else {
-        let escaped: Vec<String> = items
+        let elements: Vec<String> = items
             .iter()
-            .map(|s| format!("\"{}\"", s.replace('"', r#"\""#)))
+            .map(|s| {
+                let s = s.replace('\\', "\\\\");
+                let s = s.replace('"', "\\\"");
+                format!("\"{}\"", s)
+            })
             .collect();
-        format!("'{{{}}}'::text[]", escaped.join(","))
+        let array_body = elements.join(",");
+        let array_literal = format!("{{{}}}", array_body);
+        let sql_escaped = array_literal.replace('\'', "''");
+        format!("'{}'::text[]", sql_escaped)
     }
 }
 
@@ -604,6 +629,7 @@ fn load_agent_from_disk(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefini
         skip_judge: meta.skip_judge,
         flexible_tool_use: meta.flexible_tool_use,
         expert_id: None,
+        required_integrations: meta.required_integrations,
         version: 1,
         git_sha: git_sha.to_string(),
     })

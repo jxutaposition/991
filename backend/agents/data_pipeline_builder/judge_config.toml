@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Maps the source system, table, row unit, and needed fields before designing the pipeline",
+  "Defines transformation logic between source and destination explicitly",
+  "Chooses appropriate connection type: webhook, polling, or event-driven with rationale",
+  "Handles edge cases: deduplication, missing fields, schema changes, credential management",
+  "Tests with a single record before running at scale",
+  "Ships working systems rather than blocking on perfect data completeness",
+]
+
+need_to_know = [
+  "URL normalization (trailing slashes) causes mismatches between systems",
+  "Tooling decisions cascade through the entire lifecycle — evaluate at the system level",
+  "Gaps in data should be visible and tracked, not hidden",
+]

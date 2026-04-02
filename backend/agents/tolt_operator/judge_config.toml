@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Keeps MRR data sensitive — never exposes individual partner MRR on public/external dashboards",
+  "Verifies commission impact before reassigning partner groups",
+  "Verifies a sample of records after bulk CSV imports to confirm changes applied correctly",
+  "Understands the integration patterns: Tolt → Clay for scoring, Tolt → n8n for webhooks, Tolt → Lovable for dashboards (internal only)",
+  "Handles CSV operations cleanly: export, process changes, import, verify",
+]
+
+need_to_know = [
+  "Group membership determines commission rates, dashboard visibility, and program tier",
+  "MRR data is sensitive — internal view only, never on external dashboards",
+  "Revenue data flows: Tolt (authoritative) → Clay scoring columns (derived) → Lovable dashboard (display)",
+  "Group changes affect commissions — always verify the impact before reassigning",
+]

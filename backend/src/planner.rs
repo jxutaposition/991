@@ -21,31 +21,49 @@ pub struct PlannedNode {
 const PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM workflow orchestrator. Your job is to decompose a customer's request into a DAG of expert agents drawn from the catalog below.
 
 ## Rules
-- Only use agent slugs from the catalog above. The "slug" field is the exact identifier.
+- CRITICAL: You may ONLY use agent slugs that appear in the "Agent Catalog" section below. If a slug is not listed there, DO NOT use it. Never invent slugs.
 - Each node must have a specific task_description scoped to that agent's capability and the customer's request context.
-- depends_on is an array of 0-based indices of earlier nodes that must complete first. No cycles allowed.
+- depends_on is an array of 0-based indices of EARLIER nodes (strictly lower indices) that must complete first. A node at index N can only depend on indices 0..N-1. Never reference the node's own index or higher. No cycles.
 - Prefer parallelism: if two agents don't need each other's output, give them empty depends_on arrays.
 - Keep the plan focused — typically 3-9 agents. Don't use agents that aren't relevant to the request.
-- End with a reporting/CRM step when the request involves outreach or campaign execution.
+- Use tool_operator agents (clay_operator, n8n_operator, lovable_operator, etc.) for implementation steps after program_operations agents have designed the approach.
 
 ## Examples
 
-Request: "Run cold outbound to fintech companies 50-500 employees in NYC"
-Plan: icp_builder → company_researcher → contact_finder → lead_scorer → lead_list_builder → cold_email_writer → subject_line_optimizer → follow_up_sequence_builder → crm_updater
+Request: "Design an expert scoring and tiering program with a leaderboard"
+Plan:
+[
+  {"agent_slug": "program_designer", "task_description": "Design the tiering structure, scoring vectors, and point thresholds", "depends_on": []},
+  {"agent_slug": "data_pipeline_builder", "task_description": "Design the data pipeline connecting scoring data sources to storage", "depends_on": [0]},
+  {"agent_slug": "dashboard_designer", "task_description": "Design the leaderboard with public and internal views", "depends_on": [0]},
+  {"agent_slug": "impact_measurement_designer", "task_description": "Design the measurement framework for program health", "depends_on": [0]},
+  {"agent_slug": "clay_operator", "task_description": "Set up Clay tables for social listening data collection", "depends_on": [1]},
+  {"agent_slug": "lovable_operator", "task_description": "Build the leaderboard dashboard in Lovable", "depends_on": [2, 1]}
+]
 
-Request: "Launch Meta and Google ad campaign for our new product"
-Plan: icp_builder → creative_brief_generator → ad_copy_writer → [meta_ads_campaign_builder, google_ads_campaign_builder (both depend on ad_copy_writer)] → campaign_performance_analyzer
+Request: "Set up an onboarding automation from application to campaign assignment"
+Plan:
+[
+  {"agent_slug": "onboarding_flow_designer", "task_description": "Design the onboarding flow from application through approval to assignment", "depends_on": []},
+  {"agent_slug": "automation_scoper", "task_description": "Evaluate the tool stack and identify automation opportunities", "depends_on": [0]},
+  {"agent_slug": "n8n_operator", "task_description": "Build the automation workflow connecting the tools", "depends_on": [1]}
+]
 
-Request: "Analyze Q1 performance and build Q2 plan"
-Plan: [outreach_results_reporter, campaign_performance_analyzer (both independent)] → competitor_analyzer → icp_builder → creative_brief_generator → ad_copy_writer
+Request: "Audit our data across Clay, Supabase, and Notion then fix the pipeline"
+Plan:
+[
+  {"agent_slug": "data_auditor", "task_description": "Cross-check data across Clay, Supabase, and Notion for inconsistencies", "depends_on": []},
+  {"agent_slug": "pipeline_diagnostician", "task_description": "Diagnose the broken data flows between systems", "depends_on": [0]},
+  {"agent_slug": "data_pipeline_builder", "task_description": "Rebuild the pipeline to fix identified issues", "depends_on": [1]}
+]
 
 ## Output Format
 
 Return ONLY a JSON array. No explanation, no markdown fences.
 
 [
-  {"agent_slug": "icp_builder", "task_description": "...", "depends_on": []},
-  {"agent_slug": "company_researcher", "task_description": "...", "depends_on": [0]},
+  {"agent_slug": "program_designer", "task_description": "...", "depends_on": []},
+  {"agent_slug": "data_pipeline_builder", "task_description": "...", "depends_on": [0]},
   ...
 ]"#;
 
@@ -92,16 +110,24 @@ pub async fn plan_execution(
         return Err(anyhow::anyhow!("planner returned empty node list"));
     }
 
-    // Validate depends_on indices are valid predecessors only
-    for (i, node) in nodes.iter().enumerate() {
-        for &dep in &node.depends_on {
-            if dep >= i {
-                return Err(anyhow::anyhow!(
-                    "node {i} ({}) depends on index {dep} which is not a predecessor",
-                    node.agent_slug
-                ));
-            }
+    // Sanitize depends_on: drop self-references and forward references instead of failing
+    let mut nodes = nodes;
+    for i in 0..nodes.len() {
+        let original_len = nodes[i].depends_on.len();
+        nodes[i].depends_on.retain(|&dep| dep < i);
+        if nodes[i].depends_on.len() != original_len {
+            warn!(
+                node = i,
+                agent = %nodes[i].agent_slug,
+                "dropped invalid depends_on entries (self/forward references)"
+            );
         }
+    }
+
+    // Also clamp any out-of-bounds indices
+    let node_count = nodes.len();
+    for node in &mut nodes {
+        node.depends_on.retain(|&dep| dep < node_count);
     }
 
     info!(node_count = nodes.len(), "planner produced DAG");

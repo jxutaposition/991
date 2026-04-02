@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sales Navigator - Lead Search</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f3f2ef; }
+    .nav { background: #0a66c2; color: white; padding: 12px 24px; font-size: 18px; font-weight: 600; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+    .filter-btn { background: white; border: 1px solid #d0d5dd; border-radius: 20px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+    .filter-btn:hover { background: #e8f0fe; border-color: #0a66c2; }
+    .filter-btn.active { background: #0a66c2; color: white; border-color: #0a66c2; }
+    .results { background: white; border-radius: 8px; border: 1px solid #e5e5e5; }
+    .result-item { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+    .result-item:hover { background: #f8f9fa; }
+    .result-lockup__name { color: #0a66c2; font-weight: 600; font-size: 14px; text-decoration: none; }
+    .result-company { font-size: 12px; color: #666; }
+    .result-meta { font-size: 11px; color: #999; margin-top: 2px; }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e8e8e8; }
+    h2 { font-size: 16px; color: #333; margin-bottom: 12px; }
+    .count { color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="nav">Sales Navigator</div>
+  <div class="container">
+    <h2>Lead Search <span class="count">324 results</span></h2>
+    <div class="filters">
+      <button class="filter-btn search-filter-btn" onclick="this.classList.toggle('active')">Industry: Financial Technology</button>
+      <button class="filter-btn search-filter-btn" onclick="this.classList.toggle('active')">Company size: 51-200 employees</button>
+      <button class="filter-btn search-filter-btn" onclick="this.classList.toggle('active')">Geography: Greater New York City Area</button>
+      <button class="filter-btn search-filter-btn" onclick="this.classList.toggle('active')">Funding: Series A, Series B</button>
+      <button class="filter-btn search-filter-btn" onclick="this.classList.toggle('active')">Department: Engineering</button>
+    </div>
+    <div class="results">
+      <a href="/mock-gtm/sales-nav/profile/sarah-chen" class="result-item" style="text-decoration: none; color: inherit;">
+        <div class="avatar"></div>
+        <div>
+          <div class="result-lockup__name">Sarah Chen - VP Engineering at FinFlow</div>
+          <div class="result-company">FinFlow | Financial Technology | 120 employees | New York, NY</div>
+          <div class="result-meta">Series B | $45M raised | Sequoia Capital</div>
+        </div>
+      </a>
+      <a href="/mock-gtm/sales-nav/profile/alex-kim" class="result-item" style="text-decoration: none; color: inherit;">
+        <div class="avatar"></div>
+        <div>
+          <div class="result-lockup__name">Alex Kim - CTO at PayGrid</div>
+          <div class="result-company">PayGrid | Financial Technology | 85 employees | Brooklyn, NY</div>
+          <div class="result-meta">Series A | $12M raised | a16z</div>
+        </div>
+      </a>
+      <a href="/mock-gtm/sales-nav/profile/maria-santos" class="result-item" style="text-decoration: none; color: inherit;">
+        <div class="avatar"></div>
+        <div>
+          <div class="result-lockup__name">Maria Santos - Head of Platform at LedgerAI</div>
+          <div class="result-company">LedgerAI | Financial Technology | 160 employees | Manhattan, NY</div>
+          <div class="result-meta">Series B | $30M raised | Accel</div>
+        </div>
+      </a>
+    </div>
+  </div>
+<script>
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

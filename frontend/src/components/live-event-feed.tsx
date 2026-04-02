@@ -121,7 +121,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
             {events.length === 0 ? (
               <p className="text-[10px] text-ink-3">Waiting for events...</p>
             ) : events.map((ev, i) => (
-              <div key={i} className="flex items-start gap-2 text-[10px]">
+              <div key={`event-${ev.created_at}-${i}`} className="flex items-start gap-2 text-[10px]">
                 <span className="text-ink-3 shrink-0 w-14 font-mono">
                   {new Date(ev.created_at).toLocaleTimeString()}
                 </span>
@@ -145,7 +145,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
             {narrations.length === 0 ? (
               <p className="text-[10px] text-ink-3">Waiting for narrator...</p>
             ) : narrations.map((n, i) => (
-              <div key={i} className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+              <div key={`narration-${n.sequence_ref}-${i}`} className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
                 <p className="text-xs text-purple-900 leading-relaxed">{n.narrator_text}</p>
                 <p className="text-[10px] text-purple-400 mt-1">seq:{n.sequence_ref}</p>
               </div>
@@ -161,7 +161,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
             </h3>
             <div className="space-y-1.5">
               {tasks.map((t, i) => (
-                <div key={i} className="flex items-start gap-2 text-[10px]">
+                <div key={`task-${t.description.slice(0, 20)}-${i}`} className="flex items-start gap-2 text-[10px]">
                   <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded shrink-0 font-mono">
                     {t.match_confidence != null ? `${(t.match_confidence * 100).toFixed(0)}%` : "?"}
                   </span>
@@ -181,7 +181,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
             </h3>
             <div className="space-y-1.5">
               {prs.map((pr, i) => (
-                <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div key={`pr-${pr.target_agent_slug}-${i}`} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                   <div className="flex items-center gap-2 text-[10px] mb-1">
                     <span className="font-mono font-medium text-amber-700">{pr.target_agent_slug}</span>
                     <span className="text-amber-500">{(pr.confidence * 100).toFixed(0)}% conf</span>

@@ -6,3 +6,4 @@ intents = ["n8n", "workflow", "automation", "n8n workflow", "build workflow", "c
 max_iterations = 15
 skip_judge = false
 flexible_tool_use = true
+required_integrations = ["n8n"]

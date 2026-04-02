@@ -1,0 +1,1 @@
+tools = ["browser_action", "http_request", "fetch_url"]

@@ -49,6 +49,16 @@ pub async fn create_enhancement_pr(
     });
     let changes_escaped = proposed_changes.to_string().replace('\'', "''");
 
+    // Build file_diffs with before/after content for each changed field
+    let file_diffs = json!([
+        {
+            "file_path": "system_prompt",
+            "old_content": old_prompt,
+            "new_content": new_prompt,
+        }
+    ]);
+    let diffs_escaped = file_diffs.to_string().replace('\'', "''");
+
     let reasoning = format!(
         "## Drift Detected\n\n{}\n\n## Expert Behavior\n\n{}\n\n## Expert Heuristic\n\n{}",
         drift.gap_description, task.description, task.expert_heuristic
@@ -58,10 +68,10 @@ pub async fn create_enhancement_pr(
 
     let sql = format!(
         r#"INSERT INTO agent_prs
-            (id, pr_type, target_agent_slug, proposed_changes, reasoning, gap_summary,
+            (id, pr_type, target_agent_slug, file_diffs, proposed_changes, reasoning, gap_summary,
              confidence, evidence_count, evidence_task_ids, evidence_session_ids, status)
            VALUES
-            ('{pr_id}', 'enhancement', '{slug_escaped}', '{changes_escaped}'::jsonb,
+            ('{pr_id}', 'enhancement', '{slug_escaped}', '{diffs_escaped}'::jsonb, '{changes_escaped}'::jsonb,
              '{reasoning_escaped}', '{gap_escaped}', {confidence}, 1,
              ARRAY['{task_id}'::uuid], ARRAY['{session_id}'::uuid], 'open')"#,
         task_id = task.id,
@@ -135,17 +145,40 @@ Output JSON only (no other text):
 
     let pr_id = Uuid::new_v4();
     let slug_escaped = proposed_slug.replace('\'', "''");
+    let agent_prompt = agent_def.get("system_prompt").and_then(Value::as_str).unwrap_or("");
     let proposed_changes = json!({
         "slug": proposed_slug,
         "name": agent_def.get("name").and_then(Value::as_str).unwrap_or(proposed_slug),
         "category": agent_def.get("category").and_then(Value::as_str).unwrap_or("uncategorized"),
         "description": agent_def.get("description").and_then(Value::as_str).unwrap_or(""),
-        "system_prompt": agent_def.get("system_prompt").and_then(Value::as_str).unwrap_or(""),
+        "system_prompt": agent_prompt,
         "tools": agent_def.get("tools").unwrap_or(&json!([])),
         "judge_config": agent_def.get("judge_config").unwrap_or(&json!({})),
         "intents": agent_def.get("intents").unwrap_or(&json!([])),
     });
     let changes_escaped = proposed_changes.to_string().replace('\'', "''");
+
+    // Build file_diffs — for new agents, old_content is null (new file)
+    let file_diffs = json!([
+        {
+            "file_path": "system_prompt",
+            "old_content": null,
+            "new_content": agent_prompt,
+        },
+        {
+            "file_path": "agent.toml",
+            "old_content": null,
+            "new_content": format!(
+                "slug = \"{}\"\nname = \"{}\"\ncategory = \"{}\"\ndescription = \"{}\"\nintents = {:?}\nmax_iterations = 12\nskip_judge = false",
+                proposed_slug,
+                agent_def.get("name").and_then(Value::as_str).unwrap_or(proposed_slug),
+                agent_def.get("category").and_then(Value::as_str).unwrap_or("uncategorized"),
+                agent_def.get("description").and_then(Value::as_str).unwrap_or(""),
+                agent_def.get("intents").unwrap_or(&json!([])),
+            ),
+        }
+    ]);
+    let diffs_escaped = file_diffs.to_string().replace('\'', "''");
 
     let reasoning = format!(
         "## New Agent Proposed\n\nBased on {} observation(s) where no existing agent matched.\n\n## Evidence:\n{}",
@@ -162,10 +195,10 @@ Output JSON only (no other text):
 
     let sql = format!(
         r#"INSERT INTO agent_prs
-            (id, pr_type, proposed_slug, proposed_changes, reasoning, gap_summary,
+            (id, pr_type, proposed_slug, file_diffs, proposed_changes, reasoning, gap_summary,
              confidence, evidence_count, evidence_session_ids, status)
            VALUES
-            ('{pr_id}', 'new_agent', '{slug_escaped}', '{changes_escaped}'::jsonb,
+            ('{pr_id}', 'new_agent', '{slug_escaped}', '{diffs_escaped}'::jsonb, '{changes_escaped}'::jsonb,
              '{reasoning_escaped}', 'New agent from observation', 0.7,
              {count}, {session_arr}, 'open')"#,
         count = task_descriptions.len(),

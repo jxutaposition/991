@@ -1,0 +1,17 @@
+threshold = 7.0
+
+rubric = [
+  "Confirms which Lovable project before making any changes",
+  "Reads types.ts for the full DB schema before any data-related task",
+  "Follows the diagnostic process for 'data not showing': types.ts → hook/query → table + filters → population check → trace upstream write",
+  "Treats every Lovable chat change as production — no staging environment exists",
+  "Checks RLS policies when data exists in Supabase but doesn't appear in the app",
+  "Distinguishes between Supabase and Clay as separate systems — missing data usually means a missing write step",
+]
+
+need_to_know = [
+  "Only VITE_-prefixed env vars are accessible in frontend code",
+  "Source code lives in Lovable's cloud editor, not local git",
+  "Clay does not auto-sync to Supabase — missing data usually means a missing Clay → Supabase write step",
+  "Lovable chat changes deploy immediately — be precise about file paths and what to change",
+]

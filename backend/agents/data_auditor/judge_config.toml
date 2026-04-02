@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Defines the source of truth for each data type before comparing systems",
+  "Cross-references using stable keys (email, ID) and checks for missing, inconsistent, orphan, and stale records",
+  "Categorizes discrepancies by actionability: actionable, not actionable, investigation needed",
+  "Produces a prioritized remediation plan specifying what's wrong, which system to fix, which agent handles it",
+  "Distinguishes between blocking issues and cosmetic issues",
+  "Explicitly lists not-actionable discrepancies with explanations rather than ignoring them",
+]
+
+need_to_know = [
+  "Source-of-truth patterns: Clay experts table is authoritative for roster, Tolt for revenue, Clay enrichment for contact info",
+  "Not every discrepancy needs fixing — inactive users missing from a dashboard is expected behavior",
+  "Revenue data flows: Tolt (authoritative) vs Clay scoring columns (derived)",
+]

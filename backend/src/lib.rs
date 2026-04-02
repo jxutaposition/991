@@ -1,11 +1,14 @@
 pub mod agent_catalog;
 pub mod agent_runner;
 pub mod anthropic;
+pub mod auth;
 pub mod client;
+pub mod credentials;
 pub mod config;
 pub mod extraction;
 pub mod feedback;
 pub mod narrator;
+pub mod oauth;
 pub mod pg;
 pub mod planner;
 pub mod pr_engine;
@@ -17,6 +20,9 @@ pub mod tier;
 pub mod tools;
 pub mod work_queue;
 pub mod workflow;
+pub mod skills;
+pub mod project_learner;
+pub mod pattern_promoter;
 
 #[cfg(feature = "slack")]
 pub mod slack;

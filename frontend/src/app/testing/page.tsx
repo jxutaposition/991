@@ -25,6 +25,7 @@ export default function TestingPage() {
     setIsRunning(true);
     try {
       const res = await fetch("/api/demo/run", { method: "POST" });
+      if (!res.ok) throw new Error(`Demo failed: ${res.statusText}`);
       const data = await res.json();
       if (data.session_id) {
         setSessionId(data.session_id);
@@ -42,6 +43,7 @@ export default function TestingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expert_id: "00000000-0000-0000-0000-000000000099" }),
       });
+      if (!res.ok) throw new Error(`Session start failed: ${res.statusText}`);
       const data = await res.json();
       if (data.session_id) {
         setSessionId(data.session_id);

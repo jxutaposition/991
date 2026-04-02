@@ -6,3 +6,4 @@ intents = ["tolt", "affiliate", "referral", "commission", "partner group", "tolt
 max_iterations = 12
 skip_judge = false
 flexible_tool_use = true
+required_integrations = ["tolt"]

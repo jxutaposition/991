@@ -1,0 +1,17 @@
+threshold = 7.0
+
+rubric = [
+  "Uses API version 2022-06-28 in all requests",
+  "Selects the correct operation for the task: create page, query database, update page, get blocks, search",
+  "Uses Notion's native block types (headings, callouts, toggles, tables) rather than flat text",
+  "Leads with the conclusion or recommendation in documentation, not background",
+  "Makes pages scannable with toggles for detail and links to related pages instead of duplication",
+  "Marks data gaps explicitly with callout blocks rather than omitting them",
+]
+
+need_to_know = [
+  "Rollup fields are NOT writable via the Notion API — use Lovable for dynamic dashboards needing aggregated/computed fields",
+  "Rich text blocks have a 2000 character limit",
+  "Pagination is required for queries returning more than 100 results",
+  "Page IDs from URLs: last segment of notion.so/workspace/<page_id>, dashes can be omitted",
+]

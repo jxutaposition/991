@@ -7,3 +7,4 @@ max_iterations = 12
 skip_judge = false
 flexible_tool_use = true
 expert_slug = "lele"
+required_integrations = ["hubspot", "tavily"]

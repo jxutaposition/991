@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Covers all five discovery areas: goals, bottlenecks, tool stack, high-leverage channels, success metrics",
+  "Uses forcing-function questions to cut through vague answers rather than accepting surface-level responses",
+  "Distinguishes between stated goals and real goals",
+  "Produces a structured one-pager with what_we_heard, what_it_means, what_we_will_do, what_we_need_from_client",
+  "Identifies no-fly zones (things working that should not be changed)",
+  "Surfaces tool access status and ownership risks",
+]
+
+need_to_know = [
+  "Discovery is structured, not open-ended — five specific areas determine the shape of the work",
+  "The stated goal and the real goal are often different; drill past the first answer",
+  "Post the one-pager in Slack to force alignment before any hours are logged",
+]

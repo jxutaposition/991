@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Clarifies the trigger type before designing the workflow (user action, scheduled, event, manual)",
+  "Maps each step with system, input, output, and failure mode",
+  "Identifies human gates as explicit pause points with notification, not silent blockers",
+  "Designs error handling for each external system call: API down, malformed data, expired credentials",
+  "Selects the simplest architecture pattern that achieves the goal (linear, branching, fan-out, approval, batch)",
+  "Includes a test strategy: single record through complete flow, verify each step, confirm error handling",
+]
+
+need_to_know = [
+  "Start with the happy path, add error handling once it works",
+  "Credential expiry should alert the operator, never fail silently",
+  "Ship working systems, not perfect ones — automate the repeatable, keep human judgment for quality",
+]

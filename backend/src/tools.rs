@@ -25,6 +25,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["query"]
             }),
+            required_credential: Some("apollo".to_string()),
         },
         ToolDef {
             name: "fetch_company_news".to_string(),
@@ -37,6 +38,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["domain"]
             }),
+            required_credential: Some("tavily".to_string()),
         },
         ToolDef {
             name: "search_company_data".to_string(),
@@ -48,6 +50,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                     "domain": {"type": "string"}
                 }
             }),
+            required_credential: Some("apollo".to_string()),
         },
         ToolDef {
             name: "find_contacts".to_string(),
@@ -65,6 +68,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["company_name"]
             }),
+            required_credential: Some("apollo".to_string()),
         },
 
         // CRM tools
@@ -78,6 +82,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["identifier"]
             }),
+            required_credential: Some("hubspot".to_string()),
         },
         ToolDef {
             name: "write_crm_contact".to_string(),
@@ -93,6 +98,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["email"]
             }),
+            required_credential: Some("hubspot".to_string()),
         },
         ToolDef {
             name: "read_crm_pipeline".to_string(),
@@ -105,6 +111,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                     "limit": {"type": "integer"}
                 }
             }),
+            required_credential: Some("hubspot".to_string()),
         },
 
         // Outreach tools
@@ -122,6 +129,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["type", "body"]
             }),
+            required_credential: None,
         },
         ToolDef {
             name: "optimize_subject_line".to_string(),
@@ -135,6 +143,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["email_body"]
             }),
+            required_credential: None,
         },
         ToolDef {
             name: "fetch_email_analytics".to_string(),
@@ -147,6 +156,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                     "date_range_days": {"type": "integer"}
                 }
             }),
+            required_credential: Some("hubspot".to_string()),
         },
 
         // Advertising tools
@@ -165,6 +175,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["action"]
             }),
+            required_credential: Some("meta".to_string()),
         },
         ToolDef {
             name: "google_ads_api".to_string(),
@@ -181,6 +192,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["action"]
             }),
+            required_credential: Some("google_ads".to_string()),
         },
         ToolDef {
             name: "fetch_ad_performance".to_string(),
@@ -193,6 +205,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                     "date_range_days": {"type": "integer"}
                 }
             }),
+            required_credential: None,
         },
 
         // Web tools
@@ -206,6 +219,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["query"]
             }),
+            required_credential: Some("tavily".to_string()),
         },
         ToolDef {
             name: "fetch_url".to_string(),
@@ -217,6 +231,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["url"]
             }),
+            required_credential: None,
         },
 
         // External API tool
@@ -234,6 +249,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["method", "url"]
             }),
+            required_credential: None, // Generic — credential depends on agent context
         },
 
         // Browser automation tool (for tools without APIs)
@@ -251,6 +267,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["action"]
             }),
+            required_credential: None,
         },
 
         // Internal orchestration tools (always available)
@@ -264,6 +281,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["agent_slug"]
             }),
+            required_credential: None,
         },
         ToolDef {
             name: "write_output".to_string(),
@@ -276,18 +294,32 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
                 },
                 "required": ["result", "summary"]
             }),
+            required_credential: None,
         },
         ToolDef {
             name: "spawn_agent".to_string(),
-            description: "Spawn a child agent to handle a sub-task. The child agent runs synchronously and returns its output inline. Use only when needed for dynamic sub-tasks not covered by the pre-planned nodes.".to_string(),
+            description: "Spawn a child agent to handle a sub-task. The child agent runs synchronously and returns its complete output inline. Pass rich context, acceptance criteria, and examples to ensure quality output.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "agent_slug": {"type": "string", "description": "Slug of the agent to spawn"},
-                    "task_description": {"type": "string", "description": "Specific task for the child agent"}
+                    "agent_slug": {"type": "string", "description": "Slug of the agent/skill to spawn"},
+                    "task_description": {"type": "string", "description": "Specific task for the child agent"},
+                    "context": {"type": "string", "description": "Full background context the child agent needs: domain knowledge, upstream outputs, schema details, constraints"},
+                    "acceptance_criteria": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Specific, verifiable conditions the output must meet"
+                    },
+                    "examples": {"type": "string", "description": "Reference material, prior work, or examples that guide the agent"},
+                    "skill_slugs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of skill slugs to compose. Overlays for each skill are resolved and concatenated into the child's prompt."
+                    }
                 },
                 "required": ["agent_slug", "task_description"]
             }),
+            required_credential: None,
         },
     ]
 }
@@ -297,7 +329,6 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
 pub fn tools_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
     let all = all_tool_defs();
 
-    // Internal tools always available
     let always_available = ["read_upstream_output", "write_output"];
 
     all.into_iter()
@@ -307,6 +338,20 @@ pub fn tools_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolD
                 || (include_spawn && t.name == "spawn_agent")
         })
         .collect()
+}
+
+/// Return tool definitions including spawn_agent unconditionally.
+/// Used by the orchestrator and any agent that needs to spawn children.
+pub fn tools_for_orchestrator(agent_tools: &[String]) -> Vec<ToolDef> {
+    tools_for_agent(agent_tools, true)
+}
+
+/// Look up the required_credential for a tool by name.
+pub fn tool_credential(tool_name: &str) -> Option<String> {
+    all_tool_defs()
+        .into_iter()
+        .find(|t| t.name == tool_name)
+        .and_then(|t| t.required_credential)
 }
 
 // ── Tool execution (Phase 0: mock responses) ──────────────────────────────────
@@ -319,55 +364,351 @@ pub async fn execute_tool(
     input: &Value,
     session_id: &str,
     node_outputs: &std::collections::HashMap<String, Value>,
+    credentials: &crate::credentials::CredentialMap,
+    settings: &crate::config::Settings,
 ) -> String {
     info!(tool = %name, "executing tool");
 
     match name {
         "search_linkedin_profile" => {
-            let _query = input.get("query").and_then(Value::as_str).unwrap_or("");
-            json!({
-                "name": "Alex Johnson",
-                "title": "VP of Sales",
-                "company": "Acme Corp",
-                "location": "San Francisco, CA",
-                "summary": "10 years building sales teams at high-growth SaaS companies",
-                "recent_posts": ["Posted about Q3 pipeline strategies", "Shared article on outbound best practices"]
-            }).to_string()
+            let query = input.get("query").and_then(Value::as_str).unwrap_or("");
+            // Try Apollo people/match API first, fall back to mock
+            if let Some(cred) = credentials.get("apollo") {
+                let client = reqwest::Client::new();
+                let body = if query.contains("linkedin.com") {
+                    json!({"linkedin_url": query})
+                } else {
+                    let org = input.get("company").and_then(Value::as_str).unwrap_or("");
+                    json!({"name": query, "organization_name": org})
+                };
+                match client.post("https://api.apollo.io/api/v1/people/match")
+                    .header("x-api-key", &cred.value)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({
+                    "error": "No Apollo credential configured. Add an Apollo API key to enable LinkedIn profile search.",
+                    "fallback_mock": true,
+                    "name": "Alex Johnson",
+                    "title": "VP of Sales",
+                    "company": "Acme Corp",
+                    "location": "San Francisco, CA",
+                    "summary": "10 years building sales teams at high-growth SaaS companies"
+                }).to_string()
+            }
         }
 
         "fetch_company_news" => {
             let domain = input.get("domain").and_then(Value::as_str).unwrap_or("");
-            json!({
-                "domain": domain,
-                "articles": [
-                    {"title": "Company raises $15M Series A", "date": "2025-11-15", "summary": "Led by Sequoia, funding to accelerate GTM expansion"},
-                    {"title": "Launches new enterprise product tier", "date": "2025-10-28", "summary": "Targeting companies with 200+ employees"}
-                ]
-            }).to_string()
+            // Delegate to Tavily web search with news-oriented query
+            let api_key = credentials.get("tavily")
+                .map(|c| c.value.clone())
+                .or_else(|| settings.tavily_api_key.clone());
+
+            if let Some(key) = api_key {
+                let client = reqwest::Client::new();
+                match client.post("https://api.tavily.com/search")
+                    .json(&json!({
+                        "api_key": key,
+                        "query": format!("{} company news recent announcements", domain),
+                        "max_results": input.get("limit").and_then(Value::as_u64).unwrap_or(5),
+                        "search_depth": "advanced"
+                    }))
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        preview
+                    }
+                    Err(e) => json!({"error": format!("News search failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No Tavily API key configured for news search."}).to_string()
+            }
         }
 
         "search_company_data" => {
-            let company = input.get("company_name").and_then(Value::as_str).unwrap_or("Unknown");
-            json!({
-                "company": company,
-                "employees": 120,
-                "founded": 2019,
-                "funding": "$18M total (Series A)",
-                "tech_stack": ["Salesforce", "HubSpot", "Segment", "AWS"],
-                "industry": "B2B SaaS",
-                "hq": "San Francisco, CA",
-                "growth_yoy": "45%"
-            }).to_string()
+            let company = input.get("company_name").and_then(Value::as_str).unwrap_or("");
+            let domain = input.get("domain").and_then(Value::as_str).unwrap_or("");
+            // Try Apollo organization enrichment
+            if let Some(cred) = credentials.get("apollo") {
+                let client = reqwest::Client::new();
+                let body = if !domain.is_empty() {
+                    json!({"domain": domain})
+                } else {
+                    json!({"name": company})
+                };
+                match client.post("https://api.apollo.io/api/v1/organizations/enrich")
+                    .header("x-api-key", &cred.value)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({
+                    "error": "No Apollo credential configured. Add an Apollo API key to enable company enrichment.",
+                    "fallback_mock": true,
+                    "company": company,
+                    "employees": 120,
+                    "industry": "B2B SaaS"
+                }).to_string()
+            }
         }
 
         "find_contacts" => {
-            let company = input.get("company_name").and_then(Value::as_str).unwrap_or("Unknown");
+            let company = input.get("company_name").and_then(Value::as_str).unwrap_or("");
+            let domain = input.get("domain").and_then(Value::as_str).unwrap_or("");
+            let titles = input.get("titles").and_then(Value::as_array)
+                .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect::<Vec<_>>())
+                .unwrap_or_default();
+            // Try Apollo people search
+            if let Some(cred) = credentials.get("apollo") {
+                let client = reqwest::Client::new();
+                let mut body = json!({
+                    "organization_name": company,
+                    "per_page": 10
+                });
+                if !domain.is_empty() {
+                    body["organization_domains"] = json!([domain]);
+                }
+                if !titles.is_empty() {
+                    body["person_titles"] = json!(titles);
+                }
+                match client.post("https://api.apollo.io/api/v1/mixed_people/search")
+                    .header("x-api-key", &cred.value)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({
+                    "error": "No Apollo credential configured. Add an Apollo API key to enable contact search.",
+                    "fallback_mock": true,
+                    "company": company,
+                    "contacts": [
+                        {"name": "Sarah Chen", "title": "VP Sales", "email": "sarah@example.com"},
+                        {"name": "Marcus Williams", "title": "Head of Growth", "email": "marcus@example.com"}
+                    ]
+                }).to_string()
+            }
+        }
+
+        "read_crm_contact" => {
+            let identifier = input.get("identifier").and_then(Value::as_str).unwrap_or("");
+            if let Some(cred) = credentials.get("hubspot") {
+                let token = if cred.credential_type == "oauth2" {
+                    serde_json::from_str::<Value>(&cred.value).ok()
+                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                        .unwrap_or_else(|| cred.value.clone())
+                } else { cred.value.clone() };
+
+                let client = reqwest::Client::new();
+                let result = if identifier.contains('@') {
+                    // Search by email
+                    client.post("https://api.hubapi.com/crm/v3/objects/contacts/search")
+                        .header("Authorization", format!("Bearer {token}"))
+                        .json(&json!({
+                            "filterGroups": [{
+                                "filters": [{
+                                    "propertyName": "email",
+                                    "operator": "EQ",
+                                    "value": identifier
+                                }]
+                            }],
+                            "properties": ["email", "firstname", "lastname", "company", "jobtitle", "phone", "lifecyclestage", "hs_lead_status"]
+                        }))
+                        .send().await
+                } else if identifier.chars().all(|c| c.is_ascii_digit()) {
+                    // Lookup by ID
+                    client.get(format!(
+                        "https://api.hubapi.com/crm/v3/objects/contacts/{}?properties=email,firstname,lastname,company,jobtitle,phone,lifecyclestage,hs_lead_status",
+                        identifier
+                    ))
+                        .header("Authorization", format!("Bearer {token}"))
+                        .send().await
+                } else {
+                    // Search by name
+                    client.post("https://api.hubapi.com/crm/v3/objects/contacts/search")
+                        .header("Authorization", format!("Bearer {token}"))
+                        .json(&json!({
+                            "query": identifier,
+                            "properties": ["email", "firstname", "lastname", "company", "jobtitle", "phone", "lifecyclestage", "hs_lead_status"]
+                        }))
+                        .send().await
+                };
+
+                match result {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No HubSpot credential configured. Connect HubSpot in integration settings."}).to_string()
+            }
+        }
+
+        "write_crm_contact" => {
+            let properties = input.get("properties").cloned().unwrap_or(json!({}));
+            let contact_id = input.get("contact_id").and_then(Value::as_str);
+            if let Some(cred) = credentials.get("hubspot") {
+                let token = if cred.credential_type == "oauth2" {
+                    serde_json::from_str::<Value>(&cred.value).ok()
+                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                        .unwrap_or_else(|| cred.value.clone())
+                } else { cred.value.clone() };
+
+                let client = reqwest::Client::new();
+                let result = if let Some(id) = contact_id {
+                    // Update existing contact
+                    client.patch(format!("https://api.hubapi.com/crm/v3/objects/contacts/{}", id))
+                        .header("Authorization", format!("Bearer {token}"))
+                        .json(&json!({"properties": properties}))
+                        .send().await
+                } else {
+                    // Create new contact
+                    client.post("https://api.hubapi.com/crm/v3/objects/contacts")
+                        .header("Authorization", format!("Bearer {token}"))
+                        .json(&json!({"properties": properties}))
+                        .send().await
+                };
+
+                match result {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No HubSpot credential configured. Connect HubSpot in integration settings."}).to_string()
+            }
+        }
+
+        "read_crm_pipeline" => {
+            let pipeline_id = input.get("pipeline_id").and_then(Value::as_str);
+            if let Some(cred) = credentials.get("hubspot") {
+                let token = if cred.credential_type == "oauth2" {
+                    serde_json::from_str::<Value>(&cred.value).ok()
+                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                        .unwrap_or_else(|| cred.value.clone())
+                } else { cred.value.clone() };
+
+                let client = reqwest::Client::new();
+                let url = if let Some(pid) = pipeline_id {
+                    format!("https://api.hubapi.com/crm/v3/pipelines/deals/{}", pid)
+                } else {
+                    "https://api.hubapi.com/crm/v3/pipelines/deals".to_string()
+                };
+                match client.get(&url)
+                    .header("Authorization", format!("Bearer {token}"))
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No HubSpot credential configured. Connect HubSpot in integration settings."}).to_string()
+            }
+        }
+
+        "fetch_email_analytics" => {
+            if let Some(cred) = credentials.get("hubspot") {
+                let token = if cred.credential_type == "oauth2" {
+                    serde_json::from_str::<Value>(&cred.value).ok()
+                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                        .unwrap_or_else(|| cred.value.clone())
+                } else { cred.value.clone() };
+
+                let client = reqwest::Client::new();
+                match client.get("https://api.hubapi.com/marketing-emails/v1/emails/with-statistics")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .query(&[("limit", "10")])
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        let preview: String = body.chars().take(4000).collect();
+                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                    }
+                    Err(e) => json!({"error": format!("HubSpot email analytics failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No HubSpot credential configured. Connect HubSpot in integration settings."}).to_string()
+            }
+        }
+
+        "fetch_url" => {
+            let url = input.get("url").and_then(Value::as_str).unwrap_or("");
+            if url.is_empty() {
+                return json!({"error": "url parameter is required"}).to_string();
+            }
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            match client.get(url)
+                .header("User-Agent", "Mozilla/5.0 (compatible; LeleBot/1.0)")
+                .send().await
+            {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().await.unwrap_or_default();
+                    // Strip HTML tags for a rough text extraction
+                    let text: String = body.chars().take(8000).collect();
+                    json!({"status": status, "content": text}).to_string()
+                }
+                Err(e) => json!({"error": format!("Failed to fetch URL: {}", e)}).to_string(),
+            }
+        }
+
+        "spawn_agent" => {
+            // spawn_agent is handled directly by agent_runner.rs (synchronous execution).
+            // This branch should never be reached during normal execution.
+            let agent_slug = input.get("agent_slug").and_then(Value::as_str).unwrap_or("");
+            let task = input.get("task_description").and_then(Value::as_str).unwrap_or("");
             json!({
-                "company": company,
-                "contacts": [
-                    {"name": "Sarah Chen", "title": "VP Sales", "email": "sarah@example.com", "linkedin": "linkedin.com/in/sarahchen"},
-                    {"name": "Marcus Williams", "title": "Head of Growth", "email": "marcus@example.com", "linkedin": "linkedin.com/in/marcuswilliams"}
-                ]
+                "error": "spawn_agent should be handled by agent_runner, not tools::execute_tool",
+                "agent_slug": agent_slug,
+                "task": task
             }).to_string()
         }
 
@@ -410,12 +751,32 @@ pub async fn execute_tool(
 
         "web_search" => {
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
-            json!({
-                "results": [
-                    {"title": format!("Search result for: {}", query), "url": "https://example.com/1", "snippet": "Relevant information about the search query..."},
-                    {"title": "Additional context", "url": "https://example.com/2", "snippet": "More details about the topic..."}
-                ]
-            }).to_string()
+
+            let api_key = credentials.get("tavily")
+                .map(|c| c.value.clone())
+                .or_else(|| settings.tavily_api_key.clone());
+
+            if let Some(key) = api_key {
+                let client = reqwest::Client::new();
+                match client.post("https://api.tavily.com/search")
+                    .json(&json!({
+                        "api_key": key,
+                        "query": query,
+                        "max_results": 5
+                    }))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        let body = resp.text().await.unwrap_or_default();
+                        let body_preview: String = body.chars().take(4000).collect();
+                        body_preview
+                    }
+                    Err(e) => json!({"error": format!("Tavily search failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "No Tavily API key configured. Set TAVILY_API_KEY or add a tavily credential for this client."}).to_string()
+            }
         }
 
         "fetch_ad_performance" => {
@@ -463,10 +824,96 @@ pub async fn execute_tool(
                 _ => client.get(url),
             };
 
+            // Check if agent already provided Authorization header
+            let has_auth = input
+                .get("headers")
+                .and_then(Value::as_object)
+                .map(|h| h.keys().any(|k| k.eq_ignore_ascii_case("authorization")))
+                .unwrap_or(false);
+
             if let Some(headers) = input.get("headers").and_then(Value::as_object) {
                 for (key, val) in headers {
                     if let Some(v) = val.as_str() {
                         request = request.header(key.as_str(), v);
+                    }
+                }
+            }
+
+            // Auto-inject credentials if agent didn't provide auth
+            if !has_auth {
+                if url.contains("api.hubapi.com") {
+                    if let Some(cred) = credentials.get("hubspot") {
+                        let token = if cred.credential_type == "oauth2" {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        } else { cred.value.clone() };
+                        request = request.header("Authorization", format!("Bearer {token}"));
+                    }
+                } else if url.contains("api.notion.com") {
+                    if let Some(cred) = credentials.get("notion") {
+                        let token = if cred.credential_type == "oauth2" {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        } else { cred.value.clone() };
+                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Notion-Version", "2022-06-28");
+                    }
+                } else if url.contains("api.clay.com") || url.contains("app.clay.com") {
+                    if let Some(cred) = credentials.get("clay") {
+                        request = request.header("Authorization", format!("Bearer {}", cred.value));
+                    }
+                } else if url.contains("supabase.co") {
+                    if let Some(cred) = credentials.get("supabase") {
+                        request = request.header("apikey", &cred.value);
+                        request = request.header("Authorization", format!("Bearer {}", cred.value));
+                    }
+                } else if url.contains("tolt.io") || url.contains("api.tolt.io") {
+                    if let Some(cred) = credentials.get("tolt") {
+                        request = request.header("Authorization", format!("Bearer {}", cred.value));
+                    }
+                } else if url.contains(".n8n.cloud") || url.contains("n8n.") || url.contains("/api/v1/workflows") || url.contains("/api/v1/executions") || url.contains("/api/v1/credentials") || settings.n8n_base_url.as_deref().map_or(false, |base| url.starts_with(base)) {
+                    let api_key = credentials.get("n8n")
+                        .map(|cred| {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("api_key").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        })
+                        .or_else(|| settings.n8n_api_key.clone());
+                    if let Some(key) = api_key {
+                        request = request.header("X-N8N-API-KEY", &key);
+                    }
+                } else if url.contains("graph.facebook.com") {
+                    if let Some(cred) = credentials.get("meta") {
+                        let token = if cred.credential_type == "oauth2" {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        } else { cred.value.clone() };
+                        request = request.header("Authorization", format!("Bearer {token}"));
+                    }
+                } else if url.contains("googleapis.com") {
+                    if let Some(cred) = credentials.get("google") {
+                        let token = if cred.credential_type == "oauth2" {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        } else { cred.value.clone() };
+                        request = request.header("Authorization", format!("Bearer {token}"));
+                    }
+                } else if url.contains("slack.com/api") {
+                    if let Some(cred) = credentials.get("slack") {
+                        let token = if cred.credential_type == "oauth2" {
+                            serde_json::from_str::<Value>(&cred.value).ok()
+                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+                                .unwrap_or_else(|| cred.value.clone())
+                        } else { cred.value.clone() };
+                        request = request.header("Authorization", format!("Bearer {token}"));
+                    }
+                } else if url.contains("api.apollo.io") {
+                    if let Some(cred) = credentials.get("apollo") {
+                        request = request.header("x-api-key", &cred.value);
                     }
                 }
             }

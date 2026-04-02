@@ -167,6 +167,30 @@ export function EventDetailsPopup({ event, onClose }: EventDetailsPopupProps) {
                   </div>
                 )}
 
+                {(payload.input_tokens != null || payload.cache_read_tokens != null) && (
+                  <div className="mb-2 text-xs bg-surface border border-rim rounded p-2 space-y-1">
+                    <p className="text-ink-3 font-semibold">Token Usage</p>
+                    <div className="flex gap-4 font-mono">
+                      {payload.input_tokens != null && (
+                        <span>in: <span className="text-ink font-semibold">{String(payload.input_tokens)}</span></span>
+                      )}
+                      {payload.output_tokens != null && (
+                        <span>out: <span className="text-ink font-semibold">{String(payload.output_tokens)}</span></span>
+                      )}
+                    </div>
+                    {(payload.cache_read_tokens != null || payload.cache_creation_tokens != null) && (
+                      <div className="flex gap-4 font-mono">
+                        {payload.cache_read_tokens != null && (
+                          <span className="text-green-500">cache hit: {String(payload.cache_read_tokens)}</span>
+                        )}
+                        {payload.cache_creation_tokens != null && (
+                          <span className="text-yellow-500">cache write: {String(payload.cache_creation_tokens)}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Raw JSON */}
                 <pre className="text-xs text-ink-2 bg-surface p-3 rounded border border-rim overflow-auto max-h-64 whitespace-pre-wrap break-words">
                   {JSON.stringify(payload, null, 2)}

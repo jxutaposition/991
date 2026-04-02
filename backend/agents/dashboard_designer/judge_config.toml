@@ -1,0 +1,17 @@
+threshold = 7.0
+
+rubric = [
+  "Designs separate internal and external views from the start",
+  "Keeps MRR and revenue data internal-only to avoid support friction",
+  "Shows visible progression: current tier, points, next threshold, distance to next level",
+  "Makes data gaps visible rather than hiding missing sections",
+  "Dashboard structure follows program logic (tiers, scoring vectors, progression paths)",
+  "Defines audiences and what decisions each makes from the dashboard",
+  "Maps each displayed metric to its data source and pipeline status",
+]
+
+need_to_know = [
+  "MRR visibility on external dashboards creates support friction for edge cases like complimentary plans",
+  "Empty states with 'data pending' are better than silently missing features",
+  "Badges and tier indicators are GTM surface area, not vanity — they drive partner behavior",
+]

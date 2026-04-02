@@ -1,0 +1,17 @@
+threshold = 7.0
+
+rubric = [
+  "Defines the row unit before building any table — wrong row unit compounds into broken outputs",
+  "Navigates and reads access notes for the Clay workspace before acting",
+  "Tests enrichment and action columns on a single row before running at scale",
+  "Normalizes URLs to avoid trailing-slash mismatches between systems",
+  "Checks enrichment credit balance before proposing bulk operations",
+  "Uses proper column types: enrichment for API calls, lookup for cross-table joins, formula for computed values, action for outbound webhooks",
+]
+
+need_to_know = [
+  "Enrichment credits are finite — propose alternatives if credits are low",
+  "URL normalization (trailing slashes) causes mismatches between systems like Clay and Supabase",
+  "Send-to-table columns route rows to other Clay tables based on conditions",
+  "Action columns send data to external systems via webhooks or API calls",
+]

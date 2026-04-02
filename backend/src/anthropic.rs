@@ -17,6 +17,10 @@ pub struct ToolDef {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    /// Integration slug this tool requires (e.g. "notion", "hubspot").
+    /// Skipped when serializing to the Anthropic API.
+    #[serde(skip_serializing)]
+    pub required_credential: Option<String>,
 }
 
 // ── Response ──────────────────────────────────────────────────────────────────
@@ -38,6 +42,20 @@ impl MessagesResponse {
             .join("\n")
     }
 
+    /// Extract all thinking (chain-of-thought) blocks from the response.
+    pub fn thinking(&self) -> Vec<String> {
+        self.content
+            .iter()
+            .filter(|b| b.get("type").and_then(Value::as_str) == Some("thinking"))
+            .filter_map(|b| b.get("thinking").and_then(Value::as_str).map(String::from))
+            .collect()
+    }
+
+    /// Total number of thinking tokens used (from usage.thinking_tokens if present).
+    pub fn thinking_tokens(&self) -> Option<u64> {
+        self.usage.as_ref()?.get("thinking_tokens")?.as_u64()
+    }
+
     pub fn tool_uses(&self) -> Vec<(&str, &str, &Value)> {
         self.content
             .iter()
@@ -57,6 +75,14 @@ impl MessagesResponse {
 
     pub fn output_tokens(&self) -> Option<u64> {
         self.usage.as_ref()?.get("output_tokens")?.as_u64()
+    }
+
+    pub fn cache_creation_input_tokens(&self) -> Option<u64> {
+        self.usage.as_ref()?.get("cache_creation_input_tokens")?.as_u64()
+    }
+
+    pub fn cache_read_input_tokens(&self) -> Option<u64> {
+        self.usage.as_ref()?.get("cache_read_input_tokens")?.as_u64()
     }
 
     pub fn is_end_turn(&self) -> bool {
@@ -98,16 +124,85 @@ impl AnthropicClient {
         max_tokens: u32,
         model_override: Option<&str>,
     ) -> anyhow::Result<MessagesResponse> {
+        self.messages_inner(system, messages, tools, max_tokens, model_override, None)
+            .await
+    }
+
+    /// Like `messages` but with extended thinking enabled.
+    /// `thinking_budget` controls how many tokens the model may use for
+    /// chain-of-thought reasoning. The total `max_tokens` sent to the API is
+    /// `thinking_budget + output_tokens` so the model has room for both.
+    pub async fn messages_with_thinking(
+        &self,
+        system: &str,
+        messages: &[Value],
+        tools: &[ToolDef],
+        output_tokens: u32,
+        model_override: Option<&str>,
+        thinking_budget: u32,
+    ) -> anyhow::Result<MessagesResponse> {
+        self.messages_inner(
+            system,
+            messages,
+            tools,
+            output_tokens,
+            model_override,
+            Some(thinking_budget),
+        )
+        .await
+    }
+
+    async fn messages_inner(
+        &self,
+        system: &str,
+        messages: &[Value],
+        tools: &[ToolDef],
+        max_tokens: u32,
+        model_override: Option<&str>,
+        thinking_budget: Option<u32>,
+    ) -> anyhow::Result<MessagesResponse> {
         let model = model_override.unwrap_or(&self.model);
+
+        // Use structured system block with cache_control breakpoint so the
+        // (often large) system prompt is cached across multi-turn tool loops.
+        let system_block = json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": {"type": "ephemeral"}
+        }]);
+
+        let actual_max_tokens = if let Some(budget) = thinking_budget {
+            budget + max_tokens
+        } else {
+            max_tokens
+        };
 
         let mut body = json!({
             "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
+            "max_tokens": actual_max_tokens,
+            "system": system_block,
             "messages": messages,
         });
+
+        // Enable extended thinking when a budget is provided.
+        if let Some(budget) = thinking_budget {
+            body["thinking"] = json!({
+                "type": "enabled",
+                "budget_tokens": budget
+            });
+        }
+
         if !tools.is_empty() {
-            body["tools"] = json!(tools);
+            // Serialize tools and mark the last one with cache_control so the
+            // full tool-definition block is also cached.
+            let mut tools_json: Vec<Value> = tools
+                .iter()
+                .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.input_schema}))
+                .collect();
+            if let Some(last) = tools_json.last_mut() {
+                last["cache_control"] = json!({"type": "ephemeral"});
+            }
+            body["tools"] = Value::Array(tools_json);
         }
 
         let resp = self
@@ -115,6 +210,7 @@ impl AnthropicClient {
             .post(ANTHROPIC_API_URL)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("anthropic-beta", "prompt-caching-2024-07-31")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()

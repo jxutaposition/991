@@ -6,3 +6,4 @@ intents = ["lovable", "dashboard", "lovable project", "supabase", "fix dashboard
 max_iterations = 15
 skip_judge = false
 flexible_tool_use = true
+required_integrations = ["supabase"]

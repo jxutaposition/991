@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { AuthProvider } from "@/lib/auth-context";
 
 export const metadata: Metadata = {
   title: "lele — GTM Agent Platform",
@@ -15,8 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-page text-ink">
-        <Nav />
-        <main className="flex-1">{children}</main>
+        <AuthProvider>
+          <Nav />
+          <main className="flex-1">{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

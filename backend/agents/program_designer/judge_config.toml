@@ -1,0 +1,19 @@
+threshold = 7.0
+
+rubric = [
+  "Defines the row unit before any scoring or tiering design",
+  "Gathers actual distribution data before setting tier thresholds",
+  "Defines scoring vectors with explicit weights and written rationale",
+  "Addresses reset vs accumulation logic — prefers decay over full resets",
+  "Designs visible progression: members can see current tier, next threshold, and distance",
+  "Separates internal and external views with audience-appropriate visibility from day one",
+  "Avoids anti-patterns: thresholds before data, unexplainable scoring, designing for the average member",
+]
+
+need_to_know = [
+  "Revenue distribution shapes (top 10% vs average) drive tier boundaries — intuitive thresholds are usually wrong",
+  "MRR visibility creates support friction if exposed externally (complimentary plans, special arrangements)",
+  "Experts are ambitious professionals motivated by status, revenue, and social proof — not altruism",
+  "Selectivity preserves program value; reject or waitlist the majority",
+  "Program ROI requires a 12-month tracking horizon, not quarterly evaluation",
+]

@@ -1,0 +1,16 @@
+threshold = 7.0
+
+rubric = [
+  "Selects metrics using causation-first logic: can we trace cause and effect, measure it operationally, and does it drive behavior",
+  "Revenue is the north star but layers in content signals, community signals, and support load as health checks",
+  "Makes data gaps visible and tracked with the same rigor as present data",
+  "Defines a tracking horizon upfront (12 months standard) rather than evaluating at 90 days",
+  "Calibrates point values against real distribution data before committing to a scoring system",
+  "Separates operational metrics (live today) from aspirational metrics (blocked or not yet instrumented)",
+]
+
+need_to_know = [
+  "Creator and community programs produce delayed signal — 12-month horizon is standard",
+  "A program that only optimizes revenue will hollow out; health checks prevent this",
+  "Aspirational metrics don't drive behavior — only operational ones do",
+]

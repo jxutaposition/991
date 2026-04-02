@@ -6,3 +6,4 @@ intents = ["clay", "clay table", "enrichment", "clay lookup", "clay column", "cl
 max_iterations = 15
 skip_judge = false
 flexible_tool_use = true
+required_integrations = ["clay"]

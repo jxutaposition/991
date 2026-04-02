@@ -9,7 +9,8 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
-import { ArrowDown, GitBranch } from "lucide-react";
+import { ArrowDown, Brain, GitBranch, Lock, LockOpen, Check, X, Wrench } from "lucide-react";
+import { IntegrationIcon } from "@/components/integration-icon";
 import {
   TransformWrapper,
   TransformComponent,
@@ -31,8 +32,12 @@ export interface ExecutionNode {
   skip_judge?: boolean | null;
   judge_config?: unknown;
   input?: unknown;
+  output?: unknown;
   started_at?: string | null;
   completed_at?: string | null;
+  depth?: number | null;
+  spawn_context?: string | null;
+  acceptance_criteria?: string[] | null;
   // Branching variant support
   variant_group?: string | null;
   variant_label?: string | null;
@@ -45,12 +50,53 @@ export interface CanvasHandle {
   zoomOut: () => void;
 }
 
+interface ToolCredentialInfo {
+  name: string;
+  credential: string | null;
+  credential_status?: "connected" | "missing" | "not_required";
+  display_name?: string;
+  icon?: string;
+}
+
+interface IntegrationDetail {
+  slug: string;
+  display_name: string;
+  icon: string;
+  status: "connected" | "missing";
+}
+
+interface AgentCredentialInfo {
+  tools: ToolCredentialInfo[];
+  required_integrations: string[];
+  integration_details?: IntegrationDetail[];
+  missing: string[];
+  status: "ready" | "blocked" | "no_tools";
+}
+
+export interface CredentialStatus {
+  agents: Record<string, AgentCredentialInfo>;
+  connected: string[];
+}
+
+interface CatalogAgent {
+  slug: string;
+  name: string;
+  category: string;
+  description: string;
+  tools: Array<{ name: string; credential: string | null }>;
+  required_integrations: string[];
+}
+
+type CatalogMap = Record<string, CatalogAgent>;
+
 interface ExecutionCanvasProps {
   nodes: ExecutionNode[];
   sessionStatus: string;
   selectedNodeId: string | null;
   onNodeClick?: (id: string) => void;
   onZoomChange?: (scale: number) => void;
+  credentialStatus?: CredentialStatus | null;
+  catalogMap?: CatalogMap;
 }
 
 type NodeStatus = string;
@@ -79,16 +125,22 @@ function truncate(s: string, max: number) {
   return s.length > max ? s.slice(0, max) + "\u2026" : s;
 }
 
+const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
+
 function NodeBox({
   node,
   isSelected,
   isChild,
   onClick,
+  credInfo,
+  catalogAgent,
 }: {
   node: ExecutionNode;
   isSelected: boolean;
   isChild: boolean;
   onClick: () => void;
+  credInfo?: AgentCredentialInfo;
+  catalogAgent?: CatalogAgent;
 }) {
   const status = node.status as NodeStatus;
   const name = node.agent_slug || node.id.slice(0, 8);
@@ -97,6 +149,17 @@ function NodeBox({
     node.judge_score != null ? Number(node.judge_score).toFixed(1) : null;
   const isVariantAlt = node.variant_group != null && node.variant_selected === false;
 
+  // Credential status badge
+  const hasIntegrations = credInfo && credInfo.required_integrations.length > 0;
+  const isBlocked = credInfo?.status === "blocked";
+
+  // User-facing tools (from catalog, excluding internal tools)
+  const userTools = catalogAgent?.tools?.filter(
+    (t) => !INTERNAL_TOOLS.includes(t.name)
+  ) ?? [];
+  const toolsWithCred = userTools.filter((t) => t.credential);
+  const toolsWithoutCred = userTools.filter((t) => !t.credential);
+
   return (
     <button
       onClick={(e) => {
@@ -104,17 +167,58 @@ function NodeBox({
         onClick();
       }}
       className={`relative rounded-xl border-2 px-5 py-4
-        ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[340px]"}
+        ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[380px]"}
         ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_BG[status] ?? NODE_BG.pending}
         ${isSelected ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-white" : ""}
+        ${isBlocked && !isVariantAlt ? "border-l-amber-400 border-l-4" : ""}
         flex flex-col items-start gap-1.5 transition-all hover:scale-[1.03] cursor-pointer hover:shadow-lg`}
     >
-      <div
-        className={`absolute top-2.5 right-2.5 w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : DOT[status] ?? DOT.pending}`}
-      />
+      <div className="absolute top-2 right-2.5 flex items-center gap-1">
+        {status === "running" && !isVariantAlt && (
+          <Brain className="w-3 h-3 text-violet-400 animate-pulse" />
+        )}
+        <div
+          className={`w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : DOT[status] ?? DOT.pending}`}
+        />
+      </div>
 
-      {isChild && (
+      {/* Auth status badge — top-left */}
+      {!isVariantAlt && (
+        <div
+          className={`absolute top-2 left-2.5 flex items-center gap-0.5 ${
+            isBlocked
+              ? "text-amber-500"
+              : hasIntegrations
+                ? "text-green-500"
+                : "text-ink-3"
+          }`}
+          title={
+            isBlocked
+              ? `Missing: ${credInfo?.missing.join(", ")}`
+              : hasIntegrations
+                ? "All credentials configured"
+                : "No external auth required"
+          }
+        >
+          {isBlocked ? (
+            <Lock className="w-3 h-3" />
+          ) : hasIntegrations ? (
+            <LockOpen className="w-3 h-3" />
+          ) : (
+            <Wrench className="w-3 h-3" />
+          )}
+        </div>
+      )}
+
+      {isChild && !hasIntegrations && !catalogAgent && (
         <GitBranch className="absolute top-2.5 left-2.5 w-3 h-3 text-purple-400" />
+      )}
+
+      {/* Category badge */}
+      {catalogAgent && !isVariantAlt && (
+        <div className="text-[8px] font-medium text-ink-3 uppercase tracking-wider pl-4">
+          {catalogAgent.category.replace(/_/g, " ")}
+        </div>
       )}
 
       {node.variant_label && (
@@ -124,7 +228,7 @@ function NodeBox({
       )}
 
       <div
-        className={`text-sm font-semibold truncate w-full ${isChild ? "pl-4" : ""} pr-4`}
+        className={`text-sm font-semibold truncate w-full pl-4 pr-4`}
       >
         {name}
       </div>
@@ -135,11 +239,68 @@ function NodeBox({
         </div>
       )}
 
+      {/* Integration chips with icons */}
+      {hasIntegrations && !isVariantAlt && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(credInfo.integration_details ?? credInfo.required_integrations.map((slug) => ({
+            slug,
+            display_name: slug,
+            icon: slug,
+            status: (credInfo.missing.includes(slug) ? "missing" : "connected") as "missing" | "connected",
+          }))).map((detail) => {
+            const isMissing = detail.status === "missing";
+            return (
+              <span
+                key={detail.slug}
+                className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                  isMissing
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-green-100 text-green-700"
+                }`}
+                title={`${detail.display_name}: ${isMissing ? "Not connected" : "Connected"}`}
+              >
+                <IntegrationIcon slug={detail.icon ?? detail.slug} size={10} />
+                {detail.display_name}
+                {isMissing ? (
+                  <X className="w-2.5 h-2.5" />
+                ) : (
+                  <Check className="w-2.5 h-2.5" />
+                )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tool chips (for agents without required_integrations, show what tools they use) */}
+      {!hasIntegrations && userTools.length > 0 && !isVariantAlt && (
+        <div className="flex items-center gap-1 flex-wrap">
+          {userTools.slice(0, 4).map((tool) => (
+            <span
+              key={tool.name}
+              className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-3 font-mono"
+              title={tool.credential ? `Requires: ${tool.credential}` : "No auth required"}
+            >
+              {tool.credential && <IntegrationIcon slug={tool.credential} size={8} />}
+              {tool.name.replace(/_/g, " ")}
+            </span>
+          ))}
+          {userTools.length > 4 && (
+            <span className="text-[8px] text-ink-3">+{userTools.length - 4}</span>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 text-xs opacity-70">
         <span className="capitalize">{isVariantAlt ? "alternative" : status}</span>
         {score && (
           <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px] font-mono">
             {score}/10
+          </span>
+        )}
+        {userTools.length > 0 && !hasIntegrations && (
+          <span className="text-[10px] text-ink-3">
+            {userTools.length} tool{userTools.length !== 1 ? "s" : ""}
           </span>
         )}
       </div>
@@ -241,10 +402,14 @@ function ChildTree({
   tree,
   selectedNodeId,
   onNodeClick,
+  credentialStatus,
+  catalogMap,
 }: {
   tree: DagNode;
   selectedNodeId: string | null;
   onNodeClick?: (id: string) => void;
+  credentialStatus?: CredentialStatus | null;
+  catalogMap?: CatalogMap;
 }) {
   if (tree.children.length === 0) return null;
   return (
@@ -263,12 +428,16 @@ function ChildTree({
                 isSelected={selectedNodeId === child.node.id}
                 isChild
                 onClick={() => onNodeClick?.(child.node.id)}
+                credInfo={credentialStatus?.agents[child.node.agent_slug]}
+                catalogAgent={catalogMap?.[child.node.agent_slug]}
               />
             </div>
             <ChildTree
               tree={child}
               selectedNodeId={selectedNodeId}
               onNodeClick={onNodeClick}
+              credentialStatus={credentialStatus}
+              catalogMap={catalogMap}
             />
           </div>
         ))}
@@ -380,7 +549,7 @@ function DagEdges({
 
 export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
   function ExecutionCanvas(
-    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange },
+    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange, credentialStatus, catalogMap },
     ref
   ) {
     const transformRef = useRef<ReactZoomPanPinchRef>(null);
@@ -446,6 +615,8 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
                           isSelected={selectedNodeId === node.id}
                           isChild={false}
                           onClick={() => onNodeClick?.(node.id)}
+                          credInfo={credentialStatus?.agents[node.agent_slug]}
+                          catalogAgent={catalogMap?.[node.agent_slug]}
                         />
                       </div>
                       {tree && (
@@ -453,6 +624,8 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
                           tree={tree}
                           selectedNodeId={selectedNodeId}
                           onNodeClick={onNodeClick}
+                          credentialStatus={credentialStatus}
+                          catalogMap={catalogMap}
                         />
                       )}
                     </div>

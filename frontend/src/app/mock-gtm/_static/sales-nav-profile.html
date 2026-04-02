@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sarah Chen | Sales Navigator</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f3f2ef; }
+    .nav { background: #0a66c2; color: white; padding: 12px 24px; font-size: 18px; font-weight: 600; }
+    .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+    .profile-card { background: white; border-radius: 8px; border: 1px solid #e5e5e5; padding: 24px; margin-bottom: 16px; }
+    .name { font-size: 22px; font-weight: 700; color: #191919; }
+    .title { font-size: 15px; color: #666; margin-top: 4px; }
+    .company { font-size: 14px; color: #0a66c2; margin-top: 2px; }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+    .btn { padding: 8px 16px; border-radius: 20px; border: 1px solid #0a66c2; color: #0a66c2; background: white; cursor: pointer; font-size: 13px; }
+    .btn:hover { background: #e8f0fe; }
+    .btn-primary { background: #0a66c2; color: white; }
+    .section { background: white; border-radius: 8px; border: 1px solid #e5e5e5; padding: 20px; margin-bottom: 16px; }
+    .section-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 12px; }
+    .activity-item { padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; color: #444; }
+    .activity-date { font-size: 11px; color: #999; }
+    .tag { display: inline-block; background: #e8f0fe; color: #0a66c2; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
+    .email-display { font-family: monospace; font-size: 13px; color: #333; background: #f8f8f8; padding: 4px 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="nav">Sales Navigator</div>
+  <div class="container">
+    <div class="profile-card">
+      <div class="name">Sarah Chen</div>
+      <div class="title">VP Engineering</div>
+      <div class="company">FinFlow - Financial Technology Platform</div>
+      <div style="margin-top: 8px; font-size: 12px; color: #888;">NYC Metro | 120 employees | Series B</div>
+      <div class="actions">
+        <button class="btn btn-primary save-lead-btn">Save to list</button>
+        <button class="btn copy-email-btn" data-email="sarah.chen@finflow.com">Copy email</button>
+        <button class="btn">Send InMail</button>
+        <button class="btn">View in CRM</button>
+      </div>
+      <div style="margin-top: 12px;">
+        <span class="email-display">sarah.chen@finflow.com</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Recent Activity</div>
+      <div class="activity-item">
+        <div>Shared a post about scaling engineering team post-Series B</div>
+        <div class="activity-date">3 days ago</div>
+      </div>
+      <div class="activity-item">
+        <div>Commented on a thread about developer tooling ROI</div>
+        <div class="activity-date">1 week ago</div>
+      </div>
+      <div class="activity-item">
+        <div>Published article: "Building Platform Engineering at a Growth-Stage Fintech"</div>
+        <div class="activity-date">2 weeks ago</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Experience</div>
+      <div class="activity-item">
+        <div><strong>VP Engineering</strong> at FinFlow</div>
+        <div class="activity-date">Jan 2024 - Present (1 year 2 months)</div>
+      </div>
+      <div class="activity-item">
+        <div><strong>Senior Engineering Manager</strong> at Plaid</div>
+        <div class="activity-date">2021 - 2023</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Skills & Endorsements</div>
+      <div>
+        <span class="tag">Platform Engineering</span>
+        <span class="tag">Distributed Systems</span>
+        <span class="tag">Engineering Leadership</span>
+        <span class="tag">Fintech</span>
+        <span class="tag">Kubernetes</span>
+      </div>
+    </div>
+  </div>
+<script>
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

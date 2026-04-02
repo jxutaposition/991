@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
 
 const EXAMPLE_REQUESTS = [
   "Run cold outbound to fintech companies 50-500 employees in NYC \u2014 get me 50 personalized emails ready to send",
@@ -30,6 +31,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function ExecutePage() {
   const router = useRouter();
+  const { activeClient, apiFetch } = useAuth();
   const [request, setRequest] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,34 +41,37 @@ export default function ExecutePage() {
   const [sessionsLoading, setSessionsLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/models")
+    apiFetch("/api/models")
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setModels(data.models ?? []);
         setSelectedModel(data.default ?? "");
       })
       .catch(() => {});
-  }, []);
+  }, [apiFetch]);
 
   useEffect(() => {
-    fetch("/api/execute/sessions")
+    apiFetch("/api/execute/sessions")
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setSessions(data.sessions ?? []);
         setSessionsLoading(false);
       })
       .catch(() => setSessionsLoading(false));
-  }, []);
+  }, [apiFetch]);
 
   const handleSubmit = async () => {
     if (!request.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/execute", {
+      const res = await apiFetch("/api/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request_text: request, model: selectedModel || undefined }),
+        body: JSON.stringify({
+          request_text: request,
+          model: selectedModel || undefined,
+          client_slug: activeClient || undefined,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();

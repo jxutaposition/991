@@ -132,6 +132,13 @@ fn decode_pg_column(row: &PgRow, col_name: &str, type_name: &str) -> Value {
             .map(|arr| Value::Array(arr.into_iter().map(|u| Value::String(u.to_string())).collect()))
             .unwrap_or(Value::Array(vec![])),
 
+        "_text" | "text[]" | "_varchar" | "varchar[]" => row
+            .try_get::<Option<Vec<String>>, _>(col_name)
+            .ok()
+            .flatten()
+            .map(|arr| Value::Array(arr.into_iter().map(Value::String).collect()))
+            .unwrap_or(Value::Array(vec![])),
+
         _ => row
             .try_get::<Option<String>, _>(col_name)
             .ok()
