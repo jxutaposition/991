@@ -27,7 +27,7 @@ export default function ObservePage() {
     fetch("/api/observe/sessions")
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setSessions(data.sessions ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load sessions:", err); setLoading(false); });
   }, []);
 
   return (

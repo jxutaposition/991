@@ -67,7 +67,7 @@ export default function ObserveSessionPage() {
         setPrs(data.prs ?? []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load session:", err); setLoading(false); });
   }, [session_id]);
 
   if (loading) return <div className="p-8 text-ink-3 text-sm">Loading...</div>;

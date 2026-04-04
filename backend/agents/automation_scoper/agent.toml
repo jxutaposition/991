@@ -1,9 +1,0 @@
-slug = "automation_scoper"
-name = "Automation Scoper"
-category = "program_operations"
-description = "Evaluates a client's existing tool stack and workflows. Maps data flows between systems, identifies what should be automated vs. kept manual, and produces an automation plan with clear boundaries."
-intents = ["scope automation", "what to automate", "tool stack assessment", "workflow mapping", "automation plan", "manual vs automated", "integration assessment", "process automation"]
-max_iterations = 12
-skip_judge = false
-flexible_tool_use = false
-expert_slug = "lele"

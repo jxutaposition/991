@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Clay - My Tables</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #fafafa; }
+    .nav { background: #6C5CE7; color: white; padding: 12px 24px; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+    h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 16px; }
+    .table-list { display: flex; flex-direction: column; gap: 8px; }
+    .table-card { background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px 20px; cursor: pointer; text-decoration: none; color: inherit; display: flex; align-items: center; justify-content: space-between; }
+    .table-card:hover { border-color: #6C5CE7; background: #f8f7ff; }
+    .table-name { font-weight: 600; font-size: 14px; color: #1a1a2e; }
+    .table-meta { font-size: 12px; color: #888; margin-top: 2px; }
+    .table-rows { font-size: 12px; color: #6C5CE7; font-weight: 500; }
+    .new-table-btn { display: inline-block; background: #6C5CE7; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; margin-bottom: 16px; }
+    .new-table-btn:hover { background: #5a4bd1; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <span>Clay</span>
+    <span style="font-size: 13px; opacity: 0.8;">Workspace: lele-gtm</span>
+  </div>
+  <div class="container">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <h2>My Tables</h2>
+      <a href="/clay/tables/new" class="new-table-btn" id="create-table-btn">+ New Table</a>
+    </div>
+    <div class="table-list">
+      <a href="/clay/tables/t_heyreach_experts" class="table-card" id="table-heyreach">
+        <div>
+          <div class="table-name">HeyReach Experts</div>
+          <div class="table-meta">Enrichment table · Last updated 2h ago</div>
+        </div>
+        <div class="table-rows">342 rows</div>
+      </a>
+      <a href="/clay/tables/t_partner_signals" class="table-card" id="table-signals">
+        <div>
+          <div class="table-name">Partner Signals - Social Listening</div>
+          <div class="table-meta">Social listening · Last updated 15m ago</div>
+        </div>
+        <div class="table-rows">1,204 rows</div>
+      </a>
+      <a href="/clay/tables/t_icp_companies" class="table-card" id="table-icp">
+        <div>
+          <div class="table-name">ICP Companies - FinTech Series A/B</div>
+          <div class="table-meta">Enrichment table · Last updated 1d ago</div>
+        </div>
+        <div class="table-rows">89 rows</div>
+      </a>
+    </div>
+  </div>
+<script>
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

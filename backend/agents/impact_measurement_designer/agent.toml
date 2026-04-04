@@ -1,9 +1,0 @@
-slug = "impact_measurement_designer"
-name = "Impact Measurement Designer"
-category = "program_operations"
-description = "Designs measurement frameworks for programs: selects north star metrics using causation-first logic, separates operational vs. aspirational metrics, marks gaps explicitly, and recommends tracking horizons."
-intents = ["measurement", "impact measurement", "metrics framework", "kpi", "north star metric", "program roi", "what to measure", "success metrics", "reporting framework", "impact report"]
-max_iterations = 10
-skip_judge = false
-flexible_tool_use = false
-expert_slug = "lele"

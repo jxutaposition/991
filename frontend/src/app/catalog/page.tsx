@@ -28,7 +28,7 @@ export default function CatalogPage() {
         setAgents(data.agents ?? []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load catalog:", err); setLoading(false); });
   }, []);
 
   const categories = Array.from(new Set(agents.map((a) => a.category)));

@@ -290,12 +290,9 @@ test.describe("LinkedIn Lead Prospecting Pipeline", () => {
     // Matched agents should include at least 2 from the real agent catalog
     const matchedSlugs = new Set(matchedTasks.map((t: any) => t.matched_agent_slug));
     const catalogAgents = [
-      "automation_scoper", "clay_operator", "client_engagement_manager",
-      "content_campaign_designer", "dashboard_designer", "data_auditor",
-      "data_pipeline_builder", "engagement_discovery", "impact_measurement_designer",
+      "clay_operator", "dashboard_builder", "data_pipeline_builder",
       "lovable_operator", "n8n_operator", "notion_operator",
-      "onboarding_flow_designer", "pipeline_diagnostician", "program_designer",
-      "tolt_operator", "workflow_builder",
+      "tolt_operator",
     ];
     const matchedKnown = catalogAgents.filter((a) => matchedSlugs.has(a));
     expect(matchedKnown.length).toBeGreaterThanOrEqual(2);

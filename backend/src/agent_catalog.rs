@@ -15,6 +15,9 @@ use walkdir::WalkDir;
 
 use crate::pg::PgClient;
 
+pub const MASTER_ORCHESTRATOR_SLUG: &str = "master_orchestrator";
+pub const EVALUATOR_SLUG: &str = "evaluator";
+
 // ── Agent file formats (used only for disk seeding) ──────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -267,7 +270,7 @@ impl AgentCatalog {
         let agents = self.agents.read().unwrap();
         let mut parts = Vec::new();
         for agent in agents.values() {
-            if agent.slug == "master_orchestrator" || agent.slug == "evaluator" {
+            if agent.slug == MASTER_ORCHESTRATOR_SLUG || agent.slug == EVALUATOR_SLUG {
                 continue;
             }
             parts.push(Self::format_agent_summary(agent));
@@ -281,7 +284,7 @@ impl AgentCatalog {
         let agents = self.agents.read().unwrap();
         let mut parts = Vec::new();
         for agent in agents.values() {
-            if agent.slug == "master_orchestrator" || agent.slug == "evaluator" {
+            if agent.slug == MASTER_ORCHESTRATOR_SLUG || agent.slug == EVALUATOR_SLUG {
                 continue;
             }
             let include = match (expert_id, agent.expert_id) {

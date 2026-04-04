@@ -10,11 +10,11 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use crate::agent_catalog::{AgentCatalog, ExecutionPlanNode, JudgeConfig, NodeStatus};
+use crate::agent_catalog::{AgentCatalog, ExecutionPlanNode, JudgeConfig, NodeStatus, MASTER_ORCHESTRATOR_SLUG};
 use crate::pg_args;
 use crate::anthropic::{
     assistant_message_from_response, tool_results_message, user_message, AnthropicClient,
-    ToolDef,
+    ContentBlockType, DeltaPayload, StreamEvent, ToolDef,
 };
 use crate::config::Settings;
 use crate::pg::PgClient;
@@ -23,9 +23,10 @@ use crate::tools;
 
 const MAX_JUDGE_RETRIES: u32 = 2;
 
-/// Persist a conversation message for a node.
+/// Persist a conversation message for a node and broadcast as a stream entry.
 async fn persist_message(
     db: &PgClient,
+    event_bus: &EventBus,
     session_id: &str,
     node_id: &str,
     role: &str,
@@ -41,6 +42,18 @@ async fn persist_message(
             pg_args!(sid, nid, role.to_string(), content.to_string(), metadata.clone()),
         ).await;
     }
+    event_bus.send(session_id, json!({
+        "type": "stream_entry",
+        "node_uid": node_id,
+        "stream_entry": {
+            "stream_type": "message",
+            "sub_type": role,
+            "content": content,
+            "role": role,
+            "metadata": metadata,
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        }
+    })).await;
 }
 
 /// Persist an execution event to the DB and broadcast it via SSE.
@@ -66,8 +79,101 @@ async fn emit_event(
     if let Some(obj) = event.as_object_mut() {
         obj.insert("type".to_string(), json!(event_type));
         obj.insert("node_uid".to_string(), json!(node_id));
+        obj.insert("stream_entry".to_string(), json!({
+            "stream_type": "event",
+            "sub_type": event_type,
+            "content": payload.to_string(),
+            "created_at": chrono::Utc::now().to_rfc3339(),
+        }));
     }
     event_bus.send(session_id, event).await;
+}
+
+/// Forward a streaming delta from Anthropic to the EventBus as an SSE event.
+async fn forward_stream_delta(
+    event_bus: &EventBus,
+    session_id: &str,
+    node_id: &str,
+    iteration: usize,
+    event: &StreamEvent,
+) {
+    let payload = match event {
+        StreamEvent::ContentBlockDelta { index, delta } => {
+            match delta {
+                DeltaPayload::ThinkingDelta(text) => json!({
+                    "type": "stream_entry",
+                    "node_uid": node_id,
+                    "stream_entry": {
+                        "stream_type": "thinking_delta",
+                        "sub_type": "thinking_delta",
+                        "content": text,
+                        "block_index": index,
+                        "iteration": iteration,
+                        "created_at": chrono::Utc::now().to_rfc3339(),
+                    }
+                }),
+                DeltaPayload::TextDelta(text) => json!({
+                    "type": "stream_entry",
+                    "node_uid": node_id,
+                    "stream_entry": {
+                        "stream_type": "text_delta",
+                        "sub_type": "text_delta",
+                        "content": text,
+                        "block_index": index,
+                        "iteration": iteration,
+                        "created_at": chrono::Utc::now().to_rfc3339(),
+                    }
+                }),
+                DeltaPayload::InputJsonDelta(_) => return, // not forwarded
+            }
+        }
+        StreamEvent::ContentBlockStart { index, block_type } => {
+            let sub_type = match block_type {
+                ContentBlockType::Text => "text",
+                ContentBlockType::Thinking => "thinking",
+                ContentBlockType::ToolUse { .. } => "tool_use",
+            };
+            let mut entry = json!({
+                "stream_type": "content_block_start",
+                "sub_type": sub_type,
+                "block_index": index,
+                "iteration": iteration,
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            });
+            if let ContentBlockType::ToolUse { id, name } = block_type {
+                entry["tool_use_id"] = json!(id);
+                entry["tool_name"] = json!(name);
+            }
+            json!({
+                "type": "stream_entry",
+                "node_uid": node_id,
+                "stream_entry": entry,
+            })
+        }
+        StreamEvent::ContentBlockStop { index } => json!({
+            "type": "stream_entry",
+            "node_uid": node_id,
+            "stream_entry": {
+                "stream_type": "content_block_stop",
+                "sub_type": "content_block_stop",
+                "block_index": index,
+                "iteration": iteration,
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }
+        }),
+        StreamEvent::MessageStop => json!({
+            "type": "stream_entry",
+            "node_uid": node_id,
+            "stream_entry": {
+                "stream_type": "message_stop",
+                "sub_type": "message_stop",
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }
+        }),
+        _ => return, // MessageStart, MessageDelta — not forwarded
+    };
+
+    event_bus.send(session_id, payload).await;
 }
 
 #[derive(Debug, Clone)]
@@ -153,18 +259,26 @@ impl AgentRunner {
             String::new()
         };
 
-        // Load client credentials for tool execution
+        // Load credentials: project-level overrides → client-level → global env
+        let project_id = load_project_id(&self.db, plan_node.session_id).await;
         let mut credentials = if let Some(client_id) = plan_node.client_id {
             if let Some(ref master_key) = self.settings.credential_master_key {
-                let creds = crate::credentials::load_credentials_for_client(&self.db, master_key, client_id)
-                    .await
-                    .unwrap_or_default();
+                let creds = if let Some(pid) = project_id {
+                    crate::credentials::load_credentials_for_project(&self.db, master_key, pid, client_id)
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    crate::credentials::load_credentials_for_client(&self.db, master_key, client_id)
+                        .await
+                        .unwrap_or_default()
+                };
                 let slugs: Vec<&str> = creds.keys().map(|s| s.as_str()).collect();
                 tracing::info!(
                     agent = %plan_node.agent_slug,
                     %client_id,
+                    project_id = ?project_id,
                     credentials = ?slugs,
-                    "loaded client credentials"
+                    "loaded credentials"
                 );
                 creds
             } else {
@@ -196,6 +310,77 @@ impl AgentRunner {
                         }
                     }
                 }
+            }
+        }
+
+        // Preflight: verify required integrations have working credentials before LLM invocation
+        {
+            let required = crate::preflight::required_slugs_for_agent(
+                &agent.required_integrations,
+                &agent.tools,
+            );
+            if !required.is_empty() {
+                let needed = crate::preflight::filter_required_credentials(
+                    &credentials,
+                    &required,
+                    &self.settings,
+                );
+
+                // Check for completely missing credentials first
+                let missing: Vec<&String> = required.iter()
+                    .filter(|s| !needed.contains_key(s.as_str()))
+                    .collect();
+                if !missing.is_empty() {
+                    let msg = format!(
+                        "BLOCKED: Missing credentials for {}. Configure them in Settings > Integrations.",
+                        missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                    );
+                    tracing::error!(agent = %plan_node.agent_slug, missing = ?missing, "preflight: missing credentials");
+                    return AgentResult {
+                        node_uid: uid_str,
+                        status: NodeStatus::Failed,
+                        judge_score: None,
+                        judge_feedback: None,
+                        final_summary: Some(msg.clone()),
+                        output: Some(json!({"status": "blocked", "reason": msg})),
+                        error: Some(msg),
+                        duration_ms: 0,
+                    };
+                }
+
+                let probes = crate::preflight::probe_integrations(&needed, Some(&self.settings)).await;
+
+                let mut issues: Vec<String> = Vec::new();
+
+                for f in probes.iter().filter(|p| !p.success()) {
+                    let status_label = f.status.as_str();
+                    let detail = if f.error.is_empty() { "unknown error".to_string() } else { f.error.clone() };
+                    issues.push(format!("{} [{}]: {}", f.integration_slug, status_label, detail));
+                }
+
+                if !issues.is_empty() {
+                    let msg = format!(
+                        "BLOCKED: Credential verification failed — {}. Re-configure in Settings > Integrations.",
+                        issues.join("; ")
+                    );
+                    tracing::error!(agent = %plan_node.agent_slug, issues = ?issues, "preflight: credential checks failed");
+                    return AgentResult {
+                        node_uid: uid_str,
+                        status: NodeStatus::Failed,
+                        judge_score: None,
+                        judge_feedback: None,
+                        final_summary: Some(msg.clone()),
+                        output: Some(json!({"status": "blocked", "reason": msg})),
+                        error: Some(msg),
+                        duration_ms: 0,
+                    };
+                }
+
+                tracing::info!(
+                    agent = %plan_node.agent_slug,
+                    probes = probes.len(),
+                    "preflight credential checks passed"
+                );
             }
         }
 
@@ -255,7 +440,7 @@ impl AgentRunner {
         };
 
         // If this is a master_orchestrator, load preview plan children and inject into prompt
-        let (system_prompt, orchestrator_plan) = if plan_node.agent_slug == "master_orchestrator" {
+        let (system_prompt, orchestrator_plan) = if plan_node.agent_slug == MASTER_ORCHESTRATOR_SLUG {
             let preview_plan = load_preview_plan(&self.db, plan_node.uid).await;
             if !preview_plan.is_empty() {
                 let mut p = system_prompt;
@@ -299,6 +484,20 @@ impl AgentRunner {
                 &credentials,
                 &orchestrator_plan,
             ).await;
+        }
+
+        // Merge dynamic acceptance_criteria (from orchestrator enrichment) into the
+        // judge rubric so critic/judge can validate against task-specific criteria,
+        // not just the agent's static rubric from agent.toml.
+        let mut effective_judge_config = plan_node.judge_config.clone();
+        if let Some(ref criteria_json) = node_criteria {
+            if let Some(arr) = criteria_json.as_array() {
+                for c in arr {
+                    if let Some(s) = c.as_str() {
+                        effective_judge_config.rubric.push(s.to_string());
+                    }
+                }
+            }
         }
 
         // ── Stage 1: Executor ────────────────────────────────────────────────
@@ -357,6 +556,25 @@ impl AgentRunner {
                 .unwrap_or("")
                 .to_string();
 
+            let paused_for_user = result
+                .get("paused")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+
+            if paused_for_user {
+                info!("executor paused for user action — returning AwaitingReply");
+                return AgentResult {
+                    node_uid: uid_str,
+                    status: NodeStatus::AwaitingReply,
+                    judge_score: None,
+                    judge_feedback: None,
+                    final_summary: Some(executor_summary),
+                    output: executor_output,
+                    error: None,
+                    duration_ms: node_started_at.elapsed().as_millis() as u64,
+                };
+            }
+
             if plan_node.skip_judge || self.settings.skip_judge {
                 info!("judge skipped (skip_judge=true)");
                 return AgentResult {
@@ -372,13 +590,13 @@ impl AgentRunner {
             }
 
             // ── Stage 2: Critic (rubric check) ──────────────────────────────
-            if !plan_node.judge_config.rubric.is_empty() {
+            if !effective_judge_config.rubric.is_empty() {
                 emit_event(&self.db, &self.event_bus, &sid, &nid, "critic_start", &json!({
                     "attempt": attempt,
                 })).await;
 
                 let critic_result = self
-                    .critic_run(&executor_summary, &plan_node.judge_config, model)
+                    .critic_run(&executor_summary, &effective_judge_config, model)
                     .await;
 
                 let critic_passed = critic_result
@@ -411,7 +629,7 @@ impl AgentRunner {
             })).await;
 
             let judge_result = self
-                .judge_run(&executor_question, &executor_summary, &plan_node.judge_config, model)
+                .judge_run(&executor_question, &executor_summary, &effective_judge_config, model)
                 .await;
 
             let verdict = judge_result
@@ -543,7 +761,7 @@ impl AgentRunner {
         let mut final_summary = String::new();
 
         // Persist initial user message
-        persist_message(&self.db, session_id, node_id, "user", question, &json!({})).await;
+        persist_message(&self.db, &self.event_bus, session_id, node_id, "user", question, &json!({})).await;
 
         for iteration in 0..max_iterations {
             emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_llm_send", &json!({
@@ -552,18 +770,27 @@ impl AgentRunner {
             })).await;
 
             let llm_started_at = Instant::now();
-            let response = match if let Some(budget) = thinking_budget {
-                client
-                    .messages_with_thinking(system_prompt, &messages, tool_defs, 8192, Some(model), budget)
-                    .await
-            } else {
-                client
-                    .messages(system_prompt, &messages, tool_defs, 8192, Some(model))
-                    .await
-            } {
-                Ok(r) => r,
-                Err(e) => {
+
+            // Stream from Anthropic API — deltas forwarded to EventBus in real-time
+            let (mut delta_rx, response_handle) = client.messages_stream(
+                system_prompt,
+                &messages,
+                tool_defs,
+                8192,
+                Some(model),
+                thinking_budget,
+            );
+            while let Some(event) = delta_rx.recv().await {
+                forward_stream_delta(&self.event_bus, session_id, node_id, iteration + 1, &event).await;
+            }
+            let response = match response_handle.await {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
                     warn!(iteration, error = %e, "executor LLM call failed");
+                    break;
+                }
+                Err(e) => {
+                    warn!(iteration, error = %e, "executor LLM task panicked");
                     break;
                 }
             };
@@ -585,6 +812,20 @@ impl AgentRunner {
                         pg_args!(sid, nid, (iteration + 1) as i32, full_thinking.clone(), thinking_tokens as i64),
                     ).await;
                 }
+
+                // Broadcast thinking as a stream entry (full text for unified view)
+                self.event_bus.send(session_id, json!({
+                    "type": "stream_entry",
+                    "node_uid": node_id,
+                    "stream_entry": {
+                        "stream_type": "thinking",
+                        "sub_type": "thinking_block",
+                        "thinking_text": full_thinking.clone(),
+                        "iteration": iteration + 1,
+                        "token_count": thinking_tokens,
+                        "created_at": chrono::Utc::now().to_rfc3339(),
+                    }
+                })).await;
 
                 // Emit thinking event with preview (full text in DB, preview via SSE)
                 let preview: String = full_thinking.chars().take(500).collect();
@@ -623,7 +864,7 @@ impl AgentRunner {
 
             // Persist assistant message (text portion)
             if !llm_text.is_empty() {
-                persist_message(&self.db, session_id, node_id, "assistant", &llm_text, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "assistant", &llm_text, &json!({
                     "iteration": iteration + 1,
                     "tool_calls": tool_call_names,
                 })).await;
@@ -631,7 +872,7 @@ impl AgentRunner {
 
             // Persist tool_use entries
             for (id, name, input) in response.tool_uses() {
-                persist_message(&self.db, session_id, node_id, "tool_use", &name, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_use", &name, &json!({
                     "tool_use_id": id,
                     "tool_name": name,
                     "tool_input": input,
@@ -724,6 +965,34 @@ impl AgentRunner {
                     continue;
                 }
 
+                if tool_name == "request_user_action" {
+                    let action_title = tool_input
+                        .get("action_title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Manual action required")
+                        .to_string();
+                    final_summary = action_title.clone();
+
+                    tool_results.push((
+                        tool_use_id.clone(),
+                        json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string(),
+                    ));
+                    messages.push(tool_results_message(&tool_results));
+
+                    persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_result", &json!({"status": "paused"}).to_string(), &json!({
+                        "tool_use_id": tool_use_id,
+                        "tool_name": "request_user_action",
+                    })).await;
+
+                    // Return with paused=true and action metadata in output
+                    // (output is set so the UI can display the action_title on the node)
+                    final_output = Some(json!({
+                        "action_title": action_title,
+                        "paused_for_user_action": true,
+                    }));
+                    break;
+                }
+
                 if tool_name == "write_output" {
                     // Agent is done — capture output and break
                     final_output = tool_input.get("result").cloned();
@@ -763,7 +1032,7 @@ impl AgentRunner {
 
                 // Persist tool result message
                 let result_preview: String = result.chars().take(2000).collect();
-                persist_message(&self.db, session_id, node_id, "tool_result", &result_preview, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_result", &result_preview, &json!({
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
                 })).await;
@@ -796,9 +1065,16 @@ impl AgentRunner {
             ).await;
         }
 
+        let paused = final_output
+            .as_ref()
+            .and_then(|o| o.get("paused_for_user_action"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         json!({
             "output": final_output,
             "summary": final_summary,
+            "paused": paused,
         })
     }
 
@@ -955,7 +1231,7 @@ impl AgentRunner {
             })).collect::<Vec<_>>(),
         })).await;
 
-        persist_message(&self.db, &sid, &nid, "system", "Plan-driven execution started", &json!({
+        persist_message(&self.db, &self.event_bus, &sid, &nid, "system", "Plan-driven execution started", &json!({
             "total_steps": preview_children.len(),
         })).await;
 
@@ -1027,7 +1303,7 @@ Respond with ONLY the JSON object:
                 "task_description": task_desc,
             })).await;
 
-            persist_message(&self.db, &sid, &nid, "user", &enrichment_prompt, &json!({
+            persist_message(&self.db, &self.event_bus, &sid, &nid, "user", &enrichment_prompt, &json!({
                 "step": i + 1,
                 "phase": "enrichment_request",
             })).await;
@@ -1056,7 +1332,7 @@ Respond with ONLY the JSON object:
                 }
             };
 
-            persist_message(&self.db, &sid, &nid, "assistant", &enrichment_text, &json!({
+            persist_message(&self.db, &self.event_bus, &sid, &nid, "assistant", &enrichment_text, &json!({
                 "step": i + 1,
                 "phase": "enrichment_response",
             })).await;
@@ -1120,6 +1396,20 @@ Respond with ONLY the JSON object:
                 blockers.push(format!("Step {} ({}) ended with status: {}", i + 1, agent_slug, final_status));
             }
 
+            // Extract and persist artifacts + step_index on the child node
+            let child_node_uid = result.get("node_uid")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse::<uuid::Uuid>().ok())
+                .unwrap_or(*_child_uid);
+            let artifacts = result.get("output")
+                .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
+                .cloned()
+                .unwrap_or(json!([]));
+            let _ = self.db.execute_with(
+                "UPDATE execution_nodes SET artifacts = $1, step_index = $2 WHERE id = $3",
+                pg_args!(artifacts, (i + 1) as i32, child_node_uid),
+            ).await;
+
             child_outputs.insert(agent_slug.clone(), result.clone());
             step_results.push(result.clone());
 
@@ -1135,7 +1425,7 @@ Respond with ONLY the JSON object:
             );
             messages.push(user_message(result_msg.clone()));
 
-            persist_message(&self.db, &sid, &nid, "user", &result_msg, &json!({
+            persist_message(&self.db, &self.event_bus, &sid, &nid, "user", &result_msg, &json!({
                 "step": i + 1,
                 "phase": "step_result",
                 "status": &final_status,
@@ -1177,7 +1467,7 @@ Respond with ONLY the JSON object:
         let (final_output, final_summary) = match synthesis_response {
             Ok(r) => {
                 let text = r.text();
-                persist_message(&self.db, &sid, &nid, "assistant", &text, &json!({"phase": "synthesis"})).await;
+                persist_message(&self.db, &self.event_bus, &sid, &nid, "assistant", &text, &json!({"phase": "synthesis"})).await;
                 parse_synthesis_json(&text, &step_results)
             }
             Err(e) => {
@@ -1290,7 +1580,7 @@ Respond with ONLY the JSON object:
                    judge_config = $2,
                    max_iterations = $3,
                    model = $4,
-                   skip_judge = true,
+                   skip_judge = $12,
                    depth = $5,
                    spawn_context = $6,
                    acceptance_criteria = $7,
@@ -1318,7 +1608,8 @@ Respond with ONLY the JSON object:
                 spawn_examples.unwrap_or("").to_string(),
                 parent_node.uid,
                 agent_slug.to_string(),
-                sid
+                sid,
+                agent.skip_judge
             ),
         ).await {
             Ok(rows) => rows.first()
@@ -1358,7 +1649,7 @@ Respond with ONLY the JSON object:
                     judge_config_val,
                     agent.max_iterations as i32,
                     model.to_string(),
-                    true,
+                    agent.skip_judge,
                     parent_node.client_id,
                     child_depth,
                     spawn_context.unwrap_or("").to_string(),
@@ -1379,9 +1670,14 @@ Respond with ONLY the JSON object:
             &json!({"agent_slug": agent_slug, "parent_uid": parent_node.uid.to_string(), "depth": child_depth}),
         ).await;
 
-        // Build child ExecutionPlanNode
-        // Spawned children skip the judge — the parent orchestrator validates
-        // via acceptance criteria, which is more context-aware than a generic rubric.
+        // Build child ExecutionPlanNode — use the agent's own judge settings so that
+        // operator agents (n8n, notion, etc.) go through critic/judge validation.
+        let mut child_judge_config = agent.judge_config.clone();
+        if let Some(criteria) = &acceptance_criteria {
+            for c in criteria {
+                child_judge_config.rubric.push(c.clone());
+            }
+        }
         let child_node = ExecutionPlanNode {
             uid: child_uid,
             session_id: sid,
@@ -1396,10 +1692,10 @@ Respond with ONLY the JSON object:
             output: None,
             judge_score: None,
             judge_feedback: None,
-            judge_config: agent.judge_config.clone(),
+            judge_config: child_judge_config,
             max_iterations: agent.max_iterations,
             model: model.to_string(),
-            skip_judge: true,
+            skip_judge: agent.skip_judge,
             variant_group: None,
             variant_label: None,
             variant_selected: None,
@@ -1530,7 +1826,7 @@ Respond with ONLY the JSON object:
 
         // Append user reply
         messages.push(user_message(user_reply.to_string()));
-        persist_message(&self.db, session_id, node_id, "user", user_reply, &json!({"source": "human_reply"})).await;
+        persist_message(&self.db, &self.event_bus, session_id, node_id, "user", user_reply, &json!({"source": "human_reply"})).await;
 
         // Emit event
         emit_event(&self.db, &self.event_bus, session_id, node_id, "user_reply", &json!({
@@ -1545,20 +1841,35 @@ Respond with ONLY the JSON object:
             vec![]
         };
 
-        // Load credentials
-        let client_id_rows = self.db.execute_with(
-            "SELECT client_id FROM execution_nodes WHERE id = $1",
+        // Load credentials (project-aware)
+        let node_ctx_rows = self.db.execute_with(
+            "SELECT n.client_id, n.session_id FROM execution_nodes n WHERE n.id = $1",
             pg_args!(nid),
         ).await.unwrap_or_default();
-        let client_id = client_id_rows.first()
+        let client_id = node_ctx_rows.first()
             .and_then(|r| r.get("client_id").and_then(Value::as_str))
+            .and_then(|s| s.parse::<uuid::Uuid>().ok());
+        let session_id_for_creds = node_ctx_rows.first()
+            .and_then(|r| r.get("session_id").and_then(Value::as_str))
             .and_then(|s| s.parse::<uuid::Uuid>().ok());
 
         let credentials = if let Some(cid) = client_id {
             if let Some(ref master_key) = self.settings.credential_master_key {
-                crate::credentials::load_credentials_for_client(&self.db, master_key, cid)
-                    .await
-                    .unwrap_or_default()
+                if let Some(sid) = session_id_for_creds {
+                    if let Some(pid) = load_project_id(&self.db, sid).await {
+                        crate::credentials::load_credentials_for_project(&self.db, master_key, pid, cid)
+                            .await
+                            .unwrap_or_default()
+                    } else {
+                        crate::credentials::load_credentials_for_client(&self.db, master_key, cid)
+                            .await
+                            .unwrap_or_default()
+                    }
+                } else {
+                    crate::credentials::load_credentials_for_client(&self.db, master_key, cid)
+                        .await
+                        .unwrap_or_default()
+                }
             } else {
                 Default::default()
             }
@@ -1586,13 +1897,26 @@ Respond with ONLY the JSON object:
                 "resumed": true,
             })).await;
 
-            let response = match client
-                .messages(&system_prompt, &messages, &tool_defs, 8192, Some(model))
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
+            // Stream from Anthropic API — deltas forwarded in real-time
+            let (mut delta_rx, response_handle) = client.messages_stream(
+                &system_prompt,
+                &messages,
+                &tool_defs,
+                8192,
+                Some(model),
+                None, // resume_with_reply currently doesn't reload thinking budget
+            );
+            while let Some(event) = delta_rx.recv().await {
+                forward_stream_delta(&self.event_bus, session_id, node_id, iteration + 1, &event).await;
+            }
+            let response = match response_handle.await {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
                     warn!(error = %e, "resume LLM call failed");
+                    break;
+                }
+                Err(e) => {
+                    warn!(error = %e, "resume LLM task panicked");
                     break;
                 }
             };
@@ -1615,14 +1939,14 @@ Respond with ONLY the JSON object:
             messages.push(assistant_message_from_response(&response.content));
 
             if !llm_text.is_empty() {
-                persist_message(&self.db, session_id, node_id, "assistant", &llm_text, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "assistant", &llm_text, &json!({
                     "iteration": iteration + 1,
                     "tool_calls": tool_call_names,
                 })).await;
             }
 
             for (id, name, input) in response.tool_uses() {
-                persist_message(&self.db, session_id, node_id, "tool_use", &name, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_use", &name, &json!({
                     "tool_use_id": id,
                     "tool_name": name,
                     "tool_input": input,
@@ -1669,7 +1993,7 @@ Respond with ONLY the JSON object:
                 })).await;
 
                 let result_preview: String = result.chars().take(2000).collect();
-                persist_message(&self.db, session_id, node_id, "tool_result", &result_preview, &json!({
+                persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_result", &result_preview, &json!({
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
                 })).await;

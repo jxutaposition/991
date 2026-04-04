@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Clay - HeyReach Experts</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #fafafa; }
+    .nav { background: #6C5CE7; color: white; padding: 12px 24px; font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+    .nav a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 14px; }
+    .toolbar { padding: 12px 24px; background: white; border-bottom: 1px solid #e5e5e5; display: flex; gap: 8px; align-items: center; }
+    .toolbar-btn { padding: 6px 14px; border: 1px solid #d0d5dd; border-radius: 6px; background: white; cursor: pointer; font-size: 13px; }
+    .toolbar-btn:hover { background: #f3f4f6; }
+    .toolbar-btn.primary { background: #6C5CE7; color: white; border-color: #6C5CE7; }
+    .toolbar-btn.primary:hover { background: #5a4bd1; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    th { background: #f9fafb; text-align: left; padding: 10px 16px; font-size: 12px; color: #666; font-weight: 600; border-bottom: 1px solid #e5e5e5; cursor: pointer; white-space: nowrap; }
+    th:hover { background: #f0f0f0; }
+    td { padding: 10px 16px; border-bottom: 1px solid #f0f0f0; font-size: 13px; color: #333; }
+    .enrichment-col { color: #6C5CE7; font-weight: 500; }
+    .action-col { color: #e17055; font-weight: 500; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+    .status.done { background: #d4edda; color: #155724; }
+    .status.pending { background: #fff3cd; color: #856404; }
+    .row-checkbox { cursor: pointer; }
+    .container { overflow-x: auto; }
+    .inline-edit { border: 1px solid #6C5CE7; border-radius: 4px; padding: 4px 8px; font-size: 13px; outline: none; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/clay/tables">← Tables</a>
+    <span>HeyReach Experts</span>
+  </div>
+  <div class="toolbar">
+    <button class="toolbar-btn primary" id="add-row-btn" onclick="addRow()">+ Add Row</button>
+    <button class="toolbar-btn" id="run-column-btn" onclick="runColumn()">Run Column</button>
+    <button class="toolbar-btn" id="filter-btn">Filter</button>
+    <button class="toolbar-btn" id="sort-btn">Sort</button>
+    <span style="margin-left: auto; font-size: 12px; color: #888;">342 rows · 8 columns</span>
+  </div>
+  <div class="container">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 32px;"><input type="checkbox" class="row-checkbox" /></th>
+          <th id="col-name">Full Name</th>
+          <th id="col-company">Company</th>
+          <th id="col-linkedin">LinkedIn URL</th>
+          <th id="col-email" class="enrichment-col">Email (Enriched)</th>
+          <th id="col-title" class="enrichment-col">Title (Enriched)</th>
+          <th id="col-signal">Signal Score</th>
+          <th id="col-action" class="action-col">Outbound Action</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <tr>
+          <td><input type="checkbox" class="row-checkbox" /></td>
+          <td>Sarah Chen</td>
+          <td>FinFlow</td>
+          <td>linkedin.com/in/sarah-chen</td>
+          <td class="enrichment-col">sarah@finflow.com</td>
+          <td class="enrichment-col">VP Engineering</td>
+          <td><span class="status done">85</span></td>
+          <td class="action-col"><span class="status done">Sent</span></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="row-checkbox" /></td>
+          <td>Alex Kim</td>
+          <td>PayGrid</td>
+          <td>linkedin.com/in/alex-kim</td>
+          <td class="enrichment-col">alex@paygrid.io</td>
+          <td class="enrichment-col">CTO</td>
+          <td><span class="status done">72</span></td>
+          <td class="action-col"><span class="status pending">Queued</span></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" class="row-checkbox" /></td>
+          <td>Maria Santos</td>
+          <td>LedgerAI</td>
+          <td>linkedin.com/in/maria-santos</td>
+          <td class="enrichment-col">maria@ledgerai.com</td>
+          <td class="enrichment-col">Head of Platform</td>
+          <td><span class="status pending">--</span></td>
+          <td class="action-col"><span class="status pending">Pending</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+function addRow() {
+  var tbody = document.getElementById("table-body");
+  var row = document.createElement("tr");
+  row.innerHTML = '<td><input type="checkbox" class="row-checkbox" /></td>'
+    + '<td><input class="inline-edit" id="new-row-name" placeholder="Full Name" /></td>'
+    + '<td><input class="inline-edit" id="new-row-company" placeholder="Company" /></td>'
+    + '<td><input class="inline-edit" id="new-row-linkedin" placeholder="LinkedIn URL" /></td>'
+    + '<td class="enrichment-col">—</td>'
+    + '<td class="enrichment-col">—</td>'
+    + '<td><span class="status pending">--</span></td>'
+    + '<td class="action-col"><span class="status pending">Pending</span></td>';
+  tbody.appendChild(row);
+  row.querySelector(".inline-edit").focus();
+}
+
+function runColumn() {
+  document.querySelectorAll(".enrichment-col").forEach(function(el) {
+    el.style.background = "#f0ebff";
+    setTimeout(function() { el.style.background = ""; }, 1500);
+  });
+  var btn = document.getElementById("run-column-btn");
+  btn.textContent = "Running…";
+  setTimeout(function() { btn.textContent = "Run Column"; }, 2000);
+}
+
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

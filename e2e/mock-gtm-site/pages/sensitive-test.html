@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sensitive Fields Test</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f9f9f9; padding: 40px; }
+    .container { max-width: 500px; margin: 0 auto; }
+    h2 { font-size: 18px; color: #333; }
+    .field-group { margin: 16px 0; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
+    input, button { padding: 10px 14px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 14px; width: 100%; box-sizing: border-box; }
+    button { background: #2563eb; color: white; border: none; cursor: pointer; margin-top: 12px; font-weight: 600; }
+    button:hover { background: #1d4ed8; }
+    .section { padding: 20px; background: white; border-radius: 8px; border: 1px solid #e5e5e5; margin-bottom: 20px; }
+    .section h3 { margin: 0 0 12px 0; font-size: 14px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Sensitive Fields Test Page</h2>
+
+    <div class="section">
+      <h3>Sensitive fields (should NOT be captured)</h3>
+
+      <div class="field-group">
+        <label for="password-field">Password</label>
+        <input type="password" id="password-field" placeholder="Enter password" />
+      </div>
+
+      <div class="field-group">
+        <label for="cc-field">Credit Card</label>
+        <input type="text" id="cc-field" class="cc-number" placeholder="4242 4242 4242 4242" />
+      </div>
+
+      <div class="field-group">
+        <label>CC Autocomplete</label>
+        <input type="text" id="cc-auto-field" autocomplete="cc-number" placeholder="Card number" />
+      </div>
+
+      <div class="field-group">
+        <label>Sensitive Data</label>
+        <div id="sensitive-div" data-sensitive="true" style="padding: 10px; background: #fee; border-radius: 4px; cursor: pointer;">
+          Click me — I have [data-sensitive]
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Password Label (aria)</label>
+        <input type="text" id="aria-password" aria-label="Enter your password here" placeholder="Secret" />
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Normal fields (SHOULD be captured)</h3>
+
+      <div class="field-group">
+        <label for="normal-input">Normal Input</label>
+        <input type="text" id="normal-input" placeholder="Regular text" />
+      </div>
+
+      <button id="normal-button">Normal Button</button>
+    </div>
+  </div>
+<script>
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

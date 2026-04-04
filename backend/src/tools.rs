@@ -280,6 +280,33 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
             required_credential: None,
         },
         ToolDef {
+            name: "request_user_action".to_string(),
+            description: "Pause execution and present the user with a manual action they need to complete in an external tool (e.g. Clay UI, Lovable editor). Provide detailed, step-by-step instructions with all necessary specs. Execution will resume when the user replies with the result.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "action_title": {
+                        "type": "string",
+                        "description": "Short title for the manual step, e.g. 'Create Clay social listening table'"
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "description": "Detailed step-by-step instructions in markdown. Include column specs, formulas, URLs, settings — everything the user needs."
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Structured data the user needs: webhook URLs, column definitions, formula text, API keys to configure, etc."
+                    },
+                    "resume_hint": {
+                        "type": "string",
+                        "description": "What the user should provide when done, e.g. 'Reply with the Clay table ID and the webhook URL from the action column'"
+                    }
+                },
+                "required": ["action_title", "instructions", "resume_hint"]
+            }),
+            required_credential: None,
+        },
+        ToolDef {
             name: "spawn_agent".to_string(),
             description: "Spawn a child agent to handle a sub-task. The child agent runs synchronously and returns its complete output inline. Pass rich context, acceptance criteria, and examples to ensure quality output.".to_string(),
             input_schema: json!({
@@ -312,7 +339,7 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
 pub fn tools_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
     let all = all_tool_defs();
 
-    let always_available = ["read_upstream_output", "write_output"];
+    let always_available = ["read_upstream_output", "write_output", "request_user_action"];
 
     all.into_iter()
         .filter(|t| {
@@ -732,6 +759,10 @@ pub async fn execute_tool(
             json!({"stored": true, "session_id": session_id}).to_string()
         }
 
+        "request_user_action" => {
+            json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string()
+        }
+
         "web_search" => {
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
 
@@ -846,10 +877,6 @@ pub async fn execute_tool(
                         if !has_notion_version {
                             request = request.header("Notion-Version", "2022-06-28");
                         }
-                    }
-                } else if url.contains("api.clay.com") || url.contains("app.clay.com") {
-                    if let Some(cred) = credentials.get("clay") {
-                        request = request.header("Authorization", format!("Bearer {}", cred.value));
                     }
                 } else if url.contains("supabase.co") {
                     if let Some(cred) = credentials.get("supabase") {

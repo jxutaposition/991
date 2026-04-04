@@ -15,9 +15,10 @@ use axum::{
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::agent_catalog::MASTER_ORCHESTRATOR_SLUG;
 use crate::client as client_mod;
 use crate::pg_args;
 use crate::feedback;
@@ -352,8 +353,7 @@ pub async fn execution_create(
     };
 
     if mode == "orchestrated" {
-        let master_slug = "master_orchestrator";
-        let master_agent = state.catalog.get(master_slug).ok_or_else(|| {
+        let master_agent = state.catalog.get(MASTER_ORCHESTRATOR_SLUG).ok_or_else(|| {
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "master_orchestrator agent not found in catalog. Ensure it is loaded."})))
         })?;
 
@@ -371,7 +371,7 @@ pub async fn execution_create(
         // Build plan JSON: master node + preview children
         let mut plan_entries = vec![json!({
             "uid": master_uid.to_string(),
-            "agent_slug": master_slug,
+            "agent_slug": MASTER_ORCHESTRATOR_SLUG,
             "task_description": &body.request_text,
             "requires": [],
         })];
@@ -415,7 +415,7 @@ pub async fn execution_create(
                  client_id, depth)
                VALUES ($1, $2, $3, $4, $5, 'pending', $6, 0, $7, $8, $9, $10, $11, 0)"#,
             pg_args!(
-                master_uid, session_id, master_slug.to_string(), "orchestrated".to_string(),
+                master_uid, session_id, MASTER_ORCHESTRATOR_SLUG.to_string(), "orchestrated".to_string(),
                 body.request_text.clone(), &empty_uuids as &[Uuid], jc_val,
                 master_agent.max_iterations as i32, node_model.clone(), master_agent.skip_judge,
                 client_id
@@ -520,6 +520,104 @@ pub async fn execution_approve(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
+    // --- Preflight: verify all required integrations have working credentials ---
+    let session_rows = state.db.execute_with(
+        "SELECT client_id, project_id FROM execution_sessions WHERE id = $1",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+    let session_row = session_rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
+    })?;
+    let client_id: Option<Uuid> = session_row.get("client_id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok());
+    let project_id: Option<Uuid> = session_row.get("project_id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok());
+
+    if let Some(client_id) = client_id {
+        let node_rows = state.db.execute_with(
+            "SELECT DISTINCT agent_slug FROM execution_nodes WHERE session_id = $1 AND status IN ('pending', 'preview')",
+            pg_args!(session_uuid),
+        ).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+        })?;
+
+        let mut all_required: Vec<String> = Vec::new();
+        for row in &node_rows {
+            let slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("");
+            if let Some(agent) = state.catalog.get(slug) {
+                for s in crate::preflight::required_slugs_for_agent(&agent.required_integrations, &agent.tools) {
+                    if !all_required.contains(&s) {
+                        all_required.push(s);
+                    }
+                }
+            }
+        }
+
+        if !all_required.is_empty() {
+            if let Some(ref master_key) = state.settings.credential_master_key {
+                // Use project credentials (with client fallback) when a project is set
+                let all_credentials = if let Some(pid) = project_id {
+                    crate::credentials::load_credentials_for_project(
+                        &state.db, master_key, pid, client_id,
+                    ).await.unwrap_or_default()
+                } else {
+                    crate::credentials::load_credentials_for_client(
+                        &state.db, master_key, client_id,
+                    ).await.unwrap_or_default()
+                };
+
+                let needed = crate::preflight::filter_required_credentials(
+                    &all_credentials, &all_required, &state.settings,
+                );
+
+                let probes = crate::preflight::probe_integrations(&needed, Some(&state.settings)).await;
+
+                let mut all_issues: Vec<Value> = Vec::new();
+
+                for p in &probes {
+                    if !p.success() {
+                        all_issues.push(json!({
+                            "integration": p.integration_slug,
+                            "type": p.status.as_str(),
+                            "error": p.error,
+                            "hint": p.hint,
+                            "http_status": p.http_status,
+                        }));
+                    }
+                }
+
+                // Required integrations that have no credential at all
+                for s in all_required.iter().filter(|s| !needed.contains_key(s.as_str())) {
+                    all_issues.push(json!({
+                        "integration": s,
+                        "type": "missing",
+                        "error": format!("No credentials configured for {s}"),
+                        "hint": format!("Add {s} credentials in Settings > Integrations."),
+                    }));
+                }
+
+                if !all_issues.is_empty() {
+                    warn!(
+                        session = %session_id,
+                        issues = ?all_issues,
+                        "preflight credential check found issues — blocking approval"
+                    );
+                    return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+                        "error": "Credential preflight check failed",
+                        "preflight_failures": all_issues,
+                    }))));
+                }
+
+                info!(session = %session_id, probes = probes.len(), "preflight checks passed");
+            }
+        }
+    }
+    // --- End preflight ---
+
     state.db.execute_with(
         "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = $1 AND status = 'awaiting_approval'",
         pg_args!(session_uuid),
@@ -540,6 +638,35 @@ pub async fn execution_approve(
     info!(session = %session_id, "execution approved — work queue will pick up ready nodes");
 
     Ok(Json(json!({"status": "executing", "session_id": session_id})))
+}
+
+/// POST /api/execute/:session_id/stop — cancel a running orchestration.
+/// Sets session to 'cancelled' and all non-terminal nodes to 'cancelled'.
+pub async fn execution_stop(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    state.db.execute_with(
+        "UPDATE execution_sessions SET status = 'cancelled', completed_at = NOW() WHERE id = $1 AND status IN ('executing', 'awaiting_approval')",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    state.db.execute_with(
+        "UPDATE execution_nodes SET status = 'cancelled', completed_at = NOW() WHERE session_id = $1 AND status IN ('pending', 'ready', 'preview', 'waiting')",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    info!(session = %session_id, "execution stopped by user");
+
+    Ok(Json(json!({"status": "cancelled", "session_id": session_id})))
 }
 
 /// GET /api/execute/:session_id — get session status and nodes.
@@ -568,6 +695,7 @@ pub async fn execution_get(
                computed_tier, tier_override, breakpoint,
                workflow_id, workflow_step_id, client_id,
                depth, spawn_context, acceptance_criteria,
+               artifacts, step_index,
                started_at, completed_at
         FROM execution_nodes WHERE session_id = '{session_id}'
         ORDER BY created_at
@@ -622,6 +750,53 @@ pub async fn execution_node_thinking(
 
     let blocks = state.db.execute(&sql).await.unwrap_or_default();
     Ok(Json(json!({ "thinking_blocks": blocks })))
+}
+
+/// GET /api/execute/:session_id/nodes/:node_id/stream — unified chronological stream
+/// combining execution events, thinking blocks, and conversation messages.
+pub async fn execution_node_stream(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, node_id)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sql = format!(
+        r#"
+        SELECT id, node_id, 'event' AS stream_type, event_type AS sub_type,
+               payload::text AS content, NULL::text AS thinking_text,
+               NULL::int AS iteration, NULL::int AS token_count,
+               NULL::text AS role, NULL::jsonb AS metadata,
+               created_at
+        FROM execution_events
+        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
+
+        UNION ALL
+
+        SELECT id, node_id, 'thinking' AS stream_type, 'thinking_block' AS sub_type,
+               NULL AS content, thinking_text,
+               iteration, token_count,
+               NULL AS role, NULL AS metadata,
+               created_at
+        FROM thinking_blocks
+        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
+
+        UNION ALL
+
+        SELECT id, node_id, 'message' AS stream_type, role AS sub_type,
+               content, NULL AS thinking_text,
+               NULL AS iteration, NULL AS token_count,
+               role, metadata,
+               created_at
+        FROM node_messages
+        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
+
+        ORDER BY created_at ASC
+        "#
+    );
+
+    let stream = state.db.execute(&sql).await.unwrap_or_default();
+    Ok(Json(json!({ "stream": stream })))
 }
 
 /// GET /api/execute/:session_id/events — SSE stream for live execution progress.
@@ -2317,95 +2492,31 @@ enum ValidationResult {
 }
 
 /// Validate an API key by making a lightweight read-only call to the service.
+/// Delegates to the shared preflight probe registry.
 async fn validate_credential(slug: &str, value: &str) -> ValidationResult {
-    let http = match reqwest::Client::builder().timeout(Duration::from_secs(10)).build() {
-        Ok(c) => c,
-        Err(_) => return ValidationResult::Skipped,
+    use crate::credentials::DecryptedCredential;
+    use crate::preflight;
+
+    let cred = DecryptedCredential {
+        credential_type: "api_key".into(),
+        value: value.to_string(),
+        metadata: json!({}),
     };
 
-    macro_rules! check {
-        ($res:expr, $name:expr) => {
-            match $res {
-                Ok(r) => {
-                    if r.status() == reqwest::StatusCode::UNAUTHORIZED || r.status() == reqwest::StatusCode::FORBIDDEN {
-                        return ValidationResult::Failed(format!("Invalid {} API key", $name));
-                    }
-                    if !r.status().is_success() && r.status() != reqwest::StatusCode::NOT_FOUND {
-                        return ValidationResult::Failed(format!("{} returned status {}", $name, r.status()));
-                    }
-                    ValidationResult::Validated
-                }
-                Err(e) => ValidationResult::Failed(format!("Could not reach {}: {e}", $name)),
+    match preflight::probe_one(slug, &cred, None).await {
+        Some(result) => {
+            if result.success() {
+                ValidationResult::Validated
+            } else {
+                let msg = if result.error.is_empty() {
+                    format!("{slug} probe failed")
+                } else {
+                    result.error
+                };
+                ValidationResult::Failed(msg)
             }
-        };
-    }
-
-    match slug {
-        "tavily" => check!(
-            http.get("https://api.tavily.com/usage")
-                .header("Authorization", format!("Bearer {value}"))
-                .send().await,
-            "Tavily"
-        ),
-        "apollo" => check!(
-            http.get("https://api.apollo.io/v1/auth/health")
-                .header("x-api-key", value)
-                .header("Cache-Control", "no-cache")
-                .send().await,
-            "Apollo"
-        ),
-        "clay" => check!(
-            http.get("https://api.clay.com/v1/sources")
-                .header("Authorization", format!("Bearer {value}"))
-                .send().await,
-            "Clay"
-        ),
-        "n8n" => {
-            let parsed: Value = serde_json::from_str(value).unwrap_or(json!({}));
-            let api_key = parsed.get("api_key").and_then(Value::as_str).unwrap_or(value);
-            let base_url = parsed.get("base_url").and_then(Value::as_str).unwrap_or("");
-            if base_url.is_empty() {
-                return ValidationResult::Skipped;
-            }
-            let url = format!("{}/api/v1/workflows?limit=1", base_url.trim_end_matches('/'));
-            check!(http.get(&url).header("X-N8N-API-KEY", api_key).send().await, "n8n")
         }
-        "tolt" => check!(
-            http.get("https://api.tolt.com/v1/programs")
-                .header("Authorization", format!("Bearer {value}"))
-                .send().await,
-            "Tolt"
-        ),
-        "supabase" => {
-            let parsed: Value = serde_json::from_str(value).unwrap_or(json!({}));
-            let api_key = parsed.get("api_key").and_then(Value::as_str).unwrap_or(value);
-            let project_url = parsed.get("project_url").and_then(Value::as_str).unwrap_or("");
-            if project_url.is_empty() {
-                return ValidationResult::Skipped;
-            }
-            let url = format!("{}/rest/v1/", project_url.trim_end_matches('/'));
-            check!(
-                http.get(&url)
-                    .header("apikey", api_key)
-                    .header("Authorization", format!("Bearer {api_key}"))
-                    .send().await,
-                "Supabase"
-            )
-        }
-        "notion" => check!(
-            http.get("https://api.notion.com/v1/users/me")
-                .header("Authorization", format!("Bearer {value}"))
-                .header("Notion-Version", "2022-06-28")
-                .send().await,
-            "Notion"
-        ),
-        "hubspot" => check!(
-            http.get("https://api.hubapi.com/crm/v3/objects/contacts?limit=1")
-                .header("Authorization", format!("Bearer {value}"))
-                .send().await,
-            "HubSpot"
-        ),
-        _ => ValidationResult::Skipped,
+        None => ValidationResult::Skipped,
     }
 }
 
@@ -2619,6 +2730,7 @@ pub async fn auth_create_workspace(
 #[derive(Deserialize)]
 pub struct CredentialCheckQuery {
     pub agents: Option<String>, // comma-separated agent slugs
+    pub verify: Option<bool>,   // if true, run live API probes
 }
 
 // ── Integration Registry ─────────────────────────────────────────────────────
@@ -2627,7 +2739,7 @@ fn integration_metadata() -> Vec<Value> {
     vec![
         json!({"slug": "tavily",     "name": "Tavily",      "auth_type": "api_key", "icon": "tavily",     "description": "Web search API for research agents",
                "key_url": "https://app.tavily.com/home",    "key_help": "Copy your API key from the Tavily dashboard"}),
-        json!({"slug": "apollo",     "name": "Apollo",      "auth_type": "api_key", "icon": "apollo",     "description": "Contact & company enrichment for prospecting",
+        json!({"slug": "apollo",     "name": "Apollo",      "auth_type": "oauth2",  "icon": "apollo",     "description": "Contact & company enrichment for prospecting",
                "key_url": "https://developer.apollo.io/keys/", "key_help": "Create an API key in the Apollo developer portal"}),
         json!({"slug": "clay",       "name": "Clay",        "auth_type": "api_key", "icon": "clay",       "description": "Data enrichment and social listening",
                "key_url": "https://app.clay.com/settings",   "key_help": "Find your API key under Settings → API Keys"}),
@@ -2801,9 +2913,68 @@ pub async fn client_credential_check(
         });
     }
 
+    // Live probe verification when ?verify=true
+    let mut probe_results_json = json!({});
+    if query.verify.unwrap_or(false) {
+        if let Some(ref master_key) = state.settings.credential_master_key {
+            let all_credentials = crate::credentials::load_credentials_for_client(
+                &state.db, master_key, client_id,
+            ).await.unwrap_or_default();
+
+            // Collect union of all required integrations from the agents
+            let mut all_required: Vec<String> = Vec::new();
+            for agent_slug in &agent_slugs {
+                if let Some(agent) = state.catalog.get(agent_slug) {
+                    for s in crate::preflight::required_slugs_for_agent(&agent.required_integrations, &agent.tools) {
+                        if !all_required.contains(&s) {
+                            all_required.push(s);
+                        }
+                    }
+                }
+            }
+
+            // When no agents specified, probe ALL connected integrations
+            let needed = if all_required.is_empty() {
+                all_credentials.clone()
+            } else {
+                crate::preflight::filter_required_credentials(
+                    &all_credentials, &all_required, &state.settings,
+                )
+            };
+            let probes = crate::preflight::probe_integrations(&needed, Some(&state.settings)).await;
+
+            for p in &probes {
+                probe_results_json[&p.integration_slug] = json!({
+                    "status": p.status.as_str(),
+                    "ok": p.success(),
+                    "http_status": p.http_status,
+                    "error": if p.error.is_empty() { None } else { Some(&p.error) },
+                    "hint": if p.hint.is_empty() { None } else { Some(&p.hint) },
+                    "latency_ms": p.latency_ms,
+                });
+            }
+            // Mark integrations that have no credential at all
+            for slug in &all_required {
+                if probe_results_json.get(slug).is_none() {
+                    if needed.contains_key(slug.as_str()) {
+                        probe_results_json[slug] = json!({ "status": "skipped", "ok": false });
+                    } else {
+                        probe_results_json[slug] = json!({
+                            "status": "missing",
+                            "ok": false,
+                            "error": format!("No credentials configured for {slug}"),
+                            "hint": format!("Add {slug} credentials in Settings > Integrations."),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Json(json!({
         "agents": agents_status,
         "connected": connected,
+        "probe_results": probe_results_json,
     })))
 }
 
@@ -2907,9 +3078,15 @@ pub async fn projects_list(
     if let Some(ref client_id) = query.client_id {
         clauses.push(format!("p.client_id = '{}'", client_id.replace('\'', "''")));
     }
+    if let Some(ref client_slug) = query.client_slug {
+        let slug_esc = client_slug.replace('\'', "''");
+        clauses.push(format!("c.slug = '{slug_esc}'"));
+    }
 
     let sql = format!(
-        "SELECT p.*, c.name as client_name FROM projects p          JOIN clients c ON p.client_id = c.id          WHERE {} ORDER BY p.created_at DESC LIMIT 100",
+        "SELECT p.*, c.name as client_name FROM projects p \
+         JOIN clients c ON p.client_id = c.id \
+         WHERE {} ORDER BY p.created_at DESC LIMIT 100",
         clauses.join(" AND ")
     );
     let rows = state.db.execute(&sql).await.unwrap_or_default();
@@ -2919,6 +3096,7 @@ pub async fn projects_list(
 #[derive(Deserialize)]
 pub struct ProjectsQuery {
     pub client_id: Option<String>,
+    pub client_slug: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2970,6 +3148,264 @@ pub async fn project_create(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"project_id": id.to_string()})))
+}
+
+// ── Project Credentials Routes ──────────────────────────────────────────────
+
+/// GET /api/projects/:project_id/credentials — list project-level overrides + inherited
+pub async fn project_credentials_list(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Get client_id for this project
+    let rows = state.db.execute(&format!(
+        "SELECT client_id FROM projects WHERE id = '{pid}'"
+    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let client_id: uuid::Uuid = rows.first()
+        .and_then(|r| r.get("client_id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let project_creds = crate::credentials::list_project_credentials(&state.db, pid)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let client_creds = crate::credentials::list_credentials(&state.db, client_id)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let project_slugs: Vec<String> = project_creds.iter()
+        .filter_map(|c| c.get("integration_slug").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    // Merge: project overrides shown as "project", client-level as "inherited"
+    let mut merged: Vec<Value> = project_creds.iter().map(|c| {
+        let mut entry = c.clone();
+        entry.as_object_mut().unwrap().insert("scope".into(), json!("project"));
+        entry
+    }).collect();
+
+    for c in &client_creds {
+        let slug = c.get("integration_slug").and_then(Value::as_str).unwrap_or("");
+        if !project_slugs.contains(&slug.to_string()) {
+            let mut entry = c.clone();
+            entry.as_object_mut().unwrap().insert("scope".into(), json!("inherited"));
+            merged.push(entry);
+        }
+    }
+
+    Ok(Json(json!({ "credentials": merged, "project_id": project_id, "client_id": client_id.to_string() })))
+}
+
+/// POST /api/projects/:project_id/credentials — set a project-level credential override
+pub async fn project_credential_set(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pid: uuid::Uuid = project_id.parse()
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"}))))?;
+
+    let slug = body.get("integration_slug").and_then(Value::as_str)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "integration_slug required"}))))?;
+    let value = body.get("value").and_then(Value::as_str)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "value required"}))))?;
+    let cred_type = body.get("credential_type").and_then(Value::as_str).unwrap_or("api_key");
+
+    let master_key = state.settings.credential_master_key.as_deref()
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "CREDENTIAL_MASTER_KEY not set"}))))?;
+
+    let encrypted = crate::credentials::encrypt(master_key, value)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    // Validate by probing
+    let mut validated = None;
+    let cred = crate::credentials::DecryptedCredential {
+        credential_type: cred_type.to_string(),
+        value: value.to_string(),
+        metadata: serde_json::json!({}),
+    };
+    if let Some(probe) = crate::preflight::probe_one(slug, &cred, Some(&state.settings)).await {
+        validated = Some(probe.success());
+    }
+
+    let id = crate::credentials::upsert_project_credential(
+        &state.db, pid, slug, cred_type, &encrypted, None,
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "id": id.to_string(), "validated": validated })))
+}
+
+/// DELETE /api/projects/:project_id/credentials/:integration_slug
+pub async fn project_credential_delete(
+    State(state): State<Arc<AppState>>,
+    Path((project_id, integration_slug)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    crate::credentials::delete_project_credential(&state.db, pid, &integration_slug)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"deleted": true})))
+}
+
+/// GET /api/projects/:project_id/credential-check?verify=true — probe project credentials
+pub async fn project_credential_check(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<CredentialCheckQuery>,
+) -> Result<Json<Value>, StatusCode> {
+    let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let rows = state.db.execute(&format!(
+        "SELECT client_id FROM projects WHERE id = '{pid}'"
+    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let client_id: uuid::Uuid = rows.first()
+        .and_then(|r| r.get("client_id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let master_key = state.settings.credential_master_key.as_deref()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let all_credentials = crate::credentials::load_credentials_for_project(
+        &state.db, master_key, pid, client_id,
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let connected: Vec<String> = all_credentials.keys().cloned().collect();
+
+    let mut probe_results_json = json!({});
+    if query.verify.unwrap_or(false) {
+        let probes = crate::preflight::probe_integrations(&all_credentials, Some(&state.settings)).await;
+        for p in &probes {
+            probe_results_json[&p.integration_slug] = json!({
+                "status": p.status.as_str(),
+                "ok": p.success(),
+                "http_status": p.http_status,
+                "error": if p.error.is_empty() { None } else { Some(&p.error) },
+                "hint": if p.hint.is_empty() { None } else { Some(&p.hint) },
+                "latency_ms": p.latency_ms,
+            });
+        }
+    }
+
+    // Identify which slugs are project-level overrides vs inherited
+    let project_creds = crate::credentials::list_project_credentials(&state.db, pid)
+        .await.unwrap_or_default();
+    let project_slugs: Vec<String> = project_creds.iter()
+        .filter_map(|c| c.get("integration_slug").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut scopes = json!({});
+    for slug in &connected {
+        scopes[slug] = if project_slugs.contains(slug) { json!("project") } else { json!("inherited") };
+    }
+
+    Ok(Json(json!({
+        "connected": connected,
+        "probe_results": probe_results_json,
+        "scopes": scopes,
+    })))
+}
+
+// ── Project Members Routes ──────────────────────────────────────────────────
+
+/// GET /api/projects/:project_id/members
+pub async fn project_members_list(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sql = format!(
+        "SELECT pm.id, pm.role, pm.created_at, \
+                u.id as user_id, u.email, u.name, u.avatar_url \
+         FROM project_members pm \
+         JOIN users u ON pm.user_id = u.id \
+         WHERE pm.project_id = '{pid}' \
+         ORDER BY pm.created_at"
+    );
+    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Also include client-level members (inherited)
+    let client_rows = state.db.execute(&format!(
+        "SELECT ucr.role, ucr.created_at, \
+                u.id as user_id, u.email, u.name, u.avatar_url \
+         FROM user_client_roles ucr \
+         JOIN users u ON ucr.user_id = u.id \
+         JOIN projects p ON p.client_id = ucr.client_id \
+         WHERE p.id = '{pid}' \
+         ORDER BY ucr.created_at"
+    )).await.unwrap_or_default();
+
+    let project_user_ids: Vec<String> = rows.iter()
+        .filter_map(|r| r.get("user_id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    let mut members: Vec<Value> = rows.iter().map(|r| {
+        let mut m = r.clone();
+        m.as_object_mut().unwrap().insert("scope".into(), json!("project"));
+        m
+    }).collect();
+
+    for r in &client_rows {
+        let uid = r.get("user_id").and_then(Value::as_str).unwrap_or("");
+        if !project_user_ids.contains(&uid.to_string()) {
+            let mut m = r.clone();
+            m.as_object_mut().unwrap().insert("scope".into(), json!("inherited"));
+            members.push(m);
+        }
+    }
+
+    Ok(Json(json!({ "members": members })))
+}
+
+#[derive(Deserialize)]
+pub struct InviteMemberRequest {
+    pub email: String,
+    pub role: Option<String>,
+}
+
+/// POST /api/projects/:project_id/members — invite a user by email
+pub async fn project_member_invite(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+    Json(body): Json<InviteMemberRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pid: uuid::Uuid = project_id.parse()
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"}))))?;
+    let role = body.role.as_deref().unwrap_or("member");
+    let email_esc = body.email.trim().to_lowercase().replace('\'', "''");
+
+    // Find or create user by email (they'll complete signup on first Google login)
+    let user_rows = state.db.execute(&format!(
+        "INSERT INTO users (email, name) VALUES ('{email_esc}', '{email_esc}') \
+         ON CONFLICT (email) DO UPDATE SET updated_at = NOW() \
+         RETURNING id"
+    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let user_id = user_rows.first()
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to find/create user"}))))?;
+
+    let role_esc = role.replace('\'', "''");
+    state.db.execute(&format!(
+        "INSERT INTO project_members (project_id, user_id, role) \
+         VALUES ('{pid}', '{user_id}', '{role_esc}') \
+         ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role"
+    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "invited": true, "user_id": user_id, "email": body.email.trim() })))
+}
+
+/// DELETE /api/projects/:project_id/members/:user_id
+pub async fn project_member_remove(
+    State(state): State<Arc<AppState>>,
+    Path((project_id, user_id)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let uid: uuid::Uuid = user_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    state.db.execute(&format!(
+        "DELETE FROM project_members WHERE project_id = '{pid}' AND user_id = '{uid}'"
+    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"removed": true})))
 }
 
 // ── Skills Routes ───────────────────────────────────────────────────────────

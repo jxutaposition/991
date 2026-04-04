@@ -68,6 +68,10 @@ Your `write_output` call MUST include a `verification` field:
 ```json
 {
   "result": { ... your actual deliverable ... },
+  "artifacts": [
+    {"type": "notion_page", "url": "https://notion.so/abc123", "title": "Expert Program Tiers"},
+    {"type": "n8n_workflow", "url": "https://n8n.example.com/workflow/42", "title": "Lead Scoring Pipeline"}
+  ],
   "verification": {
     "criteria_results": [
       {"criterion": "Created Notion page with title", "status": "PASS", "evidence": "GET /pages/abc123 returned 200 with correct title"},
@@ -81,6 +85,15 @@ Your `write_output` call MUST include a `verification` field:
   "summary": "..."
 }
 ```
+
+### Artifact Tracking
+
+If your work created or modified any external resource (page, workflow, dashboard, table, etc.), you MUST include an `artifacts` array in your `write_output`. Each entry needs:
+- **`type`**: One of `notion_page`, `notion_database`, `n8n_workflow`, `dashboard`, `supabase_table`, `clay_table`, `document`, `api_endpoint`, `other`
+- **`url`**: The direct URL to the created/modified resource
+- **`title`**: Human-readable name for the artifact
+
+The orchestrator uses these to verify your work actually produced something real. Missing artifacts when you claim to have created something will cause validation failure.
 
 Blocker strings should be specific and actionable — they are logged as feedback signals and used to improve agent prompts and integration setup docs.
 

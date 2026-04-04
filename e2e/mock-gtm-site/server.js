@@ -19,4 +19,12 @@ app.get("/crunchbase/:company", (_, res) => res.sendFile(path.join(__dirname, "p
 // Gmail Compose
 app.get("/gmail/compose", (_, res) => res.sendFile(path.join(__dirname, "pages/gmail-compose.html")));
 
+// Clay
+app.get("/clay/tables", (_, res) => res.sendFile(path.join(__dirname, "pages/clay-tables.html")));
+app.get("/clay/tables/new", (_, res) => res.sendFile(path.join(__dirname, "pages/clay-create-table.html")));
+app.get("/clay/tables/:id", (_, res) => res.sendFile(path.join(__dirname, "pages/clay-table-detail.html")));
+
+// Sensitive fields test page
+app.get("/test/sensitive", (_, res) => res.sendFile(path.join(__dirname, "pages/sensitive-test.html")));
+
 app.listen(PORT, () => console.log(`Mock GTM site on http://localhost:${PORT}`));

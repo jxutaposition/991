@@ -31,7 +31,7 @@ export function ShadowSessionPanel({
           setSessions(data.sessions ?? []);
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch((err) => { console.error("Failed to load sessions:", err); setLoading(false); });
     };
 
     fetchSessions();

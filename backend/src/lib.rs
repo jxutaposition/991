@@ -23,6 +23,7 @@ pub mod workflow;
 pub mod skills;
 pub mod project_learner;
 pub mod pattern_promoter;
+pub mod preflight;
 
 #[cfg(feature = "slack")]
 pub mod slack;

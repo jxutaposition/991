@@ -30,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ExecutionNode } from "./execution-canvas";
 import { EventDetailsPopup } from "./event-details-popup";
+import { ConversationStream, type StreamEntry } from "./conversation-stream";
 
 export interface ExecutionEvent {
   id: string;
@@ -70,9 +71,19 @@ interface AgentCredentialInfo {
   status: "ready" | "blocked" | "no_tools";
 }
 
+interface ProbeResultEntry {
+  status: string;
+  ok: boolean;
+  http_status?: number;
+  error?: string;
+  hint?: string;
+  latency_ms?: number;
+}
+
 interface CredentialStatus {
   agents: Record<string, AgentCredentialInfo>;
   connected: string[];
+  probe_results?: Record<string, ProbeResultEntry>;
 }
 
 interface CatalogAgent {
@@ -113,10 +124,13 @@ interface InspectorPanelProps {
   onNodeUpdate?: (nodeId: string, patch: Record<string, unknown>) => Promise<void>;
   thinkingBlocks?: ThinkingBlock[];
   thinkingBlocksLoading?: boolean;
-  liveThinkingChunks?: Record<number, string>;
+  liveThinkingChunks?: Record<string, string>;
   nodeMessages?: NodeMessage[];
   nodeMessagesLoading?: boolean;
   onReply?: (nodeId: string, message: string) => Promise<void>;
+  streamEntries?: StreamEntry[];
+  streamLoading?: boolean;
+  liveTextChunks?: Record<string, string>;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
@@ -155,7 +169,12 @@ function NodeDetailContent({
   );
 
   const hasIntegrations = (credInfo?.required_integrations?.length ?? 0) > 0;
-  const isBlocked = credInfo?.status === "blocked";
+  const probes = credentialStatus?.probe_results;
+  const agentProbeFailures = hasIntegrations && probes
+    ? credInfo!.required_integrations.filter((s) => probes[s] && !probes[s].ok)
+    : [];
+  const hasProbeIssues = agentProbeFailures.length > 0;
+  const isBlocked = credInfo?.status === "blocked" || hasProbeIssues;
   const hasSetupSteps = (credInfo?.integration_details ?? []).some(
     (d) => d.status === "connected" && d.setup_steps && d.setup_steps.some((s) => s.required)
   );
@@ -226,39 +245,77 @@ function NodeDetailContent({
 
       {/* Auth Status Banner */}
       {credInfo && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
-          isBlocked
-            ? "bg-amber-50 border border-amber-200 text-amber-800"
-            : hasIntegrations && hasSetupSteps
-              ? "bg-orange-50 border border-orange-200 text-orange-800"
-              : hasIntegrations
-                ? "bg-green-50 border border-green-200 text-green-800"
-                : "bg-gray-50 border border-rim text-ink-3"
+        <div className={`flex flex-col gap-1.5 px-3 py-2 rounded-lg text-xs ${
+          hasProbeIssues
+            ? "bg-red-50 border border-red-200 text-red-800"
+            : isBlocked
+              ? "bg-amber-50 border border-amber-200 text-amber-800"
+              : hasIntegrations && hasSetupSteps
+                ? "bg-orange-50 border border-orange-200 text-orange-800"
+                : hasIntegrations
+                  ? "bg-green-50 border border-green-200 text-green-800"
+                  : "bg-gray-50 border border-rim text-ink-3"
         }`}>
-          {isBlocked ? (
-            <>
-              <Lock className="w-3.5 h-3.5 shrink-0" />
-              <span>Missing credentials: <strong>{credInfo.missing.join(", ")}</strong></span>
-              <a
-                href={`/settings/integrations#${credInfo.missing[0]}`}
-                className="ml-auto text-brand hover:underline flex items-center gap-0.5"
-              >
-                Configure <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-            </>
-          ) : hasIntegrations && hasSetupSteps ? (
-            <>
-              <LockOpen className="w-3.5 h-3.5 shrink-0" />
-              <span>Credentials connected — <strong className="text-amber-700">extra setup needed</strong></span>
-            </>
-          ) : hasIntegrations ? (
-            <>
-              <LockOpen className="w-3.5 h-3.5 shrink-0" />
-              <span>All credentials connected</span>
-            </>
-          ) : (
-            <span>No external auth required</span>
-          )}
+          <div className="flex items-center gap-2">
+            {hasProbeIssues ? (
+              <>
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span>Credential issues found:</span>
+              </>
+            ) : isBlocked ? (
+              <>
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span>Missing credentials: <strong>{credInfo.missing.join(", ")}</strong></span>
+                <a
+                  href={`/settings/integrations#${credInfo.missing[0]}`}
+                  className="ml-auto text-brand hover:underline flex items-center gap-0.5"
+                >
+                  Configure <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </>
+            ) : hasIntegrations && hasSetupSteps ? (
+              <>
+                <LockOpen className="w-3.5 h-3.5 shrink-0" />
+                <span>Credentials connected — <strong className="text-amber-700">extra setup needed</strong></span>
+              </>
+            ) : hasIntegrations ? (
+              <>
+                <LockOpen className="w-3.5 h-3.5 shrink-0" />
+                <span>All credentials verified</span>
+              </>
+            ) : (
+              <span>No external auth required</span>
+            )}
+          </div>
+          {hasProbeIssues && agentProbeFailures.map((slug) => {
+            const p = probes![slug];
+            const statusLabels: Record<string, string> = {
+              auth_failed: "Auth failed",
+              endpoint_not_found: "Endpoint not found",
+              server_error: "Service down",
+              client_error: "Request error",
+              network_error: "Unreachable",
+              config_missing: "Config missing",
+              missing: "Not configured",
+            };
+            return (
+              <div key={slug} className="flex items-start gap-1.5 text-[10px] pl-5">
+                <span className="font-medium shrink-0">{slug}</span>
+                <span className="px-1 py-0.5 rounded bg-red-100 text-red-700 font-medium shrink-0">
+                  {statusLabels[p.status] ?? p.status}
+                </span>
+                {p.error && <span className="text-red-600">{p.error}</span>}
+                {p.hint && (
+                  <a
+                    href="/settings/integrations"
+                    className="ml-auto text-brand hover:underline flex items-center gap-0.5 shrink-0"
+                  >
+                    Fix <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -477,26 +534,56 @@ function NodeDetailContent({
               icon: slug,
               status: (credInfo?.missing.includes(slug) ? "missing" : "connected") as "missing" | "connected",
             })) ?? []).map((detail) => {
-              const isMissing = detail.status === "missing";
+              const probe = probes?.[detail.slug];
+              const probeOk = probe?.ok === true;
+              const probeFailed = probe && !probe.ok;
+              const isMissing = detail.status === "missing" || probe?.status === "missing";
+
+              const statusLabels: Record<string, string> = {
+                verified: "Verified",
+                rate_limited: "Verified",
+                auth_failed: "Auth failed",
+                endpoint_not_found: "Endpoint not found",
+                server_error: "Service down",
+                client_error: "Error",
+                network_error: "Unreachable",
+                config_missing: "Config needed",
+                missing: "Not configured",
+              };
+
+              let rowClass = "bg-green-50 text-green-700 border border-green-200";
+              let label = "Verified";
+              let Icon = LockOpen;
+              if (isMissing) {
+                rowClass = "bg-gray-50 text-gray-600 border border-gray-200";
+                label = "Not configured";
+                Icon = Lock;
+              } else if (probeFailed) {
+                rowClass = probe.status === "config_missing"
+                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                  : "bg-red-50 text-red-700 border border-red-200";
+                label = statusLabels[probe.status] ?? "Failed";
+                Icon = Lock;
+              } else if (probeOk) {
+                label = statusLabels[probe.status] ?? "Verified";
+              } else if (detail.status === "connected" && !probe) {
+                label = "Saved";
+                rowClass = "bg-gray-50 text-gray-500 border border-gray-200";
+              }
+
               return (
                 <div
                   key={detail.slug}
-                  className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded ${
-                    isMissing
-                      ? "bg-amber-50 text-amber-700 border border-amber-200"
-                      : "bg-green-50 text-green-700 border border-green-200"
-                  }`}
+                  className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded ${rowClass}`}
+                  title={probe?.hint || probe?.error || ""}
                 >
                   <IntegrationIcon slug={detail.icon ?? detail.slug} size={14} />
-                  {isMissing ? (
-                    <Lock className="w-3 h-3 shrink-0" />
-                  ) : (
-                    <LockOpen className="w-3 h-3 shrink-0" />
-                  )}
+                  <Icon className="w-3 h-3 shrink-0" />
                   <span className="font-medium">{detail.display_name}</span>
-                  <span className="ml-auto text-[10px]">
-                    {isMissing ? "Not connected" : "Connected"}
-                  </span>
+                  <span className="ml-auto text-[10px]">{label}</span>
+                  {probe?.latency_ms != null && probe.latency_ms > 0 && (
+                    <span className="text-[9px] text-ink-3">{probe.latency_ms}ms</span>
+                  )}
                 </div>
               );
             })}
@@ -746,12 +833,16 @@ export function InspectorPanel({
   nodeMessages = [],
   nodeMessagesLoading = false,
   onReply,
+  streamEntries = [],
+  streamLoading = false,
+  liveTextChunks = {},
 }: InspectorPanelProps) {
   const [selectedEvent, setSelectedEvent] = useState<ExecutionEvent | null>(
     null
   );
 
-  const defaultTab = selectedNode ? "nodeinfo" : "overview";
+  const isActive = selectedNode && (selectedNode.status === "running" || selectedNode.status === "passed" || selectedNode.status === "failed" || selectedNode.status === "awaiting_reply");
+  const defaultTab = !selectedNode ? "overview" : isActive ? "conversation" : "nodeinfo";
 
   // Session-level stats
   const sessionStats = useMemo(() => {
@@ -866,22 +957,10 @@ export function InspectorPanel({
                 Detail
               </TabsTrigger>
               <TabsTrigger
-                value="timeline"
+                value="conversation"
                 className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
               >
-                <Activity className="w-3 h-3 mr-1" /> Timeline
-              </TabsTrigger>
-              <TabsTrigger
-                value="thinking"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-violet-500 rounded-none h-10"
-              >
-                <Brain className="w-3 h-3 mr-1" /> Thinking
-              </TabsTrigger>
-              <TabsTrigger
-                value="chat"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 rounded-none h-10"
-              >
-                <MessageCircle className="w-3 h-3 mr-1" /> Chat
+                <Activity className="w-3 h-3 mr-1" /> Conversation
               </TabsTrigger>
               <TabsTrigger
                 value="output"
@@ -1064,175 +1143,20 @@ export function InspectorPanel({
         </TabsContent>
 
         {/* ── Timeline tab ────────────────────────────── */}
-        <TabsContent value="timeline" className="flex-1 min-h-0 m-0">
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-2">
-              <h3 className="text-sm font-semibold text-ink mb-3">
-                Execution Timeline
-                {selectedNode && (
-                  <span className="text-ink-3 font-normal ml-2">
-                    ({selectedNode.agent_slug || selectedNode.id.slice(0, 8)})
-                  </span>
-                )}
-              </h3>
-
-              {!selectedNode ? (
-                <p className="text-xs text-ink-3">
-                  Select a node to view its execution timeline.
-                </p>
-              ) : nodeEventsLoading ? (
-                <p className="text-xs text-ink-3">Loading events...</p>
-              ) : nodeEvents.length > 0 ? (
-                <div className="space-y-0.5">
-                  {nodeEvents.map((ev, i) => (
-                    <EventRow
-                      key={ev.id ?? i}
-                      event={ev}
-                      index={i}
-                      onClick={() => setSelectedEvent(ev)}
-                    />
-                  ))}
-                </div>
-              ) : synthesizedTimeline.length > 0 ? (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-ink-3 mb-2 italic">
-                    Synthesized from node data (detailed events available on
-                    new runs)
-                  </p>
-                  {synthesizedTimeline.map((entry, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 py-1.5 px-2 rounded"
-                    >
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${entry.color}`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-ink">
-                            {entry.label}
-                          </span>
-                          {entry.time && (
-                            <span className="text-[10px] text-ink-3 ml-auto">
-                              {new Date(entry.time).toLocaleTimeString()}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-ink-3 mt-0.5">
-                          {entry.detail}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-ink-3">
-                  {selectedNode.status === "running"
-                    ? "Waiting for events\u2026 (live streaming)"
-                    : selectedNode.status === "ready" ||
-                        selectedNode.status === "pending"
-                      ? "Events will appear once the node starts executing."
-                      : "No events recorded for this node."}
-                </p>
-              )}
-              {selectedEvent && (
-                <EventDetailsPopup
-                  event={selectedEvent}
-                  onClose={() => setSelectedEvent(null)}
-                />
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-
-        {/* ── Thinking tab ─────────────────────────────── */}
-        <TabsContent value="thinking" className="flex-1 min-h-0 m-0">
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Brain className="w-4 h-4 text-violet-500" />
-                <h3 className="text-sm font-semibold text-ink">
-                  Chain of Thought
-                </h3>
-                {selectedNode && (
-                  <span className="text-ink-3 text-[10px] font-normal ml-auto">
-                    {selectedNode.agent_slug}
-                  </span>
-                )}
-              </div>
-
-              {!selectedNode ? (
-                <p className="text-xs text-ink-3">
-                  Select a node to view its thinking.
-                </p>
-              ) : thinkingBlocksLoading ? (
-                <p className="text-xs text-ink-3">Loading thinking blocks...</p>
-              ) : thinkingBlocks.length > 0 || Object.keys(liveThinkingChunks).length > 0 ? (
-                <div className="space-y-2">
-                  {/* Persisted thinking blocks (historical) */}
-                  {thinkingBlocks.map((block) => (
-                    <ThinkingCard
-                      key={block.id}
-                      iteration={block.iteration}
-                      text={block.thinking_text}
-                      tokenCount={block.token_count}
-                      timestamp={block.created_at}
-                      isLive={false}
-                      defaultOpen={thinkingBlocks.length === 1}
-                    />
-                  ))}
-
-                  {/* Live thinking chunks (streaming, not yet persisted) */}
-                  {Object.entries(liveThinkingChunks)
-                    .filter(([iter]) => !thinkingBlocks.some(b => b.iteration === Number(iter)))
-                    .sort(([a], [b]) => Number(a) - Number(b))
-                    .map(([iter, text]) => (
-                      <ThinkingCard
-                        key={`live-${iter}`}
-                        iteration={Number(iter)}
-                        text={text}
-                        tokenCount={null}
-                        timestamp={null}
-                        isLive={true}
-                        defaultOpen={true}
-                      />
-                    ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Brain className="w-8 h-8 text-ink-3/30 mx-auto mb-2" />
-                  <p className="text-xs text-ink-3">
-                    {selectedNode.status === "running"
-                      ? "Waiting for thinking\u2026"
-                      : selectedNode.status === "pending" || selectedNode.status === "ready"
-                        ? "Thinking will appear once the node starts executing."
-                        : "No thinking blocks recorded for this node."}
-                  </p>
-                  {selectedNode.status !== "running" &&
-                    selectedNode.status !== "pending" &&
-                    selectedNode.status !== "ready" && (
-                      <p className="text-[10px] text-ink-3/60 mt-1">
-                        Extended thinking may not have been enabled for this run.
-                      </p>
-                    )}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-
-        {/* ── Chat tab ─────────────────────────────────── */}
-        <TabsContent value="chat" className="flex-1 min-h-0 m-0 flex flex-col">
+        {/* ── Conversation tab (unified stream) ──────── */}
+        <TabsContent value="conversation" className="flex-1 min-h-0 m-0 flex flex-col">
           {!selectedNode ? (
             <div className="p-4">
               <p className="text-xs text-ink-3">Select a node to view its conversation.</p>
             </div>
           ) : (
-            <NodeChatContent
+            <ConversationStream
+              entries={streamEntries}
+              loading={streamLoading}
               selectedNode={selectedNode}
-              messages={nodeMessages}
-              loading={nodeMessagesLoading}
               onReply={onReply}
+              liveThinkingChunks={liveThinkingChunks}
+              liveTextChunks={liveTextChunks}
             />
           )}
         </TabsContent>
@@ -1257,6 +1181,33 @@ export function InspectorPanel({
                       />
                     ) : null}
                   </div>
+
+                  {/* Artifacts */}
+                  {(selectedNode.artifacts as Array<{type: string; url: string; title: string}> | null)?.length ? (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-ink-2 uppercase tracking-wider">Artifacts</h4>
+                      <div className="grid gap-2">
+                        {(selectedNode.artifacts as Array<{type: string; url: string; title: string}>).map((artifact, idx) => (
+                          <a
+                            key={idx}
+                            href={artifact.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 p-3 rounded-lg border border-rim bg-surface hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                          >
+                            <div className="flex-shrink-0 w-8 h-8 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center">
+                              <ExternalLink className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-ink truncate group-hover:text-blue-700">{artifact.title}</p>
+                              <p className="text-[10px] text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
+                            </div>
+                            <ExternalLink className="w-3.5 h-3.5 text-ink-3 group-hover:text-blue-500 flex-shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {selectedNode.output != null ? (
                     <JsonBlock data={selectedNode.output} />

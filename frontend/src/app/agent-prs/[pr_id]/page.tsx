@@ -538,7 +538,7 @@ export default function PRDetailPage() {
         setPR(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load PR:", err); setLoading(false); });
   }, [pr_id]);
 
   const action = async (act: "approve" | "reject") => {

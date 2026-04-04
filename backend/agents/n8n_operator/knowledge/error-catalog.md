@@ -64,13 +64,7 @@ Common validation errors by priority:
 ```
 
 **How to identify required fields**:
-```javascript
-// Use get_node to see what's required
-const info = get_node({
-  nodeType: "nodes-base.slack"
-});
-// Check properties marked as "required": true
-```
+Inspect an existing workflow containing the node type via `GET /api/v1/workflows/{id}` using `http_request`. Check the node's parameters to see which fields are set, then refer to the n8n documentation or create a minimal test workflow to discover required fields.
 
 #### Example 2: HTTP Request Missing URL
 
@@ -854,29 +848,20 @@ SELECT * FROM users WHERE active = true LIMIT 1000
 
 ## Recovery Patterns
 
-### Pattern 1: Progressive Validation
+### Pattern 1: Progressive Configuration
 
 **Problem**: Too many errors at once
 
 **Solution**:
-```javascript
-// Step 1: Minimal valid config
-let config = {
-  resource: "message",
-  operation: "post",
-  channel: "#general",
-  text: "Hello"
-};
+Start with a minimal valid configuration and add features incrementally. After each change, update the workflow via `PUT /api/v1/workflows/{id}` and test with `POST /api/v1/workflows/{id}/run` to verify it works before adding more complexity.
 
-validate_node({nodeType: "nodes-base.slack", config, profile: "runtime"});
-// ✅ Valid
-
-// Step 2: Add features one by one
-config.attachments = [...];
-validate_node({nodeType: "nodes-base.slack", config, profile: "runtime"});
-
-config.blocks = [...];
-validate_node({nodeType: "nodes-base.slack", config, profile: "runtime"});
+```
+Step 1: Minimal config (resource, operation, channel, text)
+  → Update workflow → Test run → Confirm success
+Step 2: Add attachments
+  → Update workflow → Test run → Confirm success
+Step 3: Add blocks
+  → Update workflow → Test run → Confirm success
 ```
 
 ### Pattern 2: Error Triage
@@ -884,50 +869,31 @@ validate_node({nodeType: "nodes-base.slack", config, profile: "runtime"});
 **Problem**: Multiple errors
 
 **Solution**:
-```javascript
-const result = validate_node_operation({...});
+When a test execution fails, triage the errors by priority:
 
-// 1. Fix errors (must fix)
-result.errors.forEach(error => {
-  console.log(`MUST FIX: ${error.property} - ${error.message}`);
-});
+1. Fix **errors** first (blocking) — missing required fields, invalid values, type mismatches
+2. Review **warnings** (should fix) — missing error handling, no retry logic
+3. Consider **suggestions** (optional) — performance optimizations, best practices
 
-// 2. Review warnings (should fix)
-result.warnings.forEach(warning => {
-  console.log(`SHOULD FIX: ${warning.property} - ${warning.message}`);
-});
+Update the workflow, re-run the test, and iterate until clean.
 
-// 3. Consider suggestions (optional)
-result.suggestions.forEach(sug => {
-  console.log(`OPTIONAL: ${sug.message}`);
-});
-```
-
-### Pattern 3: Use get_node
+### Pattern 3: Inspect Existing Workflows
 
 **Problem**: Don't know what's required
 
 **Solution**:
-```javascript
-// Before configuring, check requirements
-const info = get_node({
-  nodeType: "nodes-base.slack"
-});
-
-// Look for required fields
-info.properties.forEach(prop => {
-  if (prop.required) {
-    console.log(`Required: ${prop.name} (${prop.type})`);
-  }
-});
-```
+Use the n8n REST API to inspect working workflows that use the same node type:
+1. `GET /api/v1/workflows` via `http_request` to list workflows
+2. Find one using the target node type
+3. `GET /api/v1/workflows/{id}` to see the full node configuration
+4. Use that as a reference for required fields and correct parameter structure
 
 ---
 
 ## Summary
 
 **Most Common Errors**:
-1. `missing_required` (45%) - Always check get_node
+1. `missing_required` (45%) - Always inspect existing workflows for required fields
 2. `invalid_value` (28%) - Check allowed values
 3. `type_mismatch` (12%) - Use correct data types
 4. `invalid_expression` (8%) - Use Expression Syntax skill
@@ -940,4 +906,4 @@ info.properties.forEach(prop => {
 - **[SKILL.md](SKILL.md)** - Main validation guide
 - **[FALSE_POSITIVES.md](FALSE_POSITIVES.md)** - When to ignore warnings
 - **n8n Expression Syntax** - Fix expression errors
-- **n8n MCP Tools Expert** - Use validation tools correctly
+- **n8n REST API** (documented in prompt) - Use `http_request` for all n8n operations

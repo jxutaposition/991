@@ -6,17 +6,17 @@
 - **Progressive disclosure**: start minimal, add complexity as needed
 
 ## Discovery Flow
-1. `get_node` with default "standard" detail (~1-2K tokens) — start here, 91.7% success rate
-2. Stuck on a field → `mode: "search_properties", propertyQuery: "auth"`
-3. Still insufficient → `detail: "full"` (large, ~3-8K tokens, use sparingly)
+1. Inspect existing workflows via `GET /api/v1/workflows/{id}` using `http_request` — find a workflow using the same node type and check its configuration
+2. Stuck on a field → check the n8n documentation or create a minimal test workflow to discover valid values
+3. Still insufficient → list all workflows with `GET /api/v1/workflows` and find additional examples
 
 ## Configuration Statistics
-- Average 18s search → get_node_essentials
+- Average 18s search → inspect workflow
 - Average 56s between configuration edits
 - Typically 2-3 validation cycles per configuration
 
 ## Iteration Pattern
-Minimal config → `validate_node` → add fields validation demands → repeat (2-3 rounds typical)
+Minimal config → test run via `POST /api/v1/workflows/{id}/run` → add fields the test demands → repeat (2-3 rounds typical)
 
 ## Anti-patterns
 - Dumping every optional field upfront

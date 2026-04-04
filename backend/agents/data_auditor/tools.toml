@@ -1,1 +1,0 @@
-tools = ["http_request", "web_search", "fetch_url", "read_crm_contact", "read_crm_pipeline", "search_company_data", "read_upstream_output", "write_output"]

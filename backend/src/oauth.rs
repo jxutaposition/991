@@ -74,6 +74,14 @@ pub fn get_provider_config(settings: &Settings, provider: &str) -> Option<OAuthP
                 "users:read".into(),
             ],
         }),
+        "apollo" => Some(OAuthProviderConfig {
+            name: "apollo".into(),
+            authorize_url: "https://app.apollo.io/oauth/authorize".into(),
+            token_url: "https://app.apollo.io/oauth/token".into(),
+            client_id: settings.apollo_oauth_client_id.clone()?,
+            client_secret: settings.apollo_oauth_client_secret.clone()?,
+            scopes: vec![],
+        }),
         _ => None,
     }
 }

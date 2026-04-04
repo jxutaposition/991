@@ -3,8 +3,11 @@
   "private": true,
   "scripts": {
     "test": "npx playwright test",
+    "test:extension": "npx playwright test --grep-invert 'LinkedIn Lead Prospecting'",
+    "test:headed": "npx playwright test --headed",
     "mock-site": "node mock-gtm-site/server.js",
-    "test:headed": "npx playwright test --headed"
+    "mock-backend": "node mock-backend/server.js",
+    "pretest:extension": "echo 'Start mock servers first: npm run mock-site & npm run mock-backend &'"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0"

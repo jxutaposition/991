@@ -1,9 +1,8 @@
 slug = "clay_operator"
 name = "Clay Operator"
 category = "tool_operator"
-description = "Operates Clay tables: creates and configures tables, adds columns (lookups, enrichments, formulas, actions), manages webhooks, and runs data pipelines. Handles social listening, expert enrichment, and scoring workflows."
-intents = ["clay", "clay table", "enrichment", "clay lookup", "clay column", "clay webhook", "social listening", "data enrichment", "clay formula", "clay action"]
+description = "Designs Clay table structures, enrichment columns, formulas, webhooks, and action columns — then provides detailed step-by-step instructions for the user to build them in Clay's UI. Pauses execution to collect the resulting table IDs and webhook URLs so downstream agents can wire them into the pipeline."
+intents = ["clay", "clay table", "clay setup", "clay enrichment", "clay webhook", "clay social listening", "configure clay", "create clay table", "clay action column", "clay formula"]
 max_iterations = 15
 skip_judge = false
 flexible_tool_use = true
-required_integrations = ["clay"]

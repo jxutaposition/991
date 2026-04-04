@@ -115,9 +115,93 @@ pub async fn load_credentials_for_client(
         "SELECT integration_slug, credential_type, encrypted_value, metadata \
          FROM client_credentials WHERE client_id = '{client_id}'"
     );
+    decrypt_rows(&db.execute(&sql).await?, master_key_hex)
+}
+
+/// Load credentials for a project with fallback to client-level defaults.
+/// Project credentials override client credentials for the same integration slug.
+pub async fn load_credentials_for_project(
+    db: &PgClient,
+    master_key_hex: &str,
+    project_id: Uuid,
+    client_id: Uuid,
+) -> anyhow::Result<CredentialMap> {
+    let mut map = load_credentials_for_client(db, master_key_hex, client_id).await?;
+
+    let sql = format!(
+        "SELECT integration_slug, credential_type, encrypted_value, metadata \
+         FROM project_credentials WHERE project_id = '{project_id}'"
+    );
+    let project_creds = decrypt_rows(&db.execute(&sql).await?, master_key_hex)?;
+
+    // Project-level overrides client-level
+    for (slug, cred) in project_creds {
+        map.insert(slug, cred);
+    }
+    Ok(map)
+}
+
+/// Upsert a project-scoped credential.
+pub async fn upsert_project_credential(
+    db: &PgClient,
+    project_id: Uuid,
+    integration_slug: &str,
+    credential_type: &str,
+    encrypted_value: &[u8],
+    metadata: Option<&Value>,
+) -> anyhow::Result<Uuid> {
+    let slug_esc = integration_slug.replace('\'', "''");
+    let type_esc = credential_type.replace('\'', "''");
+    let hex_val = hex::encode(encrypted_value);
+    let meta = metadata
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| "{}".to_string());
+    let meta_esc = meta.replace('\'', "''");
+
+    let sql = format!(
+        "INSERT INTO project_credentials (project_id, integration_slug, credential_type, encrypted_value, metadata) \
+         VALUES ('{project_id}', '{slug_esc}', '{type_esc}', '\\x{hex_val}'::bytea, '{meta_esc}'::jsonb) \
+         ON CONFLICT (project_id, integration_slug) DO UPDATE SET \
+         credential_type = EXCLUDED.credential_type, \
+         encrypted_value = EXCLUDED.encrypted_value, \
+         metadata = EXCLUDED.metadata, \
+         updated_at = NOW() \
+         RETURNING id"
+    );
     let rows = db.execute(&sql).await?;
+    let id = rows
+        .first()
+        .and_then(|r| r.get("id"))
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .ok_or_else(|| anyhow::anyhow!("no id returned from upsert"))?;
+    Ok(id)
+}
+
+pub async fn list_project_credentials(db: &PgClient, project_id: Uuid) -> anyhow::Result<Vec<Value>> {
+    let sql = format!(
+        "SELECT id, integration_slug, credential_type, metadata, created_at, updated_at \
+         FROM project_credentials WHERE project_id = '{project_id}' ORDER BY integration_slug"
+    );
+    Ok(db.execute(&sql).await?)
+}
+
+pub async fn delete_project_credential(
+    db: &PgClient,
+    project_id: Uuid,
+    integration_slug: &str,
+) -> anyhow::Result<bool> {
+    let slug_esc = integration_slug.replace('\'', "''");
+    let sql = format!(
+        "DELETE FROM project_credentials WHERE project_id = '{project_id}' AND integration_slug = '{slug_esc}'"
+    );
+    db.execute(&sql).await?;
+    Ok(true)
+}
+
+fn decrypt_rows(rows: &[Value], master_key_hex: &str) -> anyhow::Result<CredentialMap> {
     let mut map = HashMap::new();
-    for row in &rows {
+    for row in rows {
         let slug = row
             .get("integration_slug")
             .and_then(Value::as_str)
@@ -133,16 +217,14 @@ pub async fn load_credentials_for_client(
             .cloned()
             .unwrap_or(Value::Object(Default::default()));
 
-        // encrypted_value comes back as hex-encoded string from our PgClient
         let enc_hex = row
             .get("encrypted_value")
             .and_then(Value::as_str)
             .unwrap_or("");
         if enc_hex.is_empty() {
-            tracing::warn!(slug = %slug, "encrypted_value is empty/null — bytea column may not be decoded properly");
+            tracing::warn!(slug = %slug, "encrypted_value is empty/null");
             continue;
         }
-        // Strip \x prefix if present
         let clean_hex = enc_hex.strip_prefix("\\x").unwrap_or(enc_hex);
         match hex::decode(clean_hex) {
             Ok(enc_bytes) => match decrypt(master_key_hex, &enc_bytes) {

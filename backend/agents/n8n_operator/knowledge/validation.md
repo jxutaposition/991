@@ -54,7 +54,7 @@
 // ✅ {method: "POST", url: "...", sendBody: true, body: {contentType: "json", content: {...}}}
 ```
 
-**Fix pattern**: Use `get_node` to find required fields for current resource+operation.
+**Fix pattern**: Inspect existing workflows via `GET /api/v1/workflows/{id}` to find required fields for the current resource+operation.
 
 ### invalid_value
 
@@ -70,7 +70,7 @@
 // ✅ {resource: "message"}   // lowercase
 ```
 
-**Fix pattern**: Check allowed values from error message or `get_node`.
+**Fix pattern**: Check allowed values from the error message or inspect a working workflow's node configuration.
 
 ### type_mismatch
 
@@ -157,14 +157,12 @@ Dev/testing? → Usually acceptable
 ### Progressive Validation
 When too many errors: start with minimal valid config, add features one by one, validate after each addition.
 
-```javascript
-// Step 1: Minimal
-config = {resource: "message", operation: "post", channel: "#general", text: "Hello"};
-validate_node({nodeType: "nodes-base.slack", config, profile: "runtime"});
+```
+Step 1: Minimal config → update workflow via PUT → test run via POST /api/v1/workflows/{id}/run
+  config = {resource: "message", operation: "post", channel: "#general", text: "Hello"}
 
-// Step 2: Add features incrementally
-config.attachments = [...];
-validate_node({...});
+Step 2: Add features incrementally → update workflow → test run again
+  Add attachments, blocks, etc. one at a time
 ```
 
 ### Error Triage

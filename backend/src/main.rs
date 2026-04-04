@@ -122,9 +122,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/sessions", get(routes::execution_sessions_list))
         .route("/api/execute", post(routes::execution_create))
         .route("/api/execute/:session_id/approve", post(routes::execution_approve))
+        .route("/api/execute/:session_id/stop", post(routes::execution_stop))
         .route("/api/execute/:session_id", get(routes::execution_get).delete(routes::execution_session_delete))
         .route("/api/execute/:session_id/nodes/:node_id/events", get(routes::execution_node_events))
         .route("/api/execute/:session_id/nodes/:node_id/thinking", get(routes::execution_node_thinking))
+        .route("/api/execute/:session_id/nodes/:node_id/stream", get(routes::execution_node_stream))
         .route("/api/execute/:session_id/events", get(routes::execution_events_sse))
         // Observation
         .route("/api/observe/session/start", post(routes::observe_session_start))
@@ -200,6 +202,15 @@ async fn main() -> anyhow::Result<()> {
         // Projects
         .route("/api/projects", get(routes::projects_list))
         .route("/api/projects", post(routes::project_create))
+        // Project credentials
+        .route("/api/projects/:project_id/credentials", get(routes::project_credentials_list))
+        .route("/api/projects/:project_id/credentials", post(routes::project_credential_set))
+        .route("/api/projects/:project_id/credentials/:integration_slug", axum::routing::delete(routes::project_credential_delete))
+        .route("/api/projects/:project_id/credential-check", get(routes::project_credential_check))
+        // Project members
+        .route("/api/projects/:project_id/members", get(routes::project_members_list))
+        .route("/api/projects/:project_id/members", post(routes::project_member_invite))
+        .route("/api/projects/:project_id/members/:user_id", axum::routing::delete(routes::project_member_remove))
         // Feedback / Learning
         .route("/api/feedback/lesson", post(routes::feedback_record_lesson))
         // Overlays

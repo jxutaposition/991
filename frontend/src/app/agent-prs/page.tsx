@@ -31,7 +31,7 @@ export default function AgentPRsPage() {
     fetch(`/api/agent-prs?status=${filter}`)
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => { setPrs(data.prs ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load PRs:", err); setLoading(false); });
   }, [filter]);
 
   return (

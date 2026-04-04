@@ -1,1 +1,1 @@
-tools = ["http_request", "write_output", "read_upstream_output"]
+tools = ["write_output", "read_upstream_output", "request_user_action"]

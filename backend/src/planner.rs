@@ -25,8 +25,8 @@ const PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM workflow orchestrator. Your
 - Each node must have a specific task_description scoped to that agent's capability and the customer's request context.
 - depends_on is an array of 0-based indices of EARLIER nodes (strictly lower indices) that must complete first. A node at index N can only depend on indices 0..N-1. Never reference the node's own index or higher. No cycles.
 - Prefer parallelism: if two agents don't need each other's output, give them empty depends_on arrays.
-- Keep the plan focused — typically 3-12 agents. Don't use agents that aren't relevant to the request.
-- IMPORTANT: Design-then-build. Use program_operations agents (designers) for design, then use tool_operator agents (notion_operator, n8n_operator, lovable_operator, clay_operator, etc.) to create real artifacts in external systems. If the request implies building or creating things in tools (dashboards, pages, workflows, automations), you MUST include the corresponding operator agents — not just designers.
+- Keep the plan focused — typically 2-8 agents. Don't use agents that aren't relevant to the request.
+- IMPORTANT: Every agent in the plan must BUILD something or ACT on an external system. Do NOT include agents just for thinking, planning, or designing. Design/strategy reasoning happens in the master_orchestrator, not in subagents. The master_orchestrator enriches context for each builder agent — no separate "designer" step is needed.
 - Keep task_description values concise (under 120 chars). Details come from upstream outputs at runtime.
 
 ## Examples
@@ -34,29 +34,22 @@ const PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM workflow orchestrator. Your
 Request: "Build an expert scoring and tiering program with a leaderboard and document it"
 Plan:
 [
-  {"agent_slug": "program_designer", "task_description": "Design 4-tier structure, scoring vectors, and point thresholds", "depends_on": []},
-  {"agent_slug": "data_pipeline_builder", "task_description": "Design data pipeline from scoring sources to Supabase storage", "depends_on": [0]},
-  {"agent_slug": "dashboard_designer", "task_description": "Design leaderboard with public and internal views", "depends_on": [0]},
-  {"agent_slug": "impact_measurement_designer", "task_description": "Design measurement framework for program health", "depends_on": [0]},
+  {"agent_slug": "data_pipeline_builder", "task_description": "Build scoring pipeline from Clay/Tolt sources to Supabase", "depends_on": []},
+  {"agent_slug": "dashboard_builder", "task_description": "Build leaderboard with internal and public views in Supabase + Lovable", "depends_on": [0]},
   {"agent_slug": "notion_operator", "task_description": "Create program documentation page in Notion", "depends_on": [0]},
-  {"agent_slug": "clay_operator", "task_description": "Set up Clay tables for social listening data", "depends_on": [1]},
-  {"agent_slug": "lovable_operator", "task_description": "Build expert-facing leaderboard dashboard in Lovable", "depends_on": [2, 1]},
   {"agent_slug": "n8n_operator", "task_description": "Build onboarding automation workflow in n8n", "depends_on": [0]}
 ]
 
 Request: "Set up an onboarding automation from application to campaign assignment"
 Plan:
 [
-  {"agent_slug": "onboarding_flow_designer", "task_description": "Design onboarding flow from application through approval", "depends_on": []},
-  {"agent_slug": "n8n_operator", "task_description": "Build the automation workflow in n8n", "depends_on": [0]}
+  {"agent_slug": "n8n_operator", "task_description": "Build onboarding workflow: form → approval → CRM + Slack + Tolt", "depends_on": []}
 ]
 
 Request: "Audit our data across Clay, Supabase, and Notion then fix the pipeline"
 Plan:
 [
-  {"agent_slug": "data_auditor", "task_description": "Cross-check data across Clay, Supabase, and Notion", "depends_on": []},
-  {"agent_slug": "pipeline_diagnostician", "task_description": "Diagnose broken data flows between systems", "depends_on": [0]},
-  {"agent_slug": "data_pipeline_builder", "task_description": "Rebuild pipeline to fix identified issues", "depends_on": [1]}
+  {"agent_slug": "data_pipeline_builder", "task_description": "Audit cross-system data, diagnose broken flows, rebuild pipeline", "depends_on": []}
 ]
 
 ## Output Format
@@ -64,7 +57,7 @@ Plan:
 Return ONLY a JSON array. No explanation, no markdown fences. Keep task_description values short.
 
 [
-  {"agent_slug": "program_designer", "task_description": "...", "depends_on": []},
+  {"agent_slug": "data_pipeline_builder", "task_description": "...", "depends_on": []},
   {"agent_slug": "notion_operator", "task_description": "...", "depends_on": [0]}
 ]"#;
 

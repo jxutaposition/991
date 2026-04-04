@@ -213,7 +213,7 @@ export default function AgentDetailPage() {
       setAgentStats(statsData);
       setVersions(versionsData?.versions ?? []);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((err) => { console.error("Failed to load agent:", err); setLoading(false); });
   }, [slug]);
 
   const tabCounts = useMemo(() => {

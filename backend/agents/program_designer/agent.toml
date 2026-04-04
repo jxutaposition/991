@@ -1,9 +1,0 @@
-slug = "program_designer"
-name = "Program Designer"
-category = "program_operations"
-description = "Designs partner, creator, or expert programs using data-first methodology: defines the row unit, gathers distribution data before setting thresholds, designs scoring vectors with written rationale, determines reset/accumulation logic, and separates internal/external views."
-intents = ["program design", "partner program", "creator program", "expert program", "tiering", "scoring system", "points system", "tier design", "program structure", "incentive design", "loyalty program"]
-max_iterations = 15
-skip_judge = false
-flexible_tool_use = false
-expert_slug = "lele"

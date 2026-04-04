@@ -235,13 +235,15 @@ async fn claim_ready_nodes(
                 started_at = NOW(),
                 attempt_count = attempt_count + 1
             WHERE id IN (
-                SELECT id FROM execution_nodes
-                WHERE status = 'ready'
-                  AND attempt_count < {MAX_ATTEMPTS}
-                  AND (breakpoint IS NULL OR breakpoint = false)
-                ORDER BY created_at
+                SELECT en.id FROM execution_nodes en
+                JOIN execution_sessions es ON es.id = en.session_id
+                WHERE en.status = 'ready'
+                  AND en.attempt_count < {MAX_ATTEMPTS}
+                  AND (en.breakpoint IS NULL OR en.breakpoint = false)
+                  AND es.status = 'executing'
+                ORDER BY en.created_at
                 LIMIT {limit}
-                FOR UPDATE SKIP LOCKED
+                FOR UPDATE OF en SKIP LOCKED
             )
             RETURNING *
         )
@@ -329,18 +331,24 @@ async fn persist_node_result(
         .clone()
         .or_else(|| result.error.clone());
 
+    // Extract artifacts from the output for easy querying
+    let artifacts: serde_json::Value = result.output.as_ref()
+        .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
+        .cloned()
+        .unwrap_or(serde_json::json!([]));
+
     let completed_clause = if result.status.is_terminal() {
         "completed_at = NOW()"
     } else {
         "completed_at = completed_at" // no-op for awaiting_reply
     };
     let sql = format!(
-        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, {} WHERE id = $5",
+        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, {} WHERE id = $5",
         completed_clause
     );
     db.execute_with(
         &sql,
-        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid),
+        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts),
     ).await?;
 
     // Log execution event with rich payload

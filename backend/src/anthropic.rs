@@ -234,6 +234,337 @@ impl AnthropicClient {
     }
 }
 
+// ── Streaming types ──────────────────────────────────────────────────────────
+
+/// An individual SSE event from the Anthropic streaming API.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    MessageStart { usage: Value },
+    ContentBlockStart { index: usize, block_type: ContentBlockType },
+    ContentBlockDelta { index: usize, delta: DeltaPayload },
+    ContentBlockStop { index: usize },
+    MessageDelta { stop_reason: Option<String>, usage: Option<Value> },
+    MessageStop,
+}
+
+#[derive(Debug, Clone)]
+pub enum ContentBlockType {
+    Text,
+    Thinking,
+    ToolUse { id: String, name: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum DeltaPayload {
+    TextDelta(String),
+    ThinkingDelta(String),
+    InputJsonDelta(String),
+}
+
+fn parse_sse_event(event_type: &str, data: &Value) -> Option<StreamEvent> {
+    match event_type {
+        "message_start" => {
+            let usage = data.get("message")?.get("usage")?.clone();
+            Some(StreamEvent::MessageStart { usage })
+        }
+        "content_block_start" => {
+            let index = data.get("index")?.as_u64()? as usize;
+            let block = data.get("content_block")?;
+            let btype = block.get("type")?.as_str()?;
+            let block_type = match btype {
+                "text" => ContentBlockType::Text,
+                "thinking" => ContentBlockType::Thinking,
+                "tool_use" => ContentBlockType::ToolUse {
+                    id: block.get("id")?.as_str()?.to_string(),
+                    name: block.get("name")?.as_str()?.to_string(),
+                },
+                _ => return None,
+            };
+            Some(StreamEvent::ContentBlockStart { index, block_type })
+        }
+        "content_block_delta" => {
+            let index = data.get("index")?.as_u64()? as usize;
+            let delta_obj = data.get("delta")?;
+            let delta_type = delta_obj.get("type")?.as_str()?;
+            let delta = match delta_type {
+                "text_delta" => DeltaPayload::TextDelta(
+                    delta_obj.get("text")?.as_str()?.to_string(),
+                ),
+                "thinking_delta" => DeltaPayload::ThinkingDelta(
+                    delta_obj.get("thinking")?.as_str()?.to_string(),
+                ),
+                "input_json_delta" => DeltaPayload::InputJsonDelta(
+                    delta_obj.get("partial_json")?.as_str()?.to_string(),
+                ),
+                _ => return None,
+            };
+            Some(StreamEvent::ContentBlockDelta { index, delta })
+        }
+        "content_block_stop" => {
+            let index = data.get("index")?.as_u64()? as usize;
+            Some(StreamEvent::ContentBlockStop { index })
+        }
+        "message_delta" => {
+            let stop_reason = data
+                .get("delta")
+                .and_then(|d| d.get("stop_reason"))
+                .and_then(Value::as_str)
+                .map(String::from);
+            let usage = data.get("usage").cloned();
+            Some(StreamEvent::MessageDelta { stop_reason, usage })
+        }
+        "message_stop" => Some(StreamEvent::MessageStop),
+        _ => None,
+    }
+}
+
+/// Incrementally builds a MessagesResponse from streaming events.
+struct ResponseAccumulator {
+    content_blocks: Vec<Value>,
+    block_types: Vec<String>,
+    text_accumulators: Vec<String>,
+    json_accumulators: Vec<String>,
+    stop_reason: Option<String>,
+    usage: Option<Value>,
+}
+
+impl ResponseAccumulator {
+    fn new() -> Self {
+        Self {
+            content_blocks: Vec::new(),
+            block_types: Vec::new(),
+            text_accumulators: Vec::new(),
+            json_accumulators: Vec::new(),
+            stop_reason: None,
+            usage: None,
+        }
+    }
+
+    fn ensure_index(&mut self, index: usize) {
+        while self.content_blocks.len() <= index {
+            self.content_blocks.push(Value::Null);
+            self.block_types.push(String::new());
+            self.text_accumulators.push(String::new());
+            self.json_accumulators.push(String::new());
+        }
+    }
+
+    fn on_event(&mut self, event: &StreamEvent) {
+        match event {
+            StreamEvent::MessageStart { usage } => {
+                self.usage = Some(usage.clone());
+            }
+            StreamEvent::ContentBlockStart { index, block_type } => {
+                self.ensure_index(*index);
+                match block_type {
+                    ContentBlockType::Text => {
+                        self.block_types[*index] = "text".to_string();
+                        self.content_blocks[*index] = json!({"type": "text", "text": ""});
+                    }
+                    ContentBlockType::Thinking => {
+                        self.block_types[*index] = "thinking".to_string();
+                        self.content_blocks[*index] = json!({"type": "thinking", "thinking": ""});
+                    }
+                    ContentBlockType::ToolUse { id, name } => {
+                        self.block_types[*index] = "tool_use".to_string();
+                        self.content_blocks[*index] = json!({
+                            "type": "tool_use",
+                            "id": id,
+                            "name": name,
+                            "input": {}
+                        });
+                    }
+                }
+            }
+            StreamEvent::ContentBlockDelta { index, delta } => {
+                self.ensure_index(*index);
+                match delta {
+                    DeltaPayload::TextDelta(t) | DeltaPayload::ThinkingDelta(t) => {
+                        self.text_accumulators[*index].push_str(t);
+                    }
+                    DeltaPayload::InputJsonDelta(j) => {
+                        self.json_accumulators[*index].push_str(j);
+                    }
+                }
+            }
+            StreamEvent::ContentBlockStop { index } => {
+                if *index < self.content_blocks.len() {
+                    let btype = &self.block_types[*index];
+                    match btype.as_str() {
+                        "text" => {
+                            self.content_blocks[*index]["text"] =
+                                Value::String(self.text_accumulators[*index].clone());
+                        }
+                        "thinking" => {
+                            self.content_blocks[*index]["thinking"] =
+                                Value::String(self.text_accumulators[*index].clone());
+                        }
+                        "tool_use" => {
+                            let json_str = &self.json_accumulators[*index];
+                            let parsed = serde_json::from_str::<Value>(json_str).unwrap_or_else(|e| {
+                                tracing::warn!("Failed to parse tool_use input JSON: {e}");
+                                Value::Null
+                            });
+                            self.content_blocks[*index]["input"] = parsed;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            StreamEvent::MessageDelta { stop_reason, usage } => {
+                if stop_reason.is_some() {
+                    self.stop_reason = stop_reason.clone();
+                }
+                if let Some(u) = usage {
+                    if let Some(existing) = &mut self.usage {
+                        if let (Some(obj), Some(new_obj)) = (existing.as_object_mut(), u.as_object()) {
+                            for (k, v) in new_obj {
+                                obj.insert(k.clone(), v.clone());
+                            }
+                        }
+                    } else {
+                        self.usage = Some(u.clone());
+                    }
+                }
+            }
+            StreamEvent::MessageStop => {}
+        }
+    }
+
+    fn finalize(self) -> MessagesResponse {
+        MessagesResponse {
+            content: self.content_blocks,
+            stop_reason: self.stop_reason,
+            usage: self.usage,
+        }
+    }
+}
+
+// ── Streaming client method ──────────────────────────────────────────────────
+
+impl AnthropicClient {
+    /// Stream a messages call. Returns a channel of delta events for real-time
+    /// forwarding and a JoinHandle that resolves to the complete response.
+    pub fn messages_stream(
+        &self,
+        system: &str,
+        messages: &[Value],
+        tools: &[ToolDef],
+        max_tokens: u32,
+        model_override: Option<&str>,
+        thinking_budget: Option<u32>,
+    ) -> (
+        tokio::sync::mpsc::Receiver<StreamEvent>,
+        tokio::task::JoinHandle<anyhow::Result<MessagesResponse>>,
+    ) {
+        use futures_util::StreamExt;
+        use tokio::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel::<StreamEvent>(256);
+
+        let http = self.http.clone();
+        let api_key = self.api_key.clone();
+        let model = model_override.unwrap_or(&self.model).to_string();
+        let system = system.to_string();
+        let messages = messages.to_vec();
+        let tools = tools.to_vec();
+
+        let handle = tokio::spawn(async move {
+            let system_block = json!([{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"}
+            }]);
+
+            let actual_max_tokens = thinking_budget
+                .map(|b| b + max_tokens)
+                .unwrap_or(max_tokens);
+
+            let mut body = json!({
+                "model": model,
+                "max_tokens": actual_max_tokens,
+                "system": system_block,
+                "messages": messages,
+                "stream": true,
+            });
+
+            if let Some(budget) = thinking_budget {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget
+                });
+            }
+
+            if !tools.is_empty() {
+                let mut tools_json: Vec<Value> = tools
+                    .iter()
+                    .map(|t| json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.input_schema
+                    }))
+                    .collect();
+                if let Some(last) = tools_json.last_mut() {
+                    last["cache_control"] = json!({"type": "ephemeral"});
+                }
+                body["tools"] = Value::Array(tools_json);
+            }
+
+            let resp = http
+                .post(ANTHROPIC_API_URL)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", "prompt-caching-2024-07-31")
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let text = resp.text().await?;
+                anyhow::bail!("Anthropic API error {status}: {}", &text[..text.len().min(500)]);
+            }
+
+            let mut byte_stream = resp.bytes_stream();
+            let mut accumulator = ResponseAccumulator::new();
+            let mut line_buffer = String::new();
+            let mut current_event_type = String::new();
+
+            while let Some(chunk_result) = byte_stream.next().await {
+                let chunk = chunk_result?;
+                let text = String::from_utf8_lossy(&chunk);
+                line_buffer.push_str(&text);
+
+                while let Some(newline_pos) = line_buffer.find('\n') {
+                    let line = line_buffer[..newline_pos].trim_end().to_string();
+                    line_buffer = line_buffer[newline_pos + 1..].to_string();
+
+                    if line.is_empty() {
+                        current_event_type.clear();
+                        continue;
+                    }
+
+                    if let Some(event_type) = line.strip_prefix("event: ") {
+                        current_event_type = event_type.to_string();
+                    } else if let Some(data_str) = line.strip_prefix("data: ") {
+                        if let Ok(data) = serde_json::from_str::<Value>(data_str) {
+                            if let Some(event) = parse_sse_event(&current_event_type, &data) {
+                                accumulator.on_event(&event);
+                                let _ = tx.send(event).await;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(accumulator.finalize())
+        });
+
+        (rx, handle)
+    }
+}
+
 // ── Message builders ──────────────────────────────────────────────────────────
 
 pub fn user_message(text: impl Into<String>) -> Value {

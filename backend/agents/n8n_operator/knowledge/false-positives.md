@@ -528,32 +528,11 @@ Many warnings are context-dependent:
 
 ### Strategy 1: Progressive Strictness
 
-**Development**:
-```javascript
-validate_node({
-  nodeType: "nodes-base.slack",
-  config,
-  profile: "ai-friendly"  // Fewer warnings during development
-})
-```
+**Development**: Run test executions with minimal configs. Accept most warnings — focus on getting the workflow functional.
 
-**Pre-Production**:
-```javascript
-validate_node({
-  nodeType: "nodes-base.slack",
-  config,
-  profile: "runtime"  // Balanced validation
-})
-```
+**Pre-Production**: Run end-to-end test executions with realistic data. Fix error handling and retry logic. Review all execution failures.
 
-**Production Deployment**:
-```javascript
-validate_node({
-  nodeType: "nodes-base.slack",
-  config,
-  profile: "strict"  // All warnings, review each one
-})
-```
+**Production Deployment**: Full test execution with edge cases. Verify error handling, retry logic, and rate limiting are all in place. Review execution logs for any warnings.
 
 ### Strategy 2: Profile by Workflow Type
 

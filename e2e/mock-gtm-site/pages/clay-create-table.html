@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Clay - Create New Table</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #fafafa; }
+    .nav { background: #6C5CE7; color: white; padding: 12px 24px; font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+    .nav a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 14px; }
+    .container { max-width: 600px; margin: 40px auto; padding: 32px; background: white; border-radius: 12px; border: 1px solid #e5e5e5; }
+    h2 { font-size: 20px; color: #1a1a2e; margin: 0 0 24px 0; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; margin-top: 16px; }
+    input[type="text"], select, textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 14px; outline: none; font-family: inherit; }
+    input:focus, select:focus, textarea:focus { border-color: #6C5CE7; box-shadow: 0 0 0 2px rgba(108,92,231,0.15); }
+    textarea { resize: vertical; min-height: 60px; }
+    .columns-section { margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e5e5; }
+    .column-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    .column-row input { flex: 1; }
+    .column-row select { width: 160px; }
+    .add-col-btn { background: none; border: 1px dashed #999; border-radius: 6px; padding: 8px; width: 100%; cursor: pointer; font-size: 13px; color: #666; margin-top: 4px; }
+    .add-col-btn:hover { border-color: #6C5CE7; color: #6C5CE7; }
+    .submit-btn { margin-top: 24px; width: 100%; padding: 12px; background: #6C5CE7; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .submit-btn:hover { background: #5a4bd1; }
+    .success-msg { display: none; padding: 12px; background: #d4edda; color: #155724; border-radius: 6px; margin-top: 16px; font-size: 14px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/clay/tables">← Tables</a>
+    <span>Create New Table</span>
+  </div>
+  <div class="container">
+    <h2>Create New Table</h2>
+    <form id="create-table-form" onsubmit="handleSubmit(event)">
+      <label for="table-name">Table Name</label>
+      <input type="text" id="table-name" name="table_name" placeholder="e.g., ICP Companies - Series B" required />
+
+      <label for="row-unit">Row Unit</label>
+      <select id="row-unit" name="row_unit">
+        <option value="person">Person</option>
+        <option value="company">Company</option>
+        <option value="deal">Deal</option>
+        <option value="signal">Signal</option>
+      </select>
+
+      <label for="description">Description</label>
+      <textarea id="description" name="description" placeholder="What is this table for?"></textarea>
+
+      <div class="columns-section">
+        <label style="margin-top: 0;">Columns</label>
+        <div id="columns-container">
+          <div class="column-row">
+            <input type="text" name="col_1" placeholder="Column name" value="Full Name" />
+            <select name="col_1_type">
+              <option value="text">Text</option>
+              <option value="enrichment">Enrichment</option>
+              <option value="formula">Formula</option>
+              <option value="action">Action</option>
+            </select>
+          </div>
+          <div class="column-row">
+            <input type="text" name="col_2" placeholder="Column name" value="LinkedIn URL" />
+            <select name="col_2_type">
+              <option value="text">Text</option>
+              <option value="enrichment">Enrichment</option>
+              <option value="formula">Formula</option>
+              <option value="action">Action</option>
+            </select>
+          </div>
+        </div>
+        <button type="button" class="add-col-btn" id="add-column-btn" onclick="addColumn()">+ Add Column</button>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-table-btn">Create Table</button>
+    </form>
+    <div class="success-msg" id="success-msg">Table created successfully! Redirecting…</div>
+  </div>
+
+<script>
+var colCount = 2;
+
+function addColumn() {
+  colCount++;
+  var container = document.getElementById("columns-container");
+  var row = document.createElement("div");
+  row.className = "column-row";
+  row.innerHTML = '<input type="text" name="col_' + colCount + '" placeholder="Column name" />'
+    + '<select name="col_' + colCount + '_type">'
+    + '<option value="text">Text</option>'
+    + '<option value="enrichment">Enrichment</option>'
+    + '<option value="formula">Formula</option>'
+    + '<option value="action">Action</option>'
+    + '</select>';
+  container.appendChild(row);
+}
+
+function handleSubmit(e) {
+  e.preventDefault();
+  document.getElementById("success-msg").style.display = "block";
+  document.getElementById("submit-table-btn").textContent = "Created!";
+  document.getElementById("submit-table-btn").disabled = true;
+}
+
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "highlight") {
+    var el = document.querySelector(e.data.selector);
+    if (el) {
+      el.style.outline = "3px solid #3b82f6";
+      el.style.outlineOffset = "2px";
+      setTimeout(function() { el.style.outline = ""; }, 2000);
+    }
+  }
+});
+</script>
+</body>
+</html>

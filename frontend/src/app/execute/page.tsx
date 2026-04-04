@@ -48,7 +48,7 @@ export default function ExecutePage() {
         setModels(data.models ?? []);
         setSelectedModel(data.default ?? "");
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to load models:", err));
   }, [apiFetch]);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function ExecutePage() {
         setSessions(data.sessions ?? []);
         setSessionsLoading(false);
       })
-      .catch(() => setSessionsLoading(false));
+      .catch((err) => { console.error("Failed to load sessions:", err); setSessionsLoading(false); });
   }, [apiFetch]);
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {

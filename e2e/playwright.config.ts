@@ -7,6 +7,8 @@ export default defineConfig({
   timeout: 120_000, // 2 min per test (extraction pipeline takes time)
   retries: 0,
   reporter: "html",
+  globalSetup: "./global-setup.ts",
+  globalTeardown: "./global-teardown.ts",
   use: {
     baseURL: "http://localhost:4000",
     trace: "on-first-retry",

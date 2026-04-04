@@ -80,7 +80,7 @@ export default function DataViewerPage() {
         setTables(sorted);
         setTablesLoading(false);
       })
-      .catch(() => setTablesLoading(false));
+      .catch((err) => { console.error("Failed to load tables:", err); setTablesLoading(false); });
   }, []);
 
   const executeQuery = useCallback(async (queryStr?: string) => {
