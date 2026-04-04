@@ -352,7 +352,9 @@ async fn seed_skills_from_agents(db: &PgClient) -> anyhow::Result<()> {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "[]".to_string());
 
-        // Build knowledge_docs as a PostgreSQL array literal using dollar-quoting
+        // Build knowledge_docs as a PostgreSQL array literal using dollar-quoting.
+        // Use a unique delimiter per item to prevent content containing the delimiter
+        // from breaking the SQL (e.g. if a doc literally contains "$kd0$").
         let knowledge_docs_val: String = row
             .get("knowledge_docs")
             .and_then(Value::as_array)
@@ -364,7 +366,14 @@ async fn seed_skills_from_agents(db: &PgClient) -> anyhow::Result<()> {
                     .iter()
                     .filter_map(Value::as_str)
                     .enumerate()
-                    .map(|(i, s)| format!("$kd{i}${s}$kd{i}$"))
+                    .map(|(i, s)| {
+                        // Find a delimiter tag that doesn't appear in the content
+                        let mut tag = format!("kd{i}");
+                        while s.contains(&format!("${tag}$")) {
+                            tag.push('_');
+                        }
+                        format!("${tag}${s}${tag}$")
+                    })
                     .collect();
                 format!("ARRAY[{}]::text[]", items.join(","))
             })

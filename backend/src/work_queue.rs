@@ -175,7 +175,7 @@ async fn execute_node(
     )
     .await;
 
-    // Record judge failures as feedback signals for agent learning
+    // Record failures as feedback signals for agent learning
     if result.status == NodeStatus::Failed {
         if let Some(judge_fb) = &result.judge_feedback {
             let _ = feedback::record_judge_failure_signal(
@@ -186,6 +186,20 @@ async fn execute_node(
                 &node.task_description,
             )
             .await;
+        }
+        let category = classify_error(&result);
+        if let Some(ref cat) = category {
+            if cat != "validation_error" {
+                let _ = feedback::record_failure_signal(
+                    &db,
+                    &agent_slug,
+                    &session_id.to_string(),
+                    cat,
+                    result.error.as_deref().unwrap_or("unknown"),
+                    &node.task_description,
+                )
+                .await;
+            }
         }
     }
 
@@ -318,6 +332,36 @@ fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
     })
 }
 
+fn classify_error(result: &AgentResult) -> Option<String> {
+    if result.status != NodeStatus::Failed {
+        return None;
+    }
+    let err = result.error.as_deref().unwrap_or("");
+    let err_lower = err.to_lowercase();
+
+    if err_lower.contains("blocked") || err_lower.contains("missing credentials")
+        || err_lower.contains("credential verification failed")
+    {
+        return Some("preflight_error".into());
+    }
+    if err_lower.contains("auth_failed") || err_lower.contains("unauthorized") {
+        return Some("auth_error".into());
+    }
+    if result.judge_feedback.is_some() && result.judge_score.is_some() {
+        return Some("validation_error".into());
+    }
+    if err_lower.contains("max retries") || err_lower.contains("timeout") {
+        return Some("timeout".into());
+    }
+    if err_lower.contains("api") || err_lower.contains("rate limit") {
+        return Some("api_error".into());
+    }
+    if !err.is_empty() {
+        return Some("internal_error".into());
+    }
+    None
+}
+
 async fn persist_node_result(
     db: &PgClient,
     uid: &Uuid,
@@ -331,6 +375,8 @@ async fn persist_node_result(
         .clone()
         .or_else(|| result.error.clone());
 
+    let error_category = classify_error(result);
+
     // Extract artifacts from the output for easy querying
     let artifacts: serde_json::Value = result.output.as_ref()
         .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
@@ -343,12 +389,12 @@ async fn persist_node_result(
         "completed_at = completed_at" // no-op for awaiting_reply
     };
     let sql = format!(
-        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, {} WHERE id = $5",
+        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, error_category = $7, {} WHERE id = $5",
         completed_clause
     );
     db.execute_with(
         &sql,
-        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts),
+        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts, error_category),
     ).await?;
 
     // Log execution event with rich payload
@@ -374,158 +420,96 @@ async fn persist_node_result(
 }
 
 /// Eagerly unblock downstream nodes when a node passes.
-/// A node becomes ready when ALL its required nodes are in a terminal state.
-async fn unblock_downstream(
+/// A node becomes ready when ALL its required nodes have passed.
+/// Uses a single CTE to find and update all eligible nodes atomically.
+pub async fn unblock_downstream(
     db: &PgClient,
     completed_uid: &Uuid,
     session_id: &Uuid,
 ) -> anyhow::Result<()> {
-    // Find all nodes in this session that depend on the completed node
-    let dependents_sql = format!(
-        r#"
-        SELECT id, requires
-        FROM execution_nodes
-        WHERE session_id = '{session_id}'
-          AND status IN ('pending', 'waiting')
-          AND requires @> ARRAY['{completed_uid}'::uuid]
-        "#
-    );
+    let sql = r#"
+        WITH dependents AS (
+            SELECT en.id, en.requires
+            FROM execution_nodes en
+            WHERE en.session_id = $1
+              AND en.status IN ('pending', 'waiting')
+              AND en.requires @> ARRAY[$2::uuid]
+        ),
+        ready AS (
+            SELECT d.id
+            FROM dependents d
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM unnest(d.requires) AS req_id
+                JOIN execution_nodes rn ON rn.id = req_id
+                WHERE rn.status != 'passed'
+            )
+        )
+        UPDATE execution_nodes
+        SET status = 'ready'
+        WHERE id IN (SELECT id FROM ready)
+        RETURNING id
+    "#;
 
-    let dependents = db.execute(&dependents_sql).await?;
-
-    for dep in &dependents {
-        let dep_uid = match dep.get("id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
-            Some(u) => u,
-            None => continue,
-        };
-
-        let requires: Vec<Uuid> = dep
-            .get("requires")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str()?.parse::<Uuid>().ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        if requires.is_empty() {
-            continue;
-        }
-
-        // Check if all required nodes are in terminal state
-        let req_uuids: Vec<String> = requires.iter().map(|u| format!("'{u}'")).collect();
-        let check_sql = format!(
-            r#"
-            SELECT COUNT(*) as total,
-                   COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped')) as terminal
-            FROM execution_nodes
-            WHERE id = ANY(ARRAY[{}]::uuid[])
-            "#,
-            req_uuids.join(",")
-        );
-
-        let check_rows = db.execute(&check_sql).await?;
-        if let Some(row) = check_rows.first() {
-            let total = row.get("total").and_then(Value::as_i64).unwrap_or(0);
-            let terminal = row.get("terminal").and_then(Value::as_i64).unwrap_or(0);
-
-            // All deps passed? (not failed/skipped) — mark ready
-            if total > 0 && total == terminal {
-                // Only mark ready if all deps passed (not failed/skipped)
-                let all_passed_sql = format!(
-                    r#"
-                    SELECT COUNT(*) FILTER (WHERE status = 'passed') as passed
-                    FROM execution_nodes
-                    WHERE id = ANY(ARRAY[{}]::uuid[])
-                    "#,
-                    req_uuids.join(",")
-                );
-                let pass_rows = db.execute(&all_passed_sql).await?;
-                let passed = pass_rows
-                    .first()
-                    .and_then(|r| r.get("passed").and_then(Value::as_i64))
-                    .unwrap_or(0);
-
-                if passed == total {
-                    let update_sql = format!(
-                        "UPDATE execution_nodes SET status = 'ready' WHERE id = '{dep_uid}'"
-                    );
-                    db.execute(&update_sql).await?;
-                    info!(uid = %dep_uid, "unblocked downstream node");
-                }
-            }
+    let updated = db.execute_with(sql, pg_args!(*session_id, *completed_uid)).await?;
+    for row in &updated {
+        if let Some(uid) = row.get("id").and_then(Value::as_str) {
+            info!(uid = %uid, "unblocked downstream node");
         }
     }
 
     Ok(())
 }
 
-/// Skip all downstream nodes when a node fails.
-async fn skip_downstream(
+/// Skip all downstream nodes (transitively) when a node fails.
+/// Uses a recursive CTE to find the entire downstream subgraph in one query.
+pub async fn skip_downstream(
     db: &PgClient,
     failed_uid: &Uuid,
     session_id: &Uuid,
 ) -> anyhow::Result<()> {
-    // Find direct dependents
-    let sql = format!(
-        r#"
+    let sql = r#"
+        WITH RECURSIVE downstream AS (
+            -- Base: direct dependents of the failed node
+            SELECT id
+            FROM execution_nodes
+            WHERE session_id = $1
+              AND status IN ('pending', 'waiting')
+              AND requires @> ARRAY[$2::uuid]
+            UNION
+            -- Recursive: dependents of already-identified nodes
+            SELECT en.id
+            FROM execution_nodes en
+            JOIN downstream d ON en.requires @> ARRAY[d.id]
+            WHERE en.session_id = $1
+              AND en.status IN ('pending', 'waiting')
+        )
         UPDATE execution_nodes
         SET status = 'skipped', completed_at = NOW()
-        WHERE session_id = '{session_id}'
-          AND status IN ('pending', 'waiting')
-          AND requires @> ARRAY['{failed_uid}'::uuid]
+        WHERE id IN (SELECT id FROM downstream)
         RETURNING id
-        "#
-    );
+    "#;
 
-    let skipped = db.execute(&sql).await?;
-
-    // Recursively skip their dependents too
-    for row in skipped {
-        if let Some(uid_str) = row.get("id").and_then(Value::as_str) {
-            if let Ok(uid) = uid_str.parse::<Uuid>() {
-                // Best-effort recursive skip
-                let _ = skip_downstream_recursive(db, &uid, session_id).await;
-            }
-        }
+    let skipped = db.execute_with(sql, pg_args!(*session_id, *failed_uid)).await?;
+    if !skipped.is_empty() {
+        info!(count = skipped.len(), failed_uid = %failed_uid, "skipped downstream nodes");
     }
 
-    Ok(())
-}
-
-async fn skip_downstream_recursive(
-    db: &PgClient,
-    skipped_uid: &Uuid,
-    session_id: &Uuid,
-) -> anyhow::Result<()> {
-    let sql = format!(
-        r#"
-        UPDATE execution_nodes
-        SET status = 'skipped', completed_at = NOW()
-        WHERE session_id = '{session_id}'
-          AND status IN ('pending', 'waiting')
-          AND requires @> ARRAY['{skipped_uid}'::uuid]
-        "#
-    );
-    db.execute(&sql).await?;
     Ok(())
 }
 
 /// Mark session as completed if all nodes are in a terminal state.
 /// Preview nodes (spawned but never started) are treated as terminal.
-async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &EventBus) {
-    let sql = format!(
-        r#"
+pub async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &EventBus) {
+    let sql = r#"
         SELECT
             COUNT(*) as total,
             COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped', 'preview')) as terminal
         FROM execution_nodes
-        WHERE session_id = '{session_id}'
-        "#
-    );
+        WHERE session_id = $1
+    "#;
 
-    if let Ok(rows) = db.execute(&sql).await {
+    if let Ok(rows) = db.execute_with(sql, pg_args!(*session_id)).await {
         if let Some(row) = rows.first() {
             let total = row.get("total").and_then(Value::as_i64).unwrap_or(0);
             let terminal = row.get("terminal").and_then(Value::as_i64).unwrap_or(0);
@@ -533,16 +517,14 @@ async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &
             if total > 0 && total == terminal {
                 // Use WHERE status != 'completed' to prevent duplicate completion
                 // when multiple nodes finish concurrently.
-                let update_sql = format!(
-                    "UPDATE execution_sessions SET status = 'completed', completed_at = NOW() WHERE id = '{session_id}' AND status != 'completed' RETURNING id"
-                );
-                let updated = db.execute(&update_sql).await.unwrap_or_default();
+                let updated = db.execute_with(
+                    "UPDATE execution_sessions SET status = 'completed', completed_at = NOW() WHERE id = $1 AND status != 'completed' RETURNING id",
+                    pg_args!(*session_id),
+                ).await.unwrap_or_default();
                 if updated.is_empty() {
-                    // Another task already completed this session
                     return;
                 }
 
-                // Broadcast session_completed (consumed by SSE and Slack notifier)
                 event_bus.send(
                     &session_id.to_string(),
                     serde_json::json!({"type": "session_completed"}),
@@ -565,16 +547,37 @@ async fn recover_stale_nodes(db: &PgClient) -> anyhow::Result<()> {
             WHEN attempt_count >= {MAX_ATTEMPTS} THEN 'failed'
             ELSE 'ready'
         END,
+        error_category = CASE
+            WHEN attempt_count >= {MAX_ATTEMPTS} THEN 'timeout'
+            ELSE error_category
+        END,
         started_at = NULL
         WHERE status = 'running'
           AND started_at < NOW() - INTERVAL '{timeout_secs} seconds'
-        RETURNING id, attempt_count
+        RETURNING id, attempt_count, session_id, agent_slug, task_description
         "#
     );
 
     let recovered = db.execute(&sql).await?;
     if !recovered.is_empty() {
         warn!(count = recovered.len(), "recovered stale running nodes");
+    }
+
+    for row in &recovered {
+        let attempt = row.get("attempt_count").and_then(Value::as_u64).unwrap_or(0) as u32;
+        if attempt >= MAX_ATTEMPTS {
+            let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("unknown");
+            let session_id = row.get("session_id").and_then(Value::as_str).unwrap_or("");
+            let task_desc = row.get("task_description").and_then(Value::as_str).unwrap_or("");
+            let _ = feedback::record_failure_signal(
+                db,
+                agent_slug,
+                session_id,
+                "timeout",
+                "Node timed out after exceeding stale threshold",
+                task_desc,
+            ).await;
+        }
     }
 
     Ok(())

@@ -7,6 +7,7 @@ pub mod credentials;
 pub mod config;
 pub mod extraction;
 pub mod feedback;
+pub mod feedback_pipeline;
 pub mod narrator;
 pub mod oauth;
 pub mod pg;

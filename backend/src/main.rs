@@ -124,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/:session_id/approve", post(routes::execution_approve))
         .route("/api/execute/:session_id/stop", post(routes::execution_stop))
         .route("/api/execute/:session_id", get(routes::execution_get).delete(routes::execution_session_delete))
+        .route("/api/execute/:session_id/failures", get(routes::execution_failures))
         .route("/api/execute/:session_id/nodes/:node_id/events", get(routes::execution_node_events))
         .route("/api/execute/:session_id/nodes/:node_id/thinking", get(routes::execution_node_thinking))
         .route("/api/execute/:session_id/nodes/:node_id/stream", get(routes::execution_node_stream))
@@ -167,6 +168,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/engagements", post(routes::engagement_create))
         // Feedback
         .route("/api/feedback", get(routes::feedback_list))
+        .route("/api/feedback/dashboard", get(routes::feedback_dashboard))
         .route("/api/feedback/synthesize", post(routes::feedback_synthesize))
         // Integrations registry
         .route("/api/integrations", get(routes::integrations_list))
@@ -215,7 +217,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/feedback/lesson", post(routes::feedback_record_lesson))
         // Overlays
         .route("/api/overlays", get(routes::overlays_list))
-        .route("/api/overlays/promote", post(routes::overlays_promote));
+        .route("/api/overlays/promote", post(routes::overlays_promote))
+        .route("/api/overlays/:overlay_id/history", get(routes::overlay_history));
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]
@@ -229,9 +232,34 @@ async fn main() -> anyhow::Result<()> {
             .route("/api/slack/events", post(slack_routes::events_handler))
     };
 
+    let cors = if settings.cors_origins.iter().any(|o| o == "*") {
+        CorsLayer::permissive()
+    } else {
+        use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin};
+        let origins: Vec<_> = settings
+            .cors_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods(AllowMethods::list([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::PATCH,
+                axum::http::Method::DELETE,
+                axum::http::Method::OPTIONS,
+            ]))
+            .allow_headers(AllowHeaders::list([
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+            ]))
+    };
+    info!("CORS origins: {:?}", settings.cors_origins);
+
     let app = app
         .with_state(state)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http());
 
     let bind_addr = settings.bind_addr;

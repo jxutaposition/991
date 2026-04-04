@@ -447,6 +447,8 @@ fn parse_text_array(val: Option<&Value>) -> Vec<String> {
 async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> {
     let git_sha = resolve_git_sha(agents_dir);
 
+    let mut disk_slugs: Vec<String> = Vec::new();
+
     for entry in WalkDir::new(agents_dir)
         .min_depth(1)
         .max_depth(1)
@@ -457,6 +459,8 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
         let agent_dir = entry.path();
         match load_agent_from_disk(agent_dir, &git_sha) {
             Ok(mut agent) => {
+                disk_slugs.push(agent.slug.clone());
+
                 // Resolve expert_slug from agent.toml to expert_id from DB
                 let toml_path = agent_dir.join("agent.toml");
                 if let Ok(toml_str) = std::fs::read_to_string(&toml_path) {
@@ -487,6 +491,30 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
             }
             Err(e) => {
                 warn!(dir = %agent_dir.display(), error = %e, "skipping agent during seed");
+            }
+        }
+    }
+
+    // Prune agents from DB that no longer exist on disk
+    if !disk_slugs.is_empty() {
+        let placeholders: Vec<String> = disk_slugs
+            .iter()
+            .map(|s| format!("'{}'", s.replace('\'', "''")))
+            .collect();
+        let in_clause = placeholders.join(", ");
+        let delete_query = format!(
+            "DELETE FROM agent_definitions WHERE slug NOT IN ({in_clause}) RETURNING slug"
+        );
+        match db.execute(&delete_query).await {
+            Ok(rows) => {
+                for row in &rows {
+                    if let Some(slug) = row.get("slug").and_then(Value::as_str) {
+                        info!(slug = %slug, "pruned stale agent definition from DB");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to prune stale agent definitions");
             }
         }
     }

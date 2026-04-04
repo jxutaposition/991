@@ -420,6 +420,7 @@ impl AgentRunner {
                 node_examples.as_deref(),
             );
             if !skill_overlays.is_empty() {
+                tracing::debug!(agent = %plan_node.agent_slug, overlay_chars = skill_overlays.len(), "injecting skill overlays into prompt");
                 prompt.push_str("\n\n## Contextual Lessons & Preferences\n");
                 prompt.push_str(&skill_overlays);
             }
@@ -433,6 +434,7 @@ impl AgentRunner {
                 &agent,
             );
             if !skill_overlays.is_empty() {
+                tracing::debug!(agent = %plan_node.agent_slug, overlay_chars = skill_overlays.len(), "injecting skill overlays into prompt");
                 prompt.push_str("\n\n## Contextual Lessons & Preferences\n");
                 prompt.push_str(&skill_overlays);
             }
@@ -576,17 +578,35 @@ impl AgentRunner {
             }
 
             if plan_node.skip_judge || self.settings.skip_judge {
-                info!("judge skipped (skip_judge=true)");
-                return AgentResult {
-                    node_uid: uid_str,
-                    status: NodeStatus::Passed,
-                    judge_score: None,
-                    judge_feedback: None,
-                    final_summary: Some(executor_summary),
-                    output: executor_output,
-                    error: None,
-                    duration_ms: node_started_at.elapsed().as_millis() as u64,
-                };
+                // Only pass if executor actually produced output
+                let has_output = executor_output.as_ref()
+                    .map(|o| !o.is_null() && o != &json!({}))
+                    .unwrap_or(false);
+                if has_output {
+                    info!("judge skipped (skip_judge=true)");
+                    return AgentResult {
+                        node_uid: uid_str,
+                        status: NodeStatus::Passed,
+                        judge_score: None,
+                        judge_feedback: None,
+                        final_summary: Some(executor_summary),
+                        output: executor_output,
+                        error: None,
+                        duration_ms: node_started_at.elapsed().as_millis() as u64,
+                    };
+                } else {
+                    warn!("judge skipped but executor produced no output — marking failed");
+                    return AgentResult {
+                        node_uid: uid_str,
+                        status: NodeStatus::Failed,
+                        judge_score: None,
+                        judge_feedback: Some("No output produced".to_string()),
+                        final_summary: Some(executor_summary),
+                        output: executor_output,
+                        error: Some("Executor produced no output (max iterations or no write_output call)".to_string()),
+                        duration_ms: node_started_at.elapsed().as_millis() as u64,
+                    };
+                }
             }
 
             // ── Stage 2: Critic (rubric check) ──────────────────────────────
@@ -632,7 +652,7 @@ impl AgentRunner {
                 .judge_run(&executor_question, &executor_summary, &effective_judge_config, model)
                 .await;
 
-            let verdict = judge_result
+            let llm_verdict = judge_result
                 .get("verdict")
                 .and_then(Value::as_str)
                 .unwrap_or("fail");
@@ -645,6 +665,20 @@ impl AgentRunner {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
+
+            // Enforce threshold: override LLM verdict if score doesn't match
+            let verdict = if llm_verdict == "pass" && score < effective_judge_config.threshold {
+                warn!(
+                    score,
+                    threshold = effective_judge_config.threshold,
+                    "judge said pass but score below threshold — overriding to fail"
+                );
+                "fail"
+            } else if llm_verdict == "reject" {
+                "reject"
+            } else {
+                llm_verdict
+            };
 
             // Emit judge_done + specific verdict event
             emit_event(&self.db, &self.event_bus, &sid, &nid, "judge_done", &json!({
@@ -1252,11 +1286,8 @@ impl AgentRunner {
             } else {
                 child_outputs.iter()
                     .map(|(k, v)| {
-                        let preview: String = serde_json::to_string(v)
-                            .unwrap_or_default()
-                            .chars()
-                            .take(1500)
-                            .collect();
+                        let json_str = serde_json::to_string(v).unwrap_or_default();
+                        let preview = smart_truncate(&json_str, 4000);
                         format!("### {}\n{}", k, preview)
                     })
                     .collect::<Vec<_>>()
@@ -1347,7 +1378,7 @@ Respond with ONLY the JSON object:
                 "agent_slug": agent_slug,
             })).await;
 
-            let result = self.run_child(
+            let mut result = self.run_child(
                 plan_node,
                 agent_slug,
                 task_desc,
@@ -1356,9 +1387,38 @@ Respond with ONLY the JSON object:
                 effective_examples,
             ).await;
 
-            let status = result.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let mut status = result.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string();
 
-            // If the child failed, retry once with the error context
+            // If passed, verify artifact URLs actually exist
+            if status == "passed" {
+                let artifacts_to_check = result.get("output")
+                    .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
+                    .cloned()
+                    .unwrap_or(json!([]));
+
+                let verification_failures = verify_artifact_urls(&artifacts_to_check).await;
+                if !verification_failures.is_empty() {
+                    let failed_urls: Vec<String> = verification_failures.iter()
+                        .map(|(url, reason)| format!("{} ({})", url, reason))
+                        .collect();
+                    let error_msg = format!("Artifact verification failed: {}", failed_urls.join(", "));
+
+                    warn!(step = i + 1, agent = %agent_slug, error = %error_msg, "artifact URLs unreachable");
+
+                    emit_event(&self.db, &self.event_bus, &sid, &nid, "verification_failed", &json!({
+                        "step": i + 1,
+                        "agent_slug": agent_slug,
+                        "failed_urls": verification_failures.iter().map(|(u, r)| json!({"url": u, "reason": r})).collect::<Vec<_>>(),
+                    })).await;
+
+                    result.as_object_mut().map(|obj| {
+                        obj.insert("error".to_string(), json!(error_msg));
+                    });
+                    status = "failed".to_string();
+                }
+            }
+
+            // If the child failed (or artifact verification failed), retry once
             let result = if status == "failed" || status == "error" {
                 let error_info = result.get("error")
                     .or_else(|| result.get("judge_feedback"))
@@ -1383,7 +1443,7 @@ Respond with ONLY the JSON object:
                     agent_slug,
                     task_desc,
                     Some(&retry_context),
-                    None, // criteria already on the node
+                    None,
                     effective_examples,
                 ).await
             } else {
@@ -1414,11 +1474,10 @@ Respond with ONLY the JSON object:
             step_results.push(result.clone());
 
             // Feed result back to the conversation for subsequent enrichment calls
-            let result_preview: String = serde_json::to_string_pretty(&result)
-                .unwrap_or_default()
-                .chars()
-                .take(2000)
-                .collect();
+            let result_preview = smart_truncate(
+                &serde_json::to_string_pretty(&result).unwrap_or_default(),
+                4000,
+            );
             let result_msg = format!(
                 "Step {} ({}) completed with status: {}.\n\nResult:\n{}",
                 i + 1, agent_slug, final_status, result_preview
@@ -2162,21 +2221,138 @@ fn build_system_prompt_with_spawn_context(
     prompt
 }
 
+/// Truncate `text` to at most `limit` chars while preserving lines that contain
+/// URLs, resource IDs, artifact references, or blocker/criteria keywords.
+fn smart_truncate(text: &str, limit: usize) -> String {
+    if text.len() <= limit {
+        return text.to_string();
+    }
+
+    let lines: Vec<&str> = text.lines().collect();
+    let is_important = |line: &str| -> bool {
+        line.contains("http")
+            || line.contains("_id\"")
+            || line.contains("_uid\"")
+            || line.contains("_url\"")
+            || line.contains("\"artifacts\"")
+            || line.contains("\"url\"")
+            || line.contains("\"blocker")
+            || line.contains("\"error")
+    };
+
+    let mut important_lines: Vec<(usize, &str)> = Vec::new();
+    let mut leading_lines: Vec<(usize, &str)> = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        if is_important(line) {
+            important_lines.push((i, line));
+        } else {
+            leading_lines.push((i, line));
+        }
+    }
+
+    let important_budget: usize = important_lines.iter().map(|(_, l)| l.len() + 1).sum();
+    let remaining = if important_budget >= limit.saturating_sub(20) {
+        // Important lines alone exceed budget — truncate them too
+        let mut out = String::with_capacity(limit);
+        for (_, line) in &important_lines {
+            if out.len() + line.len() + 1 > limit.saturating_sub(20) {
+                break;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str("... (truncated)");
+        return out;
+    } else {
+        limit.saturating_sub(20) - important_budget
+    };
+
+    let mut selected: Vec<(usize, &str)> = Vec::new();
+    selected.extend_from_slice(&important_lines);
+    let mut budget_used = 0;
+    for (i, line) in &leading_lines {
+        if budget_used + line.len() + 1 > remaining {
+            break;
+        }
+        selected.push((*i, line));
+        budget_used += line.len() + 1;
+    }
+
+    selected.sort_by_key(|(i, _)| *i);
+    let mut out: String = selected.iter().map(|(_, l)| *l).collect::<Vec<_>>().join("\n");
+    out.push_str("\n... (truncated)");
+    out
+}
+
+/// Recursively extract all string values that look like URLs from a JSON Value.
+fn extract_urls_from_value(value: &Value) -> Vec<String> {
+    let mut urls = Vec::new();
+    match value {
+        Value::String(s) if s.starts_with("http") => {
+            urls.push(s.clone());
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                urls.extend(extract_urls_from_value(item));
+            }
+        }
+        Value::Object(map) => {
+            for (_, v) in map {
+                urls.extend(extract_urls_from_value(v));
+            }
+        }
+        _ => {}
+    }
+    urls
+}
+
+/// Verify that artifact URLs are reachable via HTTP HEAD.
+/// Returns a list of (url, reason) for each URL that failed verification.
+async fn verify_artifact_urls(artifacts: &Value) -> Vec<(String, String)> {
+    let urls = extract_urls_from_value(artifacts);
+    if urls.is_empty() {
+        return Vec::new();
+    }
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut failures = Vec::new();
+    for url in &urls {
+        match client.head(url.as_str()).send().await {
+            Ok(resp) if resp.status().is_success() || resp.status().is_redirection() => {}
+            Ok(resp) => {
+                failures.push((url.clone(), format!("HTTP {}", resp.status())));
+            }
+            Err(e) => {
+                failures.push((url.clone(), format!("{}", e)));
+            }
+        }
+    }
+    failures
+}
+
 fn build_upstream_context(upstream_outputs: &HashMap<String, Value>) -> String {
     if upstream_outputs.is_empty() {
         return String::new();
     }
 
-    let mut parts = vec!["## Upstream Agent Outputs (available via read_upstream_output tool)".to_string()];
+    let mut parts = vec![
+        "## Upstream Agent Outputs\nFull outputs are included below. Use read_upstream_output tool only if you need to re-read a specific agent's output.\n".to_string()
+    ];
     for (slug, output) in upstream_outputs {
-        let preview = serde_json::to_string(output)
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect::<String>();
-        parts.push(format!("- **{}**: {}...", slug, preview));
+        let full_json = serde_json::to_string_pretty(output).unwrap_or_default();
+        let display = smart_truncate(&full_json, 6000);
+        parts.push(format!("### {}\n```json\n{}\n```", slug, display));
     }
-    parts.join("\n")
+    parts.join("\n\n")
 }
 
 

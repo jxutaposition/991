@@ -151,9 +151,10 @@ pub async fn catalog_get(
 
     // Resolve expert name if set
     let expert_info = if let Some(eid) = agent.expert_id {
-        let rows = state.db.execute(&format!(
-            "SELECT slug, name FROM experts WHERE id = '{eid}'"
-        )).await.unwrap_or_default();
+        let rows = state.db.execute_with(
+            "SELECT slug, name FROM experts WHERE id = $1",
+            pg_args!(eid),
+        ).await.unwrap_or_default();
         rows.first().cloned()
     } else {
         None
@@ -189,12 +190,9 @@ pub async fn catalog_agent_stats(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    let slug_escaped = slug.replace('\'', "''");
-
     // Aggregate stats from execution_nodes
-    let stats_sql = format!(
-        r#"
-        SELECT
+    let stats = state.db.execute_with(
+        r#"SELECT
             COUNT(*) as total_runs,
             COUNT(*) FILTER (WHERE status = 'passed') as passed,
             COUNT(*) FILTER (WHERE status = 'failed') as failed,
@@ -205,46 +203,41 @@ pub async fn catalog_agent_stats(
             ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))::numeric, 1) as avg_duration_secs,
             MAX(completed_at) as last_run_at
         FROM execution_nodes
-        WHERE agent_slug = '{slug_escaped}'
-          AND status IN ('passed', 'failed', 'skipped')
-        "#
-    );
-    let stats = state.db.execute(&stats_sql).await.unwrap_or_default();
+        WHERE agent_slug = $1
+          AND status IN ('passed', 'failed', 'skipped')"#,
+        pg_args!(slug.clone()),
+    ).await.unwrap_or_default();
 
     // Recent runs (last 20)
-    let runs_sql = format!(
-        r#"
-        SELECT en.id, en.session_id, en.status, en.judge_score, en.judge_feedback,
+    let runs = state.db.execute_with(
+        r#"SELECT en.id, en.session_id, en.status, en.judge_score, en.judge_feedback,
                en.task_description, en.attempt_count, en.model,
                en.started_at, en.completed_at,
                es.request_text as session_request
         FROM execution_nodes en
         JOIN execution_sessions es ON en.session_id = es.id
-        WHERE en.agent_slug = '{slug_escaped}'
+        WHERE en.agent_slug = $1
           AND en.status IN ('passed', 'failed', 'skipped')
         ORDER BY en.completed_at DESC NULLS LAST
-        LIMIT 20
-        "#
-    );
-    let runs = state.db.execute(&runs_sql).await.unwrap_or_default();
+        LIMIT 20"#,
+        pg_args!(slug.clone()),
+    ).await.unwrap_or_default();
 
     // Feedback signals
-    let feedback_sql = format!(
-        "SELECT * FROM feedback_signals WHERE agent_slug = '{slug_escaped}' ORDER BY created_at DESC LIMIT 20"
-    );
-    let feedback = state.db.execute(&feedback_sql).await.unwrap_or_default();
+    let feedback = state.db.execute_with(
+        "SELECT * FROM feedback_signals WHERE agent_slug = $1 ORDER BY created_at DESC LIMIT 20",
+        pg_args!(slug.clone()),
+    ).await.unwrap_or_default();
 
     // PRs targeting this agent
-    let prs_sql = format!(
-        r#"
-        SELECT id, pr_type, gap_summary, confidence, status, created_at
+    let prs = state.db.execute_with(
+        r#"SELECT id, pr_type, gap_summary, confidence, status, created_at
         FROM agent_prs
-        WHERE target_agent_slug = '{slug_escaped}'
+        WHERE target_agent_slug = $1
         ORDER BY created_at DESC
-        LIMIT 20
-        "#
-    );
-    let prs = state.db.execute(&prs_sql).await.unwrap_or_default();
+        LIMIT 20"#,
+        pg_args!(slug),
+    ).await.unwrap_or_default();
 
     Ok(Json(json!({
         "stats": stats.first().cloned().unwrap_or(json!({})),
@@ -695,7 +688,7 @@ pub async fn execution_get(
                computed_tier, tier_override, breakpoint,
                workflow_id, workflow_step_id, client_id,
                depth, spawn_context, acceptance_criteria,
-               artifacts, step_index,
+               artifacts, step_index, error_category,
                started_at, completed_at
         FROM execution_nodes WHERE session_id = '{session_id}'
         ORDER BY created_at
@@ -708,6 +701,27 @@ pub async fn execution_get(
         "session": session,
         "nodes": nodes,
     })))
+}
+
+/// GET /api/execute/:session_id/failures — aggregated failure view for the session.
+pub async fn execution_failures(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sql = format!(
+        r#"SELECT id, agent_slug, task_description, status,
+                  error_category, judge_score, judge_feedback, output,
+                  attempt_count, started_at, completed_at
+           FROM execution_nodes
+           WHERE session_id = '{session_uuid}'
+             AND (status = 'failed' OR status = 'skipped' OR attempt_count > 1)
+           ORDER BY completed_at DESC NULLS LAST"#
+    );
+
+    let nodes = state.db.execute(&sql).await.unwrap_or_default();
+    Ok(Json(json!({ "failures": nodes })))
 }
 
 /// GET /api/execute/:session_id/nodes/:node_id/events — get execution events for a node.
@@ -1210,15 +1224,22 @@ pub async fn observe_session_end(
                 tracing::warn!(session = %session_id_clone, error = %e, "extraction pipeline failed");
             }
 
-            // After extraction + reasoning, synthesize accumulated feedback into PRs
-            match crate::feedback::synthesize_feedback(&db, &api_key, &model, Some(&catalog)).await {
-                Ok(prs) if !prs.is_empty() => {
-                    info!(session = %session_id_clone, prs = prs.len(), "post-session feedback synthesized");
+            // After extraction + reasoning, run the full feedback pipeline
+            match crate::feedback_pipeline::run_feedback_pipeline(&db, &api_key, &model, Some(&catalog)).await {
+                Ok(result) => {
+                    if !result.prs_created.is_empty() || result.signals_deduped > 0 || result.patterns_detected > 0 {
+                        info!(
+                            session = %session_id_clone,
+                            prs = result.prs_created.len(),
+                            deduped = result.signals_deduped,
+                            patterns = result.patterns_detected,
+                            "post-session feedback pipeline complete"
+                        );
+                    }
                 }
                 Err(e) => {
-                    tracing::warn!(session = %session_id_clone, error = %e, "feedback synthesis failed");
+                    tracing::warn!(session = %session_id_clone, error = %e, "feedback pipeline failed");
                 }
-                _ => {}
             }
         });
     }
@@ -1949,20 +1970,100 @@ pub async fn feedback_list(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<FeedbackQuery>,
 ) -> Json<Value> {
-    let mut clauses = vec!["1=1".to_string()];
-    if let Some(slug) = &query.agent_slug {
-        clauses.push(format!("agent_slug = '{}'", slug.replace('\'', "''")));
-    }
-    if query.unresolved_only.unwrap_or(false) {
-        clauses.push("resolution IS NULL".to_string());
-    }
-
-    let sql = format!(
-        "SELECT * FROM feedback_signals WHERE {} ORDER BY created_at DESC LIMIT 100",
-        clauses.join(" AND ")
-    );
-    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    let rows = if let Some(slug) = &query.agent_slug {
+        if query.unresolved_only.unwrap_or(false) {
+            state.db.execute_with(
+                "SELECT * FROM feedback_signals WHERE agent_slug = $1 AND resolution IS NULL ORDER BY created_at DESC LIMIT 100",
+                pg_args!(slug.clone()),
+            ).await.unwrap_or_default()
+        } else {
+            state.db.execute_with(
+                "SELECT * FROM feedback_signals WHERE agent_slug = $1 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(slug.clone()),
+            ).await.unwrap_or_default()
+        }
+    } else if query.unresolved_only.unwrap_or(false) {
+        state.db.execute(
+            "SELECT * FROM feedback_signals WHERE resolution IS NULL ORDER BY created_at DESC LIMIT 100",
+        ).await.unwrap_or_default()
+    } else {
+        state.db.execute(
+            "SELECT * FROM feedback_signals ORDER BY created_at DESC LIMIT 100",
+        ).await.unwrap_or_default()
+    };
     Json(json!({"signals": rows}))
+}
+
+/// GET /api/feedback/dashboard — aggregated feedback stats across all agents.
+pub async fn feedback_dashboard(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let signal_stats_sql = r#"
+        SELECT agent_slug,
+               signal_type,
+               authority,
+               COUNT(*) as count,
+               SUM(weight) as total_weight,
+               COUNT(*) FILTER (WHERE resolution IS NULL) as unresolved
+        FROM feedback_signals
+        GROUP BY agent_slug, signal_type, authority
+        ORDER BY agent_slug, total_weight DESC
+    "#;
+    let signal_stats = state.db.execute(signal_stats_sql).await.unwrap_or_default();
+
+    let pending_prs_sql = r#"
+        SELECT id, pr_type, target_agent_slug, gap_summary, confidence,
+               evidence_count, status, auto_merge_eligible, created_at
+        FROM agent_prs
+        WHERE status = 'open'
+        ORDER BY created_at DESC
+        LIMIT 50
+    "#;
+    let pending_prs = state.db.execute(pending_prs_sql).await.unwrap_or_default();
+
+    let overlays_sql = r#"
+        SELECT o.id, o.primitive_type, o.primitive_id, o.scope, o.source,
+               o.version, o.content, o.created_at,
+               s.slug as skill_slug, s.name as skill_name
+        FROM overlays o
+        LEFT JOIN skills s ON o.primitive_id = s.id
+        ORDER BY o.created_at DESC
+        LIMIT 100
+    "#;
+    let overlays = state.db.execute(overlays_sql).await.unwrap_or_default();
+
+    let patterns_sql = r#"
+        SELECT id, agent_slug, pattern_type, description,
+               session_count, severity, status, created_at
+        FROM feedback_patterns
+        WHERE status = 'active'
+        ORDER BY session_count DESC, created_at DESC
+        LIMIT 50
+    "#;
+    let patterns = state.db.execute(patterns_sql).await.unwrap_or_default();
+
+    let weight_dist_sql = r#"
+        SELECT agent_slug,
+               SUM(weight) FILTER (WHERE authority = 'ground_truth') as ground_truth_weight,
+               SUM(weight) FILTER (WHERE authority = 'inferred') as inferred_weight,
+               SUM(weight) FILTER (WHERE authority = 'user') as user_weight,
+               SUM(weight) FILTER (WHERE authority = 'automated') as automated_weight,
+               SUM(weight) FILTER (WHERE authority = 'agent_self_report') as self_report_weight,
+               SUM(weight) as total_weight,
+               COUNT(*) as total_signals
+        FROM feedback_signals
+        GROUP BY agent_slug
+        ORDER BY total_weight DESC
+    "#;
+    let weight_distribution = state.db.execute(weight_dist_sql).await.unwrap_or_default();
+
+    Json(json!({
+        "signal_stats": signal_stats,
+        "pending_prs": pending_prs,
+        "active_overlays": overlays,
+        "active_patterns": patterns,
+        "weight_distribution": weight_distribution,
+    }))
 }
 
 // ── Experts ───────────────────────────────────────────────────────────────────
@@ -2100,12 +2201,12 @@ pub struct FeedbackQuery {
     pub unresolved_only: Option<bool>,
 }
 
-/// POST /api/feedback/synthesize — trigger feedback synthesis into PRs.
-/// Ground truth PRs are auto-applied to the agent definitions.
+/// POST /api/feedback/synthesize — run the full feedback pipeline (cluster, detect, synthesize).
+/// Ground truth PRs with sufficient weight are auto-applied to the agent definitions.
 pub async fn feedback_synthesize(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let pr_ids = feedback::synthesize_feedback(
+    let result = crate::feedback_pipeline::run_feedback_pipeline(
         &state.db,
         &state.settings.anthropic_api_key,
         &state.settings.anthropic_model,
@@ -2115,8 +2216,10 @@ pub async fn feedback_synthesize(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({
-        "created_prs": pr_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-        "count": pr_ids.len(),
+        "created_prs": result.prs_created.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+        "prs_count": result.prs_created.len(),
+        "signals_deduped": result.signals_deduped,
+        "patterns_detected": result.patterns_detected,
     })))
 }
 
@@ -2428,6 +2531,15 @@ pub async fn execution_node_reply(
                 "status": status,
             }),
         ).await;
+
+        // Unblock downstream nodes or skip them on failure, then check session completion
+        if result.status == crate::agent_catalog::NodeStatus::Passed {
+            let _ = crate::work_queue::unblock_downstream(runner.db(), &node_uuid, &session_uuid).await;
+            crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
+        } else if result.status == crate::agent_catalog::NodeStatus::Failed {
+            let _ = crate::work_queue::skip_downstream(runner.db(), &node_uuid, &session_uuid).await;
+            crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
+        }
     });
 
     Ok(Json(json!({
@@ -2444,16 +2556,14 @@ pub async fn catalog_versions(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    let slug_escaped = slug.replace('\'', "''");
-    let sql = format!(
+    let rows = state.db.execute_with(
         r#"SELECT av.id, av.version, av.change_summary, av.change_source, av.created_at
            FROM agent_versions av
            JOIN agent_definitions ad ON av.agent_id = ad.id
-           WHERE ad.slug = '{slug_escaped}'
-           ORDER BY av.version DESC"#
-    );
-
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+           WHERE ad.slug = $1
+           ORDER BY av.version DESC"#,
+        pg_args!(slug),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({"versions": rows})))
 }
 
@@ -3026,22 +3136,56 @@ pub async fn overlays_list(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<OverlaysQuery>,
 ) -> Json<Value> {
-    let mut clauses = vec!["1=1".to_string()];
-    if let Some(ref scope) = query.scope {
-        clauses.push(format!("scope = '{}'", scope.replace('\'', "''")));
-    }
-    if let Some(ref scope_id) = query.scope_id {
-        clauses.push(format!("scope_id = '{}'", scope_id.replace('\'', "''")));
-    }
-    if let Some(ref ptype) = query.primitive_type {
-        clauses.push(format!("primitive_type = '{}'", ptype.replace('\'', "''")));
-    }
-
-    let sql = format!(
-        "SELECT * FROM overlays WHERE {} ORDER BY created_at DESC LIMIT 100",
-        clauses.join(" AND ")
-    );
-    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    // Build parameterized query based on which filters are provided
+    let rows = match (&query.scope, &query.scope_id, &query.primitive_type) {
+        (Some(scope), Some(scope_id), Some(ptype)) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope = $1 AND scope_id = $2 AND primitive_type = $3 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope.clone(), scope_id.clone(), ptype.clone()),
+            ).await.unwrap_or_default()
+        }
+        (Some(scope), Some(scope_id), None) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope = $1 AND scope_id = $2 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope.clone(), scope_id.clone()),
+            ).await.unwrap_or_default()
+        }
+        (Some(scope), None, Some(ptype)) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope = $1 AND primitive_type = $2 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope.clone(), ptype.clone()),
+            ).await.unwrap_or_default()
+        }
+        (None, Some(scope_id), Some(ptype)) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope_id = $1 AND primitive_type = $2 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope_id.clone(), ptype.clone()),
+            ).await.unwrap_or_default()
+        }
+        (Some(scope), None, None) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope = $1 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope.clone()),
+            ).await.unwrap_or_default()
+        }
+        (None, Some(scope_id), None) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE scope_id = $1 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(scope_id.clone()),
+            ).await.unwrap_or_default()
+        }
+        (None, None, Some(ptype)) => {
+            state.db.execute_with(
+                "SELECT * FROM overlays WHERE primitive_type = $1 ORDER BY created_at DESC LIMIT 100",
+                pg_args!(ptype.clone()),
+            ).await.unwrap_or_default()
+        }
+        (None, None, None) => {
+            state.db.execute(
+                "SELECT * FROM overlays ORDER BY created_at DESC LIMIT 100",
+            ).await.unwrap_or_default()
+        }
+    };
     Json(json!({"overlays": rows}))
 }
 
@@ -3065,6 +3209,35 @@ pub async fn overlays_promote(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"promoted": count})))
+}
+
+/// GET /api/overlays/:id/history — version history chain for an overlay.
+pub async fn overlay_history(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(overlay_id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let overlay_uuid = match overlay_id.parse::<Uuid>() {
+        Ok(id) => id,
+        Err(_) => return Json(json!({"history": [], "count": 0})),
+    };
+
+    let rows = state.db.execute_with(
+        r#"WITH RECURSIVE chain AS (
+            SELECT id, primitive_type, primitive_id, scope, scope_id, content,
+                   source, version, supersedes, metadata, created_at, updated_at
+            FROM overlays WHERE id = $1
+            UNION ALL
+            SELECT o.id, o.primitive_type, o.primitive_id, o.scope, o.scope_id, o.content,
+                   o.source, o.version, o.supersedes, o.metadata, o.created_at, o.updated_at
+            FROM overlays o
+            INNER JOIN chain c ON o.id = c.supersedes
+        )
+        SELECT * FROM chain ORDER BY version DESC"#,
+        pg_args!(overlay_uuid),
+    ).await.unwrap_or_default();
+
+    let count = rows.len();
+    Json(json!({"history": rows, "count": count}))
 }
 
 // ── Projects Routes ─────────────────────────────────────────────────────────

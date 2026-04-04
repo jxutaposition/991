@@ -52,6 +52,14 @@ Plan:
   {"agent_slug": "data_pipeline_builder", "task_description": "Audit cross-system data, diagnose broken flows, rebuild pipeline", "depends_on": []}
 ]
 
+## Ordering Guidelines
+When building the DAG, follow this general execution order:
+1. **Foundation / configuration agents first**: notion_operator (project pages, wikis, databases), data sources setup.
+2. **Data pipeline agents second**: data_pipeline_builder, clay_operator — these depend on foundation pages/config existing.
+3. **UI / dashboard / app agents last**: dashboard_builder, lovable_operator — these reference data and pages from earlier steps.
+
+Infer depends_on automatically: if agent B reads from or references a system that agent A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), agent B MUST depend on agent A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
+
 ## Output Format
 
 Return ONLY a JSON array. No explanation, no markdown fences. Keep task_description values short.

@@ -131,6 +131,8 @@ interface InspectorPanelProps {
   streamEntries?: StreamEntry[];
   streamLoading?: boolean;
   liveTextChunks?: Record<string, string>;
+  failures?: ExecutionNode[];
+  onNodeSelect?: (id: string) => void;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
@@ -836,6 +838,8 @@ export function InspectorPanel({
   streamEntries = [],
   streamLoading = false,
   liveTextChunks = {},
+  failures = [],
+  onNodeSelect,
 }: InspectorPanelProps) {
   const [selectedEvent, setSelectedEvent] = useState<ExecutionEvent | null>(
     null
@@ -968,14 +972,38 @@ export function InspectorPanel({
               >
                 Output
               </TabsTrigger>
+              <TabsTrigger
+                value="failures"
+                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
+              >
+                Failures
+                {failures.filter(f => f.status === "failed").length > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
+                    {failures.filter(f => f.status === "failed").length}
+                  </span>
+                )}
+              </TabsTrigger>
             </>
           ) : (
-            <TabsTrigger
-              value="overview"
-              className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-            >
-              Overview
-            </TabsTrigger>
+            <>
+              <TabsTrigger
+                value="overview"
+                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
+              >
+                Overview
+              </TabsTrigger>
+              <TabsTrigger
+                value="failures"
+                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
+              >
+                Failures
+                {failures.filter(f => f.status === "failed").length > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
+                    {failures.filter(f => f.status === "failed").length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </>
           )}
         </TabsList>
 
@@ -1236,9 +1264,104 @@ export function InspectorPanel({
             </div>
           </ScrollArea>
         </TabsContent>
+        {/* ── Failures tab ───────────────────────────── */}
+        <TabsContent value="failures" className="flex-1 min-h-0 m-0">
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-ink">
+                Failures &amp; Retries
+              </h3>
+              {failures.length === 0 ? (
+                <p className="text-xs text-ink-3">No failures or retries in this session.</p>
+              ) : (
+                <div className="space-y-2">
+                  {failures.map((node) => {
+                    const cat = node.error_category;
+                    const outputObj = node.output as Record<string, unknown> | undefined;
+                    const verification = outputObj?.verification as Record<string, unknown> | undefined;
+                    const blockers = verification?.blockers as string[] | undefined;
+                    const errorMsg = node.judge_feedback ||
+                      (outputObj?.error as string) ||
+                      "";
+                    return (
+                      <div
+                        key={node.id}
+                        className="rounded-lg border border-rim bg-surface p-3 space-y-1.5"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${dotClass(node.status)}`} />
+                          <span className="text-xs font-medium font-mono text-ink">
+                            {node.agent_slug}
+                          </span>
+                          {cat && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${categoryBadgeClass(cat)}`}>
+                              {cat.replace(/_/g, " ")}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-ink-3 capitalize ml-auto">
+                            {node.status}
+                          </span>
+                          {(node.attempt_count ?? 0) > 1 && (
+                            <span className="text-[10px] text-amber-600 font-medium">
+                              {node.attempt_count} attempts
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-ink-2 leading-relaxed line-clamp-2">
+                          {node.task_description}
+                        </p>
+                        {errorMsg && (
+                          <p className="text-[11px] text-red-700 bg-red-50 rounded px-2 py-1 leading-relaxed line-clamp-3">
+                            {errorMsg}
+                          </p>
+                        )}
+                        {blockers && blockers.length > 0 && (
+                          <div className="text-[11px] text-amber-800 bg-amber-50 rounded px-2 py-1 space-y-0.5">
+                            <span className="font-medium">Blockers:</span>
+                            <ul className="list-disc list-inside">
+                              {blockers.map((b, i) => (
+                                <li key={i}>{b}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {node.judge_score != null && (
+                          <div className="text-[10px] text-ink-3">
+                            Judge score: {Number(node.judge_score).toFixed(1)}/10
+                          </div>
+                        )}
+                        {onNodeSelect && (
+                          <button
+                            onClick={() => onNodeSelect(node.id)}
+                            className="text-[11px] text-brand hover:underline"
+                          >
+                            View node details
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
       </Tabs>
     </div>
   );
+}
+
+const CATEGORY_BADGE_CLASSES: Record<string, string> = {
+  preflight_error: "bg-amber-100 text-amber-700",
+  auth_error: "bg-amber-100 text-amber-700",
+  validation_error: "bg-red-100 text-red-700",
+  timeout: "bg-orange-100 text-orange-700",
+  api_error: "bg-blue-100 text-blue-700",
+  internal_error: "bg-gray-100 text-gray-600",
+};
+
+function categoryBadgeClass(category: string): string {
+  return CATEGORY_BADGE_CLASSES[category] ?? "bg-gray-100 text-gray-600";
 }
 
 // ── Thinking components ──────────────────────────────────────────────────────

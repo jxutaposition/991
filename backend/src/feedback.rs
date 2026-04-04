@@ -13,6 +13,74 @@ use crate::pg::PgClient;
 use crate::pr_engine;
 
 const SYNTHESIS_THRESHOLD: f64 = 3.0;
+const AUTO_APPLY_WEIGHT_THRESHOLD: f64 = 10.0;
+
+// ── Canonical Weight Schema ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct WeightConfig {
+    pub ground_truth: f64,
+    pub expert_correction: f64,
+    pub orchestrator_validation: f64,
+    pub judge_failure: f64,
+    pub user_thumbs: f64,
+    pub self_assessment: f64,
+    pub automated_check: f64,
+}
+
+impl Default for WeightConfig {
+    fn default() -> Self {
+        Self {
+            ground_truth: 5.0,
+            expert_correction: 4.0,
+            orchestrator_validation: 3.0,
+            judge_failure: 2.0,
+            user_thumbs: 1.5,
+            self_assessment: 1.0,
+            automated_check: 0.5,
+        }
+    }
+}
+
+impl WeightConfig {
+    pub fn weight_for(&self, signal_type: &str) -> f64 {
+        match signal_type {
+            "ground_truth" | "expert_correction" => self.expert_correction,
+            "orchestrator_validation" => self.orchestrator_validation,
+            "judge_failure" => self.judge_failure,
+            "user_thumbs" => self.user_thumbs,
+            "self_assessment" | "execution_blocker" => self.self_assessment,
+            "automated_check" => self.automated_check,
+            "preflight_error" | "auth_error" | "timeout" | "api_error" | "internal_error" | "validation_error" => self.self_assessment,
+            _ => {
+                tracing::warn!(signal_type, "unknown signal_type in weight_for, using default");
+                self.self_assessment
+            }
+        }
+    }
+}
+
+/// Resolve the weight for a signal type, checking per-agent overrides first.
+pub async fn resolve_weight(db: &PgClient, agent_slug: &str, signal_type: &str) -> f64 {
+    let defaults = WeightConfig::default();
+    let slug_escaped = agent_slug.replace('\'', "''");
+    let sql = format!(
+        "SELECT weight_overrides FROM agent_definitions WHERE slug = '{slug_escaped}'"
+    );
+    if let Ok(rows) = db.execute(&sql).await {
+        if let Some(overrides) = rows
+            .first()
+            .and_then(|r| r.get("weight_overrides"))
+        {
+            if let Some(w) = overrides.get(signal_type).and_then(Value::as_f64) {
+                return w;
+            }
+        }
+    }
+    defaults.weight_for(signal_type)
+}
+
+// ── Signal Types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct FeedbackSignal {
@@ -29,7 +97,7 @@ pub struct FeedbackSignal {
     pub expert_id: Option<Uuid>,
 }
 
-/// Record a feedback signal from an expert correction (ground truth, weight 5.0).
+/// Record a feedback signal from an expert correction (ground truth).
 pub async fn record_correction_signal(
     db: &PgClient,
     agent_slug: &str,
@@ -38,6 +106,7 @@ pub async fn record_correction_signal(
     correction_text: &str,
     narrator_text: &str,
 ) -> anyhow::Result<Uuid> {
+    let weight = resolve_weight(db, agent_slug, "expert_correction").await;
     let signal_id = Uuid::new_v4();
     let desc = format!("Expert corrected narrator: '{}'", correction_text);
     let desc_escaped = desc.replace('\'', "''");
@@ -50,13 +119,13 @@ pub async fn record_correction_signal(
             (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref,
              description, expert_approach, agent_approach, impact)
            VALUES
-            ('{signal_id}', '{slug_escaped}', 'expert_correction', 'ground_truth', 5.0,
+            ('{signal_id}', '{slug_escaped}', 'expert_correction', 'ground_truth', {weight},
              '{session_id}'::uuid, {sequence_ref}, '{desc_escaped}',
              '{expert_escaped}', '{agent_escaped}', 'prompt')"#,
     );
 
     db.execute(&sql).await?;
-    info!(signal = %signal_id, agent = agent_slug, "recorded ground_truth correction signal");
+    info!(signal = %signal_id, agent = agent_slug, weight, "recorded ground_truth correction signal");
     Ok(signal_id)
 }
 
@@ -119,6 +188,7 @@ pub async fn record_judge_failure_signal(
     judge_feedback: &str,
     task_description: &str,
 ) -> anyhow::Result<Uuid> {
+    let weight = resolve_weight(db, agent_slug, "judge_failure").await;
     let signal_id = Uuid::new_v4();
     let slug_escaped = agent_slug.replace('\'', "''");
     let desc = format!("Judge rejected output: {}", judge_feedback);
@@ -130,7 +200,7 @@ pub async fn record_judge_failure_signal(
             (id, agent_slug, signal_type, authority, weight, session_id,
              description, agent_approach, impact)
            VALUES
-            ('{signal_id}', '{slug_escaped}', 'judge_failure', 'inferred', 1.0,
+            ('{signal_id}', '{slug_escaped}', 'judge_failure', 'inferred', {weight},
              '{session_id}'::uuid, '{desc_escaped}', '{task_escaped}', 'prompt')"#,
     );
 
@@ -138,18 +208,52 @@ pub async fn record_judge_failure_signal(
     Ok(signal_id)
 }
 
+/// Record a feedback signal for any execution failure (preflight, timeout, api, internal, etc.).
+pub async fn record_failure_signal(
+    db: &PgClient,
+    agent_slug: &str,
+    session_id: &str,
+    error_category: &str,
+    error_message: &str,
+    task_description: &str,
+) -> anyhow::Result<Uuid> {
+    let weight = resolve_weight(db, agent_slug, error_category).await;
+    let signal_id = Uuid::new_v4();
+    let desc = format!(
+        "Execution failure [{}]: {}",
+        error_category,
+        &error_message[..error_message.len().min(500)]
+    );
+
+    let sql = r#"INSERT INTO feedback_signals
+            (id, agent_slug, signal_type, authority, weight, session_id,
+             description, agent_approach, impact)
+           VALUES
+            ($1, $2, $3, 'inferred', $4, $5::uuid, $6, $7, 'prompt')"#;
+
+    if let Err(e) = db.execute_with(
+        sql,
+        crate::pg_args!(signal_id, agent_slug.to_string(), error_category.to_string(), weight, session_id.to_string(), desc, task_description.to_string()),
+    ).await {
+        tracing::warn!(signal = %signal_id, agent = agent_slug, error = %e, "failed to persist failure signal");
+    } else {
+        info!(signal = %signal_id, agent = agent_slug, category = error_category, weight, "recorded failure signal");
+    }
+    Ok(signal_id)
+}
+
 /// Extract blockers from a completed node's output and record them as feedback signals.
 /// Agents include blockers in their write_output verification section. This parses them
-/// out and feeds them into the existing feedback → PR pipeline.
+/// out and feeds them into the existing feedback -> PR pipeline.
 pub async fn record_blockers_from_output(
     db: &PgClient,
     agent_slug: &str,
     session_id: &str,
     output: &Value,
 ) -> anyhow::Result<u32> {
+    let weight = resolve_weight(db, agent_slug, "execution_blocker").await;
     let mut count = 0u32;
 
-    // Look for blockers in verification.blockers (array of strings)
     let blockers = output
         .get("verification")
         .and_then(|v| v.get("blockers"))
@@ -162,45 +266,105 @@ pub async fn record_blockers_from_output(
                 continue;
             }
             let signal_id = Uuid::new_v4();
-            let slug_escaped = agent_slug.replace('\'', "''");
-            let desc = format!("Execution blocker: {}", text).replace('\'', "''");
+            let desc = format!("Execution blocker: {}", text);
 
-            let sql = format!(
-                r#"INSERT INTO feedback_signals
+            let sql = r#"INSERT INTO feedback_signals
                     (id, agent_slug, signal_type, authority, weight, session_id,
                      description, impact)
                    VALUES
-                    ('{signal_id}', '{slug_escaped}', 'execution_blocker', 'agent_self_report', 1.0,
-                     '{session_id}'::uuid, '{desc}', 'prompt')"#,
-            );
-            let _ = db.execute(&sql).await;
+                    ($1, $2, 'execution_blocker', 'agent_self_report', $3,
+                     $4::uuid, $5, 'prompt')"#;
+            if let Err(e) = db.execute_with(
+                sql,
+                crate::pg_args!(signal_id, agent_slug.to_string(), weight, session_id.to_string(), desc),
+            ).await {
+                tracing::warn!(signal = %signal_id, agent = agent_slug, error = %e, "failed to persist blocker signal");
+                continue;
+            }
             info!(signal = %signal_id, agent = agent_slug, "recorded execution blocker signal");
             count += 1;
         }
     }
 
-    // Also check for top-level error/status fields that indicate blockers
     if let Some(error) = output.get("error").and_then(Value::as_str) {
         if !error.is_empty() {
             let signal_id = Uuid::new_v4();
-            let slug_escaped = agent_slug.replace('\'', "''");
-            let desc = format!("Agent-reported error: {}", &error[..error.len().min(500)]).replace('\'', "''");
+            let desc = format!("Agent-reported error: {}", &error[..error.len().min(500)]);
 
-            let sql = format!(
-                r#"INSERT INTO feedback_signals
+            let sql = r#"INSERT INTO feedback_signals
                     (id, agent_slug, signal_type, authority, weight, session_id,
                      description, impact)
                    VALUES
-                    ('{signal_id}', '{slug_escaped}', 'execution_blocker', 'agent_self_report', 1.0,
-                     '{session_id}'::uuid, '{desc}', 'prompt')"#,
-            );
-            let _ = db.execute(&sql).await;
-            info!(signal = %signal_id, agent = agent_slug, "recorded execution error signal");
-            count += 1;
+                    ($1, $2, 'execution_blocker', 'agent_self_report', $3,
+                     $4::uuid, $5, 'prompt')"#;
+            if let Err(e) = db.execute_with(
+                sql,
+                crate::pg_args!(signal_id, agent_slug.to_string(), weight, session_id.to_string(), desc),
+            ).await {
+                tracing::warn!(signal = %signal_id, agent = agent_slug, error = %e, "failed to persist error signal");
+            } else {
+                info!(signal = %signal_id, agent = agent_slug, "recorded execution error signal");
+                count += 1;
+            }
         }
     }
 
     Ok(count)
+}
+
+/// Record a user thumbs-up/thumbs-down feedback signal.
+pub async fn record_user_thumbs_signal(
+    db: &PgClient,
+    agent_slug: &str,
+    session_id: &str,
+    is_positive: bool,
+    comment: &str,
+) -> anyhow::Result<Uuid> {
+    let weight = resolve_weight(db, agent_slug, "user_thumbs").await;
+    let signal_id = Uuid::new_v4();
+    let slug_escaped = agent_slug.replace('\'', "''");
+    let polarity = if is_positive { "positive" } else { "negative" };
+    let desc = format!("User {polarity} feedback: {comment}").replace('\'', "''");
+
+    let sql = format!(
+        r#"INSERT INTO feedback_signals
+            (id, agent_slug, signal_type, authority, weight, session_id,
+             description, impact)
+           VALUES
+            ('{signal_id}', '{slug_escaped}', 'user_thumbs', 'user', {weight},
+             '{session_id}'::uuid, '{desc}', 'prompt')"#,
+    );
+
+    db.execute(&sql).await?;
+    info!(signal = %signal_id, agent = agent_slug, polarity, "recorded user thumbs signal");
+    Ok(signal_id)
+}
+
+/// Record a signal from an automated check (linting, test, schema validation, etc.).
+pub async fn record_automated_check_signal(
+    db: &PgClient,
+    agent_slug: &str,
+    session_id: &str,
+    check_name: &str,
+    details: &str,
+) -> anyhow::Result<Uuid> {
+    let weight = resolve_weight(db, agent_slug, "automated_check").await;
+    let signal_id = Uuid::new_v4();
+    let slug_escaped = agent_slug.replace('\'', "''");
+    let desc = format!("Automated check '{check_name}': {details}").replace('\'', "''");
+
+    let sql = format!(
+        r#"INSERT INTO feedback_signals
+            (id, agent_slug, signal_type, authority, weight, session_id,
+             description, impact)
+           VALUES
+            ('{signal_id}', '{slug_escaped}', 'automated_check', 'automated', {weight},
+             '{session_id}'::uuid, '{desc}', 'prompt')"#,
+    );
+
+    db.execute(&sql).await?;
+    info!(signal = %signal_id, agent = agent_slug, check_name, "recorded automated check signal");
+    Ok(signal_id)
 }
 
 /// Synthesize unresolved feedback signals into agent PRs.
@@ -313,13 +477,16 @@ pub async fn synthesize_feedback(
 
         info!(pr = %pr_id, agent = agent_slug, impact, weight = total_weight, "synthesized feedback into PR");
 
-        if all_ground_truth {
+        if all_ground_truth && total_weight >= AUTO_APPLY_WEIGHT_THRESHOLD {
             if let Some(catalog) = catalog {
                 match pr_engine::apply_pr(db, catalog, pr_id).await {
-                    Ok(_) => info!(pr = %pr_id, "auto-applied ground_truth PR"),
+                    Ok(_) => info!(pr = %pr_id, "auto-applied ground_truth PR (weight {total_weight} >= {AUTO_APPLY_WEIGHT_THRESHOLD})"),
                     Err(e) => info!(pr = %pr_id, error = %e, "auto-apply failed — PR stays open for manual review"),
                 }
             }
+        } else if all_ground_truth {
+            info!(pr = %pr_id, weight = total_weight, threshold = AUTO_APPLY_WEIGHT_THRESHOLD,
+                  "ground_truth PR below auto-apply threshold — queued for human confirmation");
         }
 
         created_prs.push(pr_id);

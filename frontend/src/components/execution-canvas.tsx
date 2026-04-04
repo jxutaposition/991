@@ -47,6 +47,7 @@ export interface ExecutionNode {
   acceptance_criteria?: string[] | null;
   artifacts?: ArtifactLink[] | null;
   step_index?: number | null;
+  error_category?: string | null;
   // Branching variant support
   variant_group?: string | null;
   variant_label?: string | null;
@@ -676,7 +677,7 @@ function DagEdges({
     }
 
     setPaths(newPaths);
-  }, [edges, containerRef]);
+  }, [edges, containerRef, nodeStatusMap]);
 
   useLayoutEffect(() => {
     recalc();

@@ -56,10 +56,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(data.user);
       setClients(data.clients ?? []);
       setToken(jwt);
-      // Default to first client if none active
-      if (data.clients?.length > 0 && !activeClient) {
-        const stored = localStorage.getItem("lele_active_client");
-        setActiveClientState(stored ?? data.clients[0].slug);
+      // Default to first client if none active (functional setState avoids dep on activeClient)
+      if (data.clients?.length > 0) {
+        setActiveClientState(prev => {
+          if (prev) return prev;
+          const stored = localStorage.getItem("lele_active_client");
+          return stored ?? data.clients[0].slug;
+        });
       }
     } catch {
       localStorage.removeItem("lele_token");
@@ -68,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [activeClient]);
+  }, []);
 
   useEffect(() => {
     const stored = localStorage.getItem("lele_token");
@@ -79,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadUser]);
 
-  const signIn = async (idToken: string) => {
+  const signIn = useCallback(async (idToken: string) => {
     const res = await fetch("/api/auth/google", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -88,24 +91,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!res.ok) throw new Error("Authentication failed");
     const data = await res.json();
     localStorage.setItem("lele_token", data.token);
-    setToken(data.token);
-    setUser(data.user);
     await loadUser(data.token);
-  };
+  }, [loadUser]);
 
-  const signOut = () => {
+  const signOut = useCallback(() => {
     localStorage.removeItem("lele_token");
     localStorage.removeItem("lele_active_client");
     setUser(null);
     setToken(null);
     setClients([]);
     setActiveClientState(null);
-  };
+  }, []);
 
-  const setActiveClient = (slug: string) => {
+  const setActiveClient = useCallback((slug: string) => {
     setActiveClientState(slug);
     localStorage.setItem("lele_active_client", slug);
-  };
+  }, []);
 
   const apiFetch = useCallback(
     (url: string, init?: RequestInit): Promise<Response> => {
@@ -123,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({ user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, apiFetch }),
-    [user, clients, activeClient, token, loading, signIn, signOut, apiFetch]
+    [user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, apiFetch]
   );
 
   return (

@@ -10,6 +10,7 @@ const links = [
   { href: "/execute", label: "Execute" },
   { href: "/catalog", label: "Catalog" },
   { href: "/agent-prs", label: "Agent PRs" },
+  { href: "/feedback", label: "Feedback" },
   { href: "/observe", label: "Observe" },
   { href: "/data-viewer", label: "Data" },
   { href: "/testing", label: "Testing" },

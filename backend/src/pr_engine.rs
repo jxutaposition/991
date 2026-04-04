@@ -230,6 +230,8 @@ pub async fn apply_pr(
     let pr_type = pr.get("pr_type").and_then(Value::as_str).unwrap_or("");
     let changes = pr.get("proposed_changes").cloned().unwrap_or(json!({}));
 
+    let applied_slug: Option<String>;
+
     match pr_type {
         "new_agent" => {
             let slug = changes
@@ -240,6 +242,7 @@ pub async fn apply_pr(
 
             apply_new_agent(db, slug, &changes).await?;
             catalog.reload_agent(db, slug).await?;
+            applied_slug = Some(slug.to_string());
         }
         _ => {
             let slug = pr
@@ -249,6 +252,7 @@ pub async fn apply_pr(
 
             apply_changes_to_agent(db, slug, &changes, pr_id).await?;
             catalog.reload_agent(db, slug).await?;
+            applied_slug = Some(slug.to_string());
         }
     }
 
@@ -256,6 +260,10 @@ pub async fn apply_pr(
         "UPDATE agent_prs SET status = 'approved', reviewed_at = NOW() WHERE id = '{pr_id}'"
     );
     db.execute(&update_sql).await?;
+
+    if let Some(slug) = &applied_slug {
+        create_overlay_from_pr(db, slug, &changes, pr_id).await;
+    }
 
     info!(pr = %pr_id, pr_type, "PR applied");
     Ok(())
@@ -405,4 +413,48 @@ async fn apply_new_agent(
 
     info!(slug = slug, "new agent created in DB");
     Ok(())
+}
+
+/// When a PR is applied, also create a base-scope overlay for the matching
+/// skill so the learning persists as contextual guidance even if the agent
+/// definition is later modified.
+async fn create_overlay_from_pr(db: &PgClient, agent_slug: &str, changes: &Value, pr_id: Uuid) {
+    let slug_escaped = agent_slug.replace('\'', "''");
+    let skill_sql = format!(
+        "SELECT id FROM skills WHERE slug = '{slug_escaped}' LIMIT 1"
+    );
+    let skill_id = match db.execute(&skill_sql).await {
+        Ok(rows) => match rows.first().and_then(|r| r.get("id").and_then(Value::as_str)) {
+            Some(id) => id.to_string(),
+            None => return,
+        },
+        Err(_) => return,
+    };
+
+    let content = if let Some(addition) = changes.get("system_prompt_addition").and_then(Value::as_str) {
+        addition.to_string()
+    } else if let Some(prompt) = changes.get("system_prompt").and_then(Value::as_str) {
+        let truncated = &prompt[prompt.len().saturating_sub(500)..];
+        format!("PR-applied learning: {truncated}")
+    } else {
+        return;
+    };
+
+    let overlay_id = Uuid::new_v4();
+    let content_escaped = content.replace('\'', "''");
+    let meta = json!({"source_pr_id": pr_id.to_string(), "agent_slug": agent_slug});
+    let meta_escaped = meta.to_string().replace('\'', "''");
+
+    let sql = format!(
+        r#"INSERT INTO overlays
+            (id, primitive_type, primitive_id, scope, scope_id, content, source, metadata)
+           VALUES
+            ('{overlay_id}', 'skill', '{skill_id}', 'base', NULL,
+             '{content_escaped}', 'feedback', '{meta_escaped}'::jsonb)"#
+    );
+
+    match db.execute(&sql).await {
+        Ok(_) => info!(overlay = %overlay_id, skill = %skill_id, pr = %pr_id, "created overlay from applied PR"),
+        Err(e) => tracing::warn!(pr = %pr_id, error = %e, "failed to create overlay from PR"),
+    }
 }

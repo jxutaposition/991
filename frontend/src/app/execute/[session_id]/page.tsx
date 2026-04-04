@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Lock, LockOpen, GripHorizontal, Trash2, Square } from "lucide-react";
+import { Lock, LockOpen, GripHorizontal, Trash2, Square, AlertTriangle, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ExecutionCanvas,
@@ -137,6 +137,8 @@ export default function SessionPage() {
   const [streamEntries, setStreamEntries] = useState<StreamEntry[]>([]);
   const [streamLoading, setStreamLoading] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [failures, setFailures] = useState<ExecutionNode[]>([]);
+  const [failureBannerDismissed, setFailureBannerDismissed] = useState(false);
   // Per-node live text preview for canvas (all nodes, not just selected)
   const [livePreviewMap, setLivePreviewMap] = useState<Record<string, string>>({});
   const pendingPreviewMap = useRef<Record<string, string>>({});
@@ -156,6 +158,16 @@ export default function SessionPage() {
       setLivePreviewMap({ ...pendingPreviewMap.current });
       rafId.current = undefined;
     });
+  }, []);
+
+  // Cleanup pending RAF on unmount to prevent state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      if (rafId.current !== undefined) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = undefined;
+      }
+    };
   }, []);
 
   const handleBottomDragStart = useCallback(
@@ -202,9 +214,19 @@ export default function SessionPage() {
     }
   }, [session_id, apiFetch]);
 
+  const fetchFailures = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/api/execute/${session_id}/failures`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setFailures(data.failures ?? []);
+    } catch { /* transient */ }
+  }, [session_id, apiFetch]);
+
   useEffect(() => {
     fetchSession();
-  }, [fetchSession]);
+    fetchFailures();
+  }, [fetchSession, fetchFailures]);
 
   // Fetch credential status for agents in this session
   useEffect(() => {
@@ -324,6 +346,8 @@ export default function SessionPage() {
     setLiveTextChunks({});
     pendingText.current = {};
     pendingThinking.current = {};
+    // Also reset preview map for the previously selected node
+    pendingPreviewMap.current = {};
   }, [fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream]);
 
   useEffect(() => {
@@ -333,17 +357,30 @@ export default function SessionPage() {
       session.status === "awaiting_approval"
     )
       return;
+    let isMounted = true;
     const es = new EventSource(`/api/execute/${session_id}/events`);
     es.onmessage = (msg) => {
-      fetchSession();
-      fetchNodeEvents();
-      fetchNodeMessages();
+      if (!isMounted) return;
 
       try {
         const data = JSON.parse(msg.data);
         const streamEntry = data.stream_entry;
         const nodeUid = data.node_uid as string | undefined;
         const isSelectedNode = nodeUid === selectedNodeIdRef.current;
+        const eventType = data.type as string | undefined;
+
+        // Only re-fetch session/failures on meaningful state changes (not every delta)
+        const isTerminalEvent = eventType === "node_completed" || eventType === "node_started"
+          || eventType === "session_completed" || eventType === "node_resumed"
+          || eventType === "node_awaiting_reply";
+        if (isTerminalEvent) {
+          fetchSession();
+          fetchFailures();
+          if (isSelectedNode) {
+            fetchNodeEvents();
+            fetchNodeMessages();
+          }
+        }
 
         // Accumulate text preview for ALL nodes (for canvas inline preview)
         if (streamEntry?.stream_type === "text_delta" && nodeUid) {
@@ -380,7 +417,7 @@ export default function SessionPage() {
         }
 
         if (
-          data.type === "executor_thinking" &&
+          eventType === "executor_thinking" &&
           isSelectedNode
         ) {
           fetchThinkingBlocks();
@@ -393,12 +430,12 @@ export default function SessionPage() {
     // Fall back to polling if the connection stays down.
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     es.onerror = () => {
+      if (!isMounted) return;
       if (!pollTimer) {
         pollTimer = setInterval(() => {
+          if (!isMounted) return;
           fetchSession();
-          fetchNodeEvents();
-          fetchNodeMessages();
-          fetchNodeStream();
+          fetchFailures();
         }, 5000);
       }
     };
@@ -409,10 +446,11 @@ export default function SessionPage() {
       }
     };
     return () => {
+      isMounted = false;
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [session_id, session?.status, fetchSession, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream]);
+  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream, scheduleRaf]);
 
   useEffect(() => {
     setNodeEventsLoading(true);
@@ -589,6 +627,37 @@ export default function SessionPage() {
         </div>
       )}
 
+      {/* Node failure banner */}
+      {!failureBannerDismissed && (() => {
+        const failedNodes = failures.filter(n => n.status === "failed");
+        if (failedNodes.length === 0) return null;
+        const first = failedNodes[0];
+        const catLabel = first.error_category;
+        return (
+          <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-red-800">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>
+                {failedNodes.length} node{failedNodes.length > 1 ? "s" : ""} failed
+                {catLabel && <span className="text-red-600 ml-1">({catLabel.replace(/_/g, " ")})</span>}
+              </span>
+              <button
+                onClick={() => handleNodeClick(first.id)}
+                className="underline ml-1 hover:text-red-900"
+              >
+                View
+              </button>
+            </div>
+            <button
+              onClick={() => setFailureBannerDismissed(true)}
+              className="text-red-400 hover:text-red-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Execution progress bar */}
       {session.status === "executing" && (() => {
         const masterNode = session.nodes.find(n => !n.parent_uid);
@@ -657,6 +726,8 @@ export default function SessionPage() {
             streamEntries={streamEntries}
             streamLoading={streamLoading}
             liveTextChunks={liveTextChunks}
+            failures={failures}
+            onNodeSelect={handleNodeClick}
           />
         }
       />

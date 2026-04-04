@@ -66,6 +66,11 @@ pub struct Settings {
     /// Token budget for extended thinking (chain-of-thought).
     /// Set to 0 to disable. Only applies to models that support it.
     pub thinking_budget_tokens: u32,
+
+    /// Allowed CORS origins. Comma-separated list of origins.
+    /// Set to "*" for permissive mode (not recommended in production).
+    /// Defaults to "http://localhost:3000".
+    pub cors_origins: Vec<String>,
 }
 
 impl Settings {
@@ -123,6 +128,12 @@ impl Settings {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10_000),
+            cors_origins: env::var("CORS_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string())
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         }
     }
 }

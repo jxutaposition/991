@@ -103,12 +103,11 @@ pub async fn start_authorize(
         .unwrap_or("http://localhost:3001");
     let redirect_uri = format!("{base}/api/oauth/{provider}/callback");
 
-    let frontend_esc = frontend_redirect.replace('\'', "''");
-    let sql = format!(
+    db.execute_with(
         "INSERT INTO oauth_state (provider, client_id, state_token, redirect_uri) \
-         VALUES ('{provider}', '{client_id}', '{state_token}', '{frontend_esc}')"
-    );
-    db.execute(&sql).await?;
+         VALUES ($1, $2, $3, $4)",
+        crate::pg_args!(provider.to_string(), client_id, state_token.clone(), frontend_redirect.to_string()),
+    ).await?;
 
     let scopes = config.scopes.join(" ");
     let authorize_url = format!(
@@ -131,12 +130,13 @@ pub async fn handle_callback(
     code: &str,
     state_token: &str,
 ) -> anyhow::Result<String> {
-    let state_esc = state_token.replace('\'', "''");
-    let sql = format!(
-        "SELECT client_id, redirect_uri FROM oauth_state \
-         WHERE state_token = '{state_esc}' AND provider = '{provider}' AND expires_at > NOW()"
-    );
-    let rows = db.execute(&sql).await?;
+    // Atomically consume the state token with DELETE...RETURNING to prevent replay attacks
+    let rows = db.execute_with(
+        "DELETE FROM oauth_state \
+         WHERE state_token = $1 AND provider = $2 AND expires_at > NOW() \
+         RETURNING client_id, redirect_uri",
+        crate::pg_args!(state_token.to_string(), provider.to_string()),
+    ).await?;
     let row = rows
         .first()
         .ok_or_else(|| anyhow::anyhow!("Invalid or expired OAuth state"))?;
@@ -151,12 +151,6 @@ pub async fn handle_callback(
         .and_then(Value::as_str)
         .unwrap_or("/")
         .to_string();
-
-    // Clean up state
-    db.execute(&format!(
-        "DELETE FROM oauth_state WHERE state_token = '{state_esc}'"
-    ))
-    .await?;
 
     let config = get_provider_config(settings, provider)
         .ok_or_else(|| anyhow::anyhow!("Provider not configured: {provider}"))?;
