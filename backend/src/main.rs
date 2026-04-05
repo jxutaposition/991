@@ -265,7 +265,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/:session_id/threads", get(routes::thread_list).post(routes::thread_create))
         .route("/api/execute/:session_id/threads/:thread_id/messages", post(routes::thread_message_create))
         .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
-        // Project Chat (agent buddy)
+        // Chat (agent buddy)
+        .route("/api/execute/:session_id/chat", post(routes::session_chat))
         .route("/api/projects/:project_id/chat", post(routes::project_chat));
 
     // Mount Slack routes when the feature is enabled

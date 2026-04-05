@@ -1571,7 +1571,7 @@ Respond with ONLY the JSON object:
 
                 // Reset the failed child node back to 'preview' so run_child reclaims
                 // the same DB row instead of inserting a duplicate.
-                if let Some(failed_uid) = result.get("node_uid")
+                if let Some(failed_uid) = result.get("node_id")
                     .and_then(Value::as_str)
                     .and_then(|s| s.parse::<uuid::Uuid>().ok())
                 {
@@ -1607,7 +1607,7 @@ Respond with ONLY the JSON object:
             }
 
             // Extract and persist artifacts + step_index on the child node
-            let child_node_uid = result.get("node_uid")
+            let child_node_uid = result.get("node_id")
                 .and_then(Value::as_str)
                 .and_then(|s| s.parse::<uuid::Uuid>().ok())
                 .unwrap_or(*_child_uid);

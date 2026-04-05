@@ -4865,6 +4865,88 @@ pub async fn thread_update(
     Ok(Json(json!({ "ok": true })))
 }
 
+// ── Session Chat (Quick Ask) ─────────────────────────────────────────────────
+
+/// POST /api/execute/:session_id/chat — send a message scoped to a session
+pub async fn session_chat(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    let message = body.get("message").and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "message is required"}))))?;
+
+    // Load session metadata
+    let session_row = state.db.execute_with(
+        "SELECT request_text, project_id FROM execution_sessions WHERE id = $1",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        error!(error = %e, "session_chat: failed to load session");
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to load session"})))
+    })?;
+    let session_row = session_row.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
+    })?;
+
+    let request_text = session_row.get("request_text")
+        .and_then(Value::as_str)
+        .unwrap_or("(no request text)");
+
+    // If session has a project_id, load project description for richer context
+    let project_context = if let Some(pid) = session_row.get("project_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
+        crate::system_description::get_for_project(&state.db, pid)
+            .await
+            .ok()
+            .flatten()
+            .map(|v| v.to_string())
+    } else {
+        None
+    };
+
+    // Load recent nodes for this session
+    let node_rows = state.db.execute_with(
+        "SELECT agent_slug, task_description, status, description, artifacts \
+         FROM execution_nodes WHERE session_id = $1 \
+         ORDER BY created_at DESC LIMIT 20",
+        pg_args!(session_uuid),
+    ).await.unwrap_or_default();
+
+    let system_prompt = format!(
+        "You are the assistant for this execution session. \
+         You have full context about the session and can answer questions, \
+         explain what happened, help debug issues, and describe artifacts.\n\n\
+         Original request: {}\n\n\
+         {}\
+         Execution nodes: {}\n\n\
+         Respond helpfully and concisely.",
+        request_text,
+        project_context.as_ref().map(|d| format!("Project description: {d}\n\n")).unwrap_or_default(),
+        serde_json::to_string(&node_rows).unwrap_or_default(),
+    );
+
+    let client = crate::anthropic::AnthropicClient::new(
+        state.settings.anthropic_api_key.clone(),
+        state.settings.anthropic_model.clone(),
+    );
+    let llm_messages = vec![crate::anthropic::user_message(message.to_string())];
+
+    let response = client
+        .messages(&system_prompt, &llm_messages, &[], 4096, None)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "session chat agent call failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Agent call failed: {e}")})))
+        })?;
+
+    Ok(Json(json!({
+        "response": response.text(),
+    })))
+}
+
 // ── Project Chat (Agent Buddy) ───────────────────────────────────────────────
 
 /// POST /api/projects/:project_id/chat — send a message to the project chat agent
