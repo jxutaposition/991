@@ -23,6 +23,9 @@ import uuid
 import zipfile
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 import psycopg2
 import psycopg2.extras
 
@@ -37,6 +40,11 @@ log = logging.getLogger("ingestion-worker")
 
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+_oai_key = os.environ.get("OPENAI_API_KEY", "")
+if not _oai_key:
+    raise SystemExit("OPENAI_API_KEY not set — cannot start worker")
+logging.getLogger("ingestion-worker").info("OPENAI_API_KEY loaded (%s...)", _oai_key[:12])
 
 # File extensions supported by Docling
 DOCLING_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".doc", ".html", ".htm"}

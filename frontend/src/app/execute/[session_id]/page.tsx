@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Trash2, Square, AlertTriangle, X, FileText, Columns, LayoutGrid, MessageSquare, MessageCircle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Trash2, Square, X, FileText, Columns, LayoutGrid, MessageSquare, MessageCircle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ExecutionCanvas,
@@ -12,11 +12,8 @@ import {
 import {
   InspectorPanel,
   type ExecutionEvent,
-  type ThinkingBlock,
-  type NodeMessage,
 } from "@/components/inspector-panel";
 import { type StreamEntry } from "@/components/conversation-stream";
-import { CanvasToolbar } from "@/components/canvas-toolbar";
 import { DragResizeLayout } from "@/components/drag-resize-layout";
 import { SystemDescriptionView } from "@/components/system-description-view";
 import type { ProjectDescriptionData, DescriptionVersion } from "@/components/document-header";
@@ -129,22 +126,16 @@ export default function SessionPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nodeEvents, setNodeEvents] = useState<ExecutionEvent[]>([]);
   const [nodeEventsLoading, setNodeEventsLoading] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(0.9);
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
   const [catalogMap, setCatalogMap] = useState<CatalogMap>({});
   const canvasRef = useRef<CanvasHandle>(null);
   
-  const [thinkingBlocks, setThinkingBlocks] = useState<ThinkingBlock[]>([]);
-  const [thinkingBlocksLoading, setThinkingBlocksLoading] = useState(false);
   const [liveThinkingChunks, setLiveThinkingChunks] = useState<Record<string, string>>({});
   const [liveTextChunks, setLiveTextChunks] = useState<Record<string, string>>({});
-  const [nodeMessages, setNodeMessages] = useState<NodeMessage[]>([]);
-  const [nodeMessagesLoading, setNodeMessagesLoading] = useState(false);
   const [streamEntries, setStreamEntries] = useState<StreamEntry[]>([]);
   const [streamLoading, setStreamLoading] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [failures, setFailures] = useState<ExecutionNode[]>([]);
-  const [failureBannerDismissed, setFailureBannerDismissed] = useState(false);
   // Per-node live text preview for canvas (all nodes, not just selected)
   const [livePreviewMap, setLivePreviewMap] = useState<Record<string, string>>({});
   const pendingPreviewMap = useRef<Record<string, string>>({});
@@ -329,42 +320,6 @@ export default function SessionPage() {
     }
   }, [selectedNodeId, session_id, apiFetch]);
 
-  const fetchThinkingBlocks = useCallback(async () => {
-    if (!selectedNodeId || !session_id) {
-      setThinkingBlocks([]);
-      return;
-    }
-    setThinkingBlocksLoading(true);
-    try {
-      const r = await apiFetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/thinking`);
-      if (!r.ok) { setThinkingBlocks([]); setThinkingBlocksLoading(false); return; }
-      const data = await r.json();
-      setThinkingBlocks(data.thinking_blocks ?? []);
-    } catch {
-      setThinkingBlocks([]);
-    } finally {
-      setThinkingBlocksLoading(false);
-    }
-  }, [selectedNodeId, session_id, apiFetch]);
-
-  const fetchNodeMessages = useCallback(async () => {
-    if (!selectedNodeId || !session_id) {
-      setNodeMessages([]);
-      return;
-    }
-    setNodeMessagesLoading(true);
-    try {
-      const r = await apiFetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/messages`);
-      if (!r.ok) { setNodeMessages([]); setNodeMessagesLoading(false); return; }
-      const data = await r.json();
-      setNodeMessages(data.messages ?? []);
-    } catch {
-      setNodeMessages([]);
-    } finally {
-      setNodeMessagesLoading(false);
-    }
-  }, [selectedNodeId, session_id, apiFetch]);
-
   const fetchNodeStream = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
       setStreamEntries([]);
@@ -412,10 +367,10 @@ export default function SessionPage() {
     fetchMasterStream();
   }, [fetchMasterStream]);
 
-  // Fetch thinking blocks, messages, and stream when selected node changes
+  // Fetch stream (unified events+thinking+messages) when selected node changes.
+  // The /stream endpoint already includes thinking blocks and messages via UNION ALL,
+  // so we only need this single call — no separate /thinking or /messages fetches.
   useEffect(() => {
-    fetchThinkingBlocks();
-    fetchNodeMessages();
     fetchNodeStream();
     // Reset live chunks when switching nodes
     setLiveThinkingChunks({});
@@ -424,7 +379,7 @@ export default function SessionPage() {
     pendingThinking.current = {};
     // Also reset preview map for the previously selected node
     pendingPreviewMap.current = {};
-  }, [fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream]);
+  }, [fetchNodeStream]);
 
   useEffect(() => {
     if (
@@ -470,7 +425,7 @@ export default function SessionPage() {
           fetchFailures();
           if (isSelectedNode) {
             fetchNodeEvents();
-            fetchNodeMessages();
+            fetchNodeStream();
           }
           // Re-fetch master stream on terminal events
           if (isMasterNode) {
@@ -537,7 +492,7 @@ export default function SessionPage() {
           eventType === "executor_thinking" &&
           isSelectedNode
         ) {
-          fetchThinkingBlocks();
+          fetchNodeStream();
         }
       } catch {
         // Not JSON, ignore
@@ -567,7 +522,7 @@ export default function SessionPage() {
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream, fetchMasterStream, scheduleRaf]);
+  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
 
   useEffect(() => {
     setNodeEventsLoading(true);
@@ -582,10 +537,10 @@ export default function SessionPage() {
         body: JSON.stringify({ message }),
       });
       // Immediately refetch to show the user's message
-      fetchNodeMessages();
+      fetchNodeStream();
       fetchSession();
     },
-    [session_id, apiFetch, fetchNodeMessages, fetchSession]
+    [session_id, apiFetch, fetchNodeStream, fetchSession]
   );
 
   const handleDeleteSession = async () => {
@@ -849,24 +804,6 @@ export default function SessionPage() {
           {approvalError}
         </div>
       )}
-      {!failureBannerDismissed && (() => {
-        const failedNodes = failures.filter(n => n.status === "failed");
-        if (failedNodes.length === 0) return null;
-        const first = failedNodes[0];
-        return (
-          <div className="bg-red-50 border-b border-red-200 px-4 py-1.5 shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs text-red-800">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              <span>{failedNodes.length} node{failedNodes.length > 1 ? "s" : ""} failed</span>
-              <button onClick={() => handleNodeClick(first.id)} className="underline hover:text-red-900">View</button>
-            </div>
-            <button onClick={() => setFailureBannerDismissed(true)} className="text-red-400 hover:text-red-600">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        );
-      })()}
-
       {/* Main content area — top portion */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {viewMode === "document" && (
@@ -945,16 +882,9 @@ export default function SessionPage() {
                       sessionStatus={session.status}
                       selectedNodeId={selectedNodeId}
                       onNodeClick={handleNodeClick}
-                      onZoomChange={setZoomLevel}
                       credentialStatus={credentialStatus}
                       catalogMap={catalogMap}
                       livePreviewMap={livePreviewMap}
-                    />
-                    <CanvasToolbar
-                      zoomLevel={zoomLevel}
-                      onZoomIn={() => canvasRef.current?.zoomIn()}
-                      onZoomOut={() => canvasRef.current?.zoomOut()}
-                      onFitToScreen={() => canvasRef.current?.resetTransform()}
                     />
                   </div>
                 }
@@ -981,77 +911,81 @@ export default function SessionPage() {
 
         {viewMode === "canvas" && (
           <div className="flex h-full">
-            {/* Collapsible chat panel */}
-            <div
-              className={`shrink-0 overflow-hidden border-r border-rim transition-[width] duration-200 ${
-                chatCollapsed ? "w-0 border-r-0" : "w-[340px]"
-              }`}
-            >
-              {!chatCollapsed && (
-                <InspectorPanel
-                  selectedNode={selectedNode}
-                  nodeEvents={nodeEvents}
-                  nodeEventsLoading={nodeEventsLoading}
-                  allNodes={session.nodes}
+            {chatCollapsed ? (
+              <div className="relative flex-1 min-w-0 bg-surface">
+                <button
+                  onClick={() => setChatCollapsed(false)}
+                  className="absolute top-2 left-2 z-20 p-1.5 rounded-md border border-rim bg-page/80 backdrop-blur-sm text-ink-3 hover:text-ink hover:bg-surface transition-colors shadow-sm"
+                  title="Show chat"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+                <ExecutionCanvas
+                  ref={canvasRef}
+                  nodes={session.nodes}
+                  sessionStatus={session.status}
+                  selectedNodeId={selectedNodeId}
+                  onNodeClick={handleNodeClick}
                   credentialStatus={credentialStatus}
                   catalogMap={catalogMap}
-                  sessionStatus={session.status}
-                  onNodeUpdate={handleNodeUpdate}
-                  thinkingBlocks={thinkingBlocks}
-                  thinkingBlocksLoading={thinkingBlocksLoading}
-                  liveThinkingChunks={liveThinkingChunks}
-                  nodeMessages={nodeMessages}
-                  nodeMessagesLoading={nodeMessagesLoading}
-                  onReply={handleReply}
-                  streamEntries={streamEntries}
-                  streamLoading={streamLoading}
-                  liveTextChunks={liveTextChunks}
-                  failures={failures}
-                  onNodeSelect={handleNodeClick}
-                  masterNode={masterNode}
-                  masterStreamEntries={masterStreamEntries}
-                  masterStreamLoading={masterStreamLoading}
-                  masterLiveTextChunks={masterLiveTextChunks}
-                  masterLiveThinkingChunks={masterLiveThinkingChunks}
-                  planningMessages={planningMessages}
-                  planningError={planningError}
+                  livePreviewMap={livePreviewMap}
                 />
-              )}
-            </div>
-
-            {/* Canvas */}
-            <div className="relative flex-1 min-w-0 bg-surface">
-              {/* Chat collapse/expand toggle */}
-              <button
-                onClick={() => setChatCollapsed(prev => !prev)}
-                className="absolute top-2 left-2 z-20 p-1.5 rounded-md border border-rim bg-page/80 backdrop-blur-sm text-ink-3 hover:text-ink hover:bg-surface transition-colors shadow-sm"
-                title={chatCollapsed ? "Show chat" : "Hide chat"}
-              >
-                {chatCollapsed ? (
-                  <PanelLeftOpen className="w-4 h-4" />
-                ) : (
-                  <PanelLeftClose className="w-4 h-4" />
-                )}
-              </button>
-
-              <ExecutionCanvas
-                ref={canvasRef}
-                nodes={session.nodes}
-                sessionStatus={session.status}
-                selectedNodeId={selectedNodeId}
-                onNodeClick={handleNodeClick}
-                onZoomChange={setZoomLevel}
-                credentialStatus={credentialStatus}
-                catalogMap={catalogMap}
-                livePreviewMap={livePreviewMap}
+              </div>
+            ) : (
+              <DragResizeLayout
+                fixedSide="left"
+                defaultLeftWidth={340}
+                minLeftWidth={280}
+                maxLeftWidth="50%"
+                left={
+                  <InspectorPanel
+                    selectedNode={selectedNode}
+                    nodeEvents={nodeEvents}
+                    nodeEventsLoading={nodeEventsLoading}
+                    allNodes={session.nodes}
+                    credentialStatus={credentialStatus}
+                    catalogMap={catalogMap}
+                    sessionStatus={session.status}
+                    onNodeUpdate={handleNodeUpdate}
+                    liveThinkingChunks={liveThinkingChunks}
+                    onReply={handleReply}
+                    streamEntries={streamEntries}
+                    streamLoading={streamLoading}
+                    liveTextChunks={liveTextChunks}
+                    failures={failures}
+                    onNodeSelect={handleNodeClick}
+                    masterNode={masterNode}
+                    masterStreamEntries={masterStreamEntries}
+                    masterStreamLoading={masterStreamLoading}
+                    masterLiveTextChunks={masterLiveTextChunks}
+                    masterLiveThinkingChunks={masterLiveThinkingChunks}
+                    planningMessages={planningMessages}
+                    planningError={planningError}
+                  />
+                }
+                right={
+                  <div className="relative h-full bg-surface">
+                    <button
+                      onClick={() => setChatCollapsed(true)}
+                      className="absolute top-2 left-2 z-20 p-1.5 rounded-md border border-rim bg-page/80 backdrop-blur-sm text-ink-3 hover:text-ink hover:bg-surface transition-colors shadow-sm"
+                      title="Hide chat"
+                    >
+                      <PanelLeftClose className="w-4 h-4" />
+                    </button>
+                    <ExecutionCanvas
+                      ref={canvasRef}
+                      nodes={session.nodes}
+                      sessionStatus={session.status}
+                      selectedNodeId={selectedNodeId}
+                      onNodeClick={handleNodeClick}
+                      credentialStatus={credentialStatus}
+                      catalogMap={catalogMap}
+                      livePreviewMap={livePreviewMap}
+                    />
+                  </div>
+                }
               />
-              <CanvasToolbar
-                zoomLevel={zoomLevel}
-                onZoomIn={() => canvasRef.current?.zoomIn()}
-                onZoomOut={() => canvasRef.current?.zoomOut()}
-                onFitToScreen={() => canvasRef.current?.resetTransform()}
-              />
-            </div>
+            )}
           </div>
         )}
       </div>
