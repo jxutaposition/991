@@ -34,6 +34,10 @@ The Notion credential is typically an **internal integration token**. Internal i
 
 **If search returns nothing:** The integration has no pages shared with it. Report this as a blocker — the user needs to open Notion, go to a page, click Share, and invite the integration.
 
+### Pagination
+
+All list endpoints (search, database query, block children) return paginated responses with `has_more` and `next_cursor` fields. If `has_more` is `true`, make another request with `start_cursor` set to `next_cursor`. Repeat until `has_more` is `false`. Always use `page_size: 100` to minimize round-trips.
+
 ### Common Operations
 - **Search for accessible content:** `POST /v1/search` with `{"page_size": 100}`
 - **Create page under a parent page:** `POST /v1/pages` with `parent: {"page_id": "..."}` and `properties: {"title": {"title": [{"text": {"content": "..."}}]}}`

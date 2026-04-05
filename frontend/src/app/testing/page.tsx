@@ -98,7 +98,7 @@ export default function TestingPage() {
   })();
 
   return (
-    <div className="flex flex-col h-[calc(100vh-49px)]">
+    <div className="flex flex-col h-screen">
       {/* Top toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-rim bg-page shrink-0">
         {/* Mode toggle */}

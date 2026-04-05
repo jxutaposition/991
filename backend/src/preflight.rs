@@ -414,7 +414,7 @@ pub fn required_slugs_for_agent(
 ) -> Vec<String> {
     let mut all: Vec<String> = required_integrations.to_vec();
     for tool_name in tools {
-        if let Some(cred) = crate::tools::tool_credential(tool_name) {
+        if let Some(cred) = crate::actions::action_credential(tool_name) {
             if !all.contains(&cred) {
                 all.push(cred);
             }

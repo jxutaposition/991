@@ -31,6 +31,7 @@ pub fn spawn(
     db: PgClient,
     catalog: Arc<AgentCatalog>,
     skill_catalog: Arc<crate::skills::SkillCatalog>,
+    tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
     event_bus: EventBus,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
@@ -87,10 +88,11 @@ pub fn spawn(
                 let db = db.clone();
                 let catalog = catalog.clone();
                 let skill_catalog = skill_catalog.clone();
+                let tool_catalog = tool_catalog.clone();
                 let event_bus = event_bus.clone();
 
                 let handle = tokio::spawn(async move {
-                    execute_node(settings, db, catalog, skill_catalog, event_bus, node).await;
+                    execute_node(settings, db, catalog, skill_catalog, tool_catalog, event_bus, node).await;
                 });
                 handles.push(handle);
             }
@@ -112,6 +114,7 @@ async fn execute_node(
     db: PgClient,
     catalog: Arc<AgentCatalog>,
     skill_catalog: Arc<crate::skills::SkillCatalog>,
+    tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
     event_bus: EventBus,
     node: ExecutionPlanNode,
 ) {
@@ -151,7 +154,7 @@ async fn execute_node(
         }
     };
 
-    let runner = AgentRunner::new(settings.clone(), db.clone(), catalog.clone(), skill_catalog.clone(), event_bus.clone());
+    let runner = AgentRunner::new(settings.clone(), db.clone(), catalog.clone(), skill_catalog.clone(), tool_catalog.clone(), event_bus.clone());
     let result = runner.run(&node, &upstream_outputs).await;
 
     // Broadcast via the event bus channel (currently just logs; SSE route polls DB)
@@ -212,6 +215,13 @@ async fn execute_node(
             output,
         )
         .await;
+    }
+
+    // Auto-resolve credential issues on successful execution
+    if result.status == NodeStatus::Passed {
+        if let Err(e) = crate::system_description::auto_resolve_credential_issues(&db, uid).await {
+            warn!(uid = %uid, error = %e, "failed to auto-resolve credential issues");
+        }
     }
 
     // Unblock or skip downstream nodes
@@ -329,6 +339,7 @@ fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
         variant_label: row.get("variant_label").and_then(Value::as_str).map(String::from),
         variant_selected: row.get("variant_selected").and_then(Value::as_bool),
         client_id: row.get("client_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()),
+        tool_id: row.get("tool_id").and_then(Value::as_str).map(String::from),
     })
 }
 

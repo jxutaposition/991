@@ -19,7 +19,7 @@ use crate::anthropic::{
 use crate::config::Settings;
 use crate::pg::PgClient;
 use crate::session::EventBus;
-use crate::tools;
+use crate::actions;
 
 const MAX_JUDGE_RETRIES: u32 = 2;
 
@@ -194,6 +194,7 @@ pub struct AgentRunner {
     db: PgClient,
     catalog: Arc<AgentCatalog>,
     skill_catalog: Arc<crate::skills::SkillCatalog>,
+    tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
     event_bus: EventBus,
 }
 
@@ -203,9 +204,10 @@ impl AgentRunner {
         db: PgClient,
         catalog: Arc<AgentCatalog>,
         skill_catalog: Arc<crate::skills::SkillCatalog>,
+        tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
         event_bus: EventBus,
     ) -> Self {
-        Self { settings, db, catalog, skill_catalog, event_bus }
+        Self { settings, db, catalog, skill_catalog, tool_catalog, event_bus }
     }
 
     pub fn db(&self) -> &PgClient {
@@ -392,8 +394,8 @@ impl AgentRunner {
             String::new()
         };
 
-        // Check for enriched spawn context on the node (from DB)
-        let (node_spawn_context, node_criteria, node_examples) = load_spawn_fields(&self.db, plan_node.uid).await;
+        // Check for enriched spawn context and rich description on the node (from DB)
+        let (node_spawn_context, node_criteria, node_examples, node_description) = load_spawn_fields(&self.db, plan_node.uid).await;
 
         // Resolve skill overlays if we have a skill match
         let skill_overlays = if let Some(skill) = self.skill_catalog.get(&plan_node.agent_slug) {
@@ -441,6 +443,79 @@ impl AgentRunner {
             prompt
         };
 
+        // Inject rich description context if the node has a populated description JSONB
+        let system_prompt = if let Some(ref desc) = node_description {
+            if let Some(obj) = desc.as_object() {
+                if !obj.is_empty() {
+                    let mut p = system_prompt;
+                    p.push_str("\n\n## Component Description\n");
+                    p.push_str("This is a living system description for the component you are building. ");
+                    p.push_str("Use this context to understand the architecture, technical approach, and I/O contracts.\n\n");
+                    if let Some(arch) = obj.get("architecture") {
+                        if let Some(purpose) = arch.get("purpose").and_then(|v| v.as_str()) {
+                            p.push_str(&format!("**Purpose**: {}\n", purpose));
+                        }
+                        if let Some(flow) = arch.get("data_flow").and_then(|v| v.as_str()) {
+                            p.push_str(&format!("**Data Flow**: {}\n", flow));
+                        }
+                    }
+                    if let Some(spec) = obj.get("technical_spec") {
+                        if let Some(approach) = spec.get("approach").and_then(|v| v.as_str()) {
+                            p.push_str(&format!("**Technical Approach**: {}\n", approach));
+                        }
+                    }
+                    if let Some(io) = obj.get("io_contract") {
+                        p.push_str(&format!("\n**I/O Contract**:\n```json\n{}\n```\n", serde_json::to_string_pretty(io).unwrap_or_default()));
+                    }
+                    if let Some(opts) = obj.get("optionality").and_then(|v| v.as_array()) {
+                        if !opts.is_empty() {
+                            p.push_str("\n**Implementation Options**:\n");
+                            for opt in opts {
+                                if let Some(decision) = opt.get("decision").and_then(|v| v.as_str()) {
+                                    let tradeoffs = opt.get("tradeoffs").and_then(|v| v.as_str()).unwrap_or("");
+                                    p.push_str(&format!("- {}: {}\n", decision, tradeoffs));
+                                }
+                            }
+                        }
+                    }
+                    tracing::debug!(agent = %plan_node.agent_slug, desc_keys = ?obj.keys().collect::<Vec<_>>(), "injected rich description context");
+                    p
+                } else {
+                    system_prompt
+                }
+            } else {
+                system_prompt
+            }
+        } else {
+            system_prompt
+        };
+
+        // SD-004: Inject platform tool knowledge if this node has a tool_id
+        let system_prompt = if let Some(ref tool_id) = plan_node.tool_id {
+            if let Some(tool) = self.tool_catalog.get_tool(tool_id) {
+                let mut p = system_prompt;
+                p.push_str("\n\n## Platform: ");
+                p.push_str(&tool.name);
+                p.push_str("\n\n");
+                if !tool.knowledge.is_empty() {
+                    p.push_str(&tool.knowledge);
+                }
+                if let Some(ref gotchas) = tool.gotchas {
+                    if !gotchas.is_empty() {
+                        p.push_str("\n\n");
+                        p.push_str(gotchas);
+                    }
+                }
+                tracing::info!(agent = %plan_node.agent_slug, tool = %tool_id, "injected tool knowledge into prompt");
+                p
+            } else {
+                tracing::warn!(agent = %plan_node.agent_slug, tool = %tool_id, "tool_id set but tool not found in catalog");
+                system_prompt
+            }
+        } else {
+            system_prompt
+        };
+
         // If this is a master_orchestrator, load preview plan children and inject into prompt
         let (system_prompt, orchestrator_plan) = if plan_node.agent_slug == MASTER_ORCHESTRATOR_SLUG {
             let preview_plan = load_preview_plan(&self.db, plan_node.uid).await;
@@ -454,11 +529,15 @@ impl AgentRunner {
                 }
                 p.push_str("\nThe agent catalog summary below shows available agents and their capabilities.\n");
                 p.push_str(&self.catalog.catalog_summary());
+                p.push_str("\n\n## Available Platform Tools\n\n");
+                p.push_str(&self.tool_catalog.tools_summary());
                 (p, preview_plan)
             } else {
                 let mut p = system_prompt;
                 p.push_str("\n\n## Agent Catalog\n\n");
                 p.push_str(&self.catalog.catalog_summary());
+                p.push_str("\n\n## Available Platform Tools\n\n");
+                p.push_str(&self.tool_catalog.tools_summary());
                 (p, vec![])
             }
         } else {
@@ -466,7 +545,7 @@ impl AgentRunner {
         };
 
         // Build tool list for this agent
-        let agent_tools = tools::tools_for_agent(
+        let agent_tools = actions::actions_for_agent(
             &agent.tools,
             plan_node.parent_uid.is_none(), // allow spawn_agent only for top-level nodes
         );
@@ -548,6 +627,7 @@ impl AgentRunner {
                     upstream_outputs,
                     &credentials,
                     &nid,
+                    plan_node.client_id,
                 )
                 .await;
 
@@ -557,6 +637,26 @@ impl AgentRunner {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
+
+            // When executor exhausted max_iterations without write_output, build a
+            // fallback narrative from tool calls so the critic has real context.
+            if executor_summary.is_empty() {
+                let tool_log = result.get("tool_log")
+                    .and_then(Value::as_array)
+                    .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+                    .unwrap_or_default();
+                let last_text = result.get("last_llm_text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !tool_log.is_empty() || !last_text.is_empty() {
+                    let last_preview: String = last_text.chars().take(2000).collect();
+                    executor_summary = format!(
+                        "[Executor did not call write_output — max iterations reached]\n\nTool calls: {}\n\nLast agent response:\n{}",
+                        if tool_log.is_empty() { "none".to_string() } else { tool_log },
+                        last_preview,
+                    );
+                }
+            }
 
             let paused_for_user = result
                 .get("paused")
@@ -638,6 +738,21 @@ impl AgentRunner {
                         .unwrap_or("Rubric check failed")
                         .to_string();
                     judge_feedback_for_retry = summary;
+
+                    if attempt == MAX_JUDGE_RETRIES {
+                        warn!(attempt, "critic failed on final attempt — giving up");
+                        return AgentResult {
+                            node_uid: uid_str,
+                            status: NodeStatus::Failed,
+                            judge_score: None,
+                            judge_feedback: Some(judge_feedback_for_retry),
+                            final_summary: Some(executor_summary),
+                            output: executor_output,
+                            error: Some("Critic failed after max retries".to_string()),
+                            duration_ms: node_started_at.elapsed().as_millis() as u64,
+                        };
+                    }
+
                     warn!(attempt, "critic failed — retrying executor");
                     continue;
                 }
@@ -768,6 +883,7 @@ impl AgentRunner {
         upstream_outputs: &HashMap<String, Value>,
         credentials: &crate::credentials::CredentialMap,
         node_id: &str,
+        client_id: Option<uuid::Uuid>,
     ) -> Value {
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
@@ -793,6 +909,8 @@ impl AgentRunner {
         let mut messages = vec![user_message(question.to_string())];
         let mut final_output: Option<Value> = None;
         let mut final_summary = String::new();
+        let mut tool_call_log: Vec<String> = Vec::new();
+        let mut last_llm_text = String::new();
 
         // Persist initial user message
         persist_message(&self.db, &self.event_bus, session_id, node_id, "user", question, &json!({})).await;
@@ -873,11 +991,17 @@ impl AgentRunner {
 
             let stop_reason = response.stop_reason.as_deref().unwrap_or("end_turn");
             let llm_text = response.text();
+            if !llm_text.is_empty() {
+                last_llm_text = llm_text.clone();
+            }
             let tool_call_names: Vec<String> = response
                 .tool_uses()
                 .iter()
                 .map(|(_, name, _)| name.to_string())
                 .collect();
+            for name in &tool_call_names {
+                tool_call_log.push(format!("iter {}: {}", iteration + 1, name));
+            }
 
             emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_llm_receive", &json!({
                 "iteration": iteration + 1,
@@ -970,6 +1094,7 @@ impl AgentRunner {
                         variant_label: None,
                         variant_selected: None,
                         client_id: None,
+                        tool_id: None,
                     };
 
                     // Look up client_id from the parent node in DB
@@ -1054,8 +1179,16 @@ impl AgentRunner {
                     break;
                 }
 
+                if tool_name == "search_knowledge" {
+                    let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
+                    let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
+                    let result = self.execute_search_knowledge(query_text, limit, client_id).await;
+                    tool_results.push((tool_use_id.clone(), result));
+                    continue;
+                }
+
                 let tool_started_at = Instant::now();
-                let result = tools::execute_tool(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings).await;
+                let result = actions::execute_action(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings).await;
                 let tool_duration_ms = tool_started_at.elapsed().as_millis() as u64;
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
@@ -1109,6 +1242,8 @@ impl AgentRunner {
             "output": final_output,
             "summary": final_summary,
             "paused": paused,
+            "tool_log": tool_call_log,
+            "last_llm_text": last_llm_text,
         })
     }
 
@@ -1277,6 +1412,7 @@ impl AgentRunner {
         let mut messages: Vec<Value> = Vec::new();
         let mut child_outputs: HashMap<String, Value> = HashMap::new();
         let mut all_passed = true;
+        let mut has_awaiting_reply = false;
         let mut step_results: Vec<Value> = Vec::new();
         let mut blockers: Vec<String> = Vec::new();
 
@@ -1433,6 +1569,18 @@ Respond with ONLY the JSON object:
                     "error": error_info,
                 })).await;
 
+                // Reset the failed child node back to 'preview' so run_child reclaims
+                // the same DB row instead of inserting a duplicate.
+                if let Some(failed_uid) = result.get("node_uid")
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<uuid::Uuid>().ok())
+                {
+                    let _ = self.db.execute_with(
+                        "UPDATE execution_nodes SET status = 'preview', output = NULL, judge_score = NULL, judge_feedback = NULL, started_at = NULL, completed_at = NULL WHERE id = $1 AND session_id = $2",
+                        pg_args!(failed_uid, plan_node.session_id),
+                    ).await;
+                }
+
                 let retry_context = format!(
                     "{}\n\n## Previous Attempt Failed\n{}\nPlease address this issue in your retry.",
                     context, error_info
@@ -1451,7 +1599,9 @@ Respond with ONLY the JSON object:
             };
 
             let final_status = result.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string();
-            if final_status != "passed" {
+            if final_status == "awaiting_reply" {
+                has_awaiting_reply = true;
+            } else if final_status != "passed" {
                 all_passed = false;
                 blockers.push(format!("Step {} ({}) ended with status: {}", i + 1, agent_slug, final_status));
             }
@@ -1562,15 +1712,73 @@ Respond with ONLY the JSON object:
             "blockers": &blockers,
         })).await;
 
+        let final_status = if !all_passed {
+            NodeStatus::Failed
+        } else if has_awaiting_reply {
+            NodeStatus::AwaitingReply
+        } else {
+            NodeStatus::Passed
+        };
+
         AgentResult {
             node_uid: nid,
-            status: if all_passed { NodeStatus::Passed } else { NodeStatus::Failed },
+            status: final_status,
             judge_score: None,
             judge_feedback: None,
             final_summary: Some(final_summary),
             output: Some(final_output),
             error: if all_passed { None } else { Some(blockers.join("; ")) },
             duration_ms: started_at.elapsed().as_millis() as u64,
+        }
+    }
+
+    /// Execute a search_knowledge tool call with DB and embedding access.
+    async fn execute_search_knowledge(
+        &self,
+        query: &str,
+        limit: u64,
+        client_id: Option<uuid::Uuid>,
+    ) -> String {
+        if query.is_empty() {
+            return json!({"error": "query parameter is required"}).to_string();
+        }
+        let api_key = match &self.settings.openai_api_key {
+            Some(k) => k.clone(),
+            None => return json!({"error": "No OPENAI_API_KEY configured for knowledge search"}).to_string(),
+        };
+        let tenant_id = match client_id {
+            Some(id) => id,
+            None => return json!({"error": "No client_id on this execution node — cannot scope knowledge search"}).to_string(),
+        };
+
+        let embedding = match crate::embeddings::embed_text(&api_key, query).await {
+            Ok(e) => e,
+            Err(e) => return json!({"error": format!("Embedding failed: {e}")}).to_string(),
+        };
+
+        let embedding_str = format!(
+            "[{}]",
+            embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
+        );
+
+        let sql = format!(
+            "SELECT c.content, c.section_title, c.metadata, c.chunk_index, \
+                    d.source_path, d.source_filename, \
+                    1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity \
+             FROM knowledge_chunks c \
+             JOIN knowledge_documents d ON c.document_id = d.id \
+             WHERE c.tenant_id = '{tenant_id}' \
+               AND d.status = 'ready' \
+             ORDER BY c.embedding <=> '{embedding_str}'::vector \
+             LIMIT {limit}",
+        );
+
+        match self.db.execute(&sql).await {
+            Ok(rows) => json!({"results": rows, "query": query}).to_string(),
+            Err(e) => {
+                warn!(error = %e, "search_knowledge DB query failed");
+                json!({"error": format!("Knowledge search failed: {e}")}).to_string()
+            }
         }
     }
 
@@ -1759,6 +1967,7 @@ Respond with ONLY the JSON object:
             variant_label: None,
             variant_selected: None,
             client_id: parent_node.client_id,
+            tool_id: None,
         };
 
         // Pass the orchestrator's context as upstream output so child can reference it
@@ -1895,7 +2104,7 @@ Respond with ONLY the JSON object:
         // Load agent tools
         let agent = self.catalog.get(agent_slug);
         let tool_defs = if let Some(ref a) = agent {
-            tools::tools_for_agent(&a.tools, false)
+            actions::actions_for_agent(&a.tools, false)
         } else {
             vec![]
         };
@@ -1936,8 +2145,39 @@ Respond with ONLY the JSON object:
             Default::default()
         };
 
-        // Load upstream outputs
-        let upstream_outputs = std::collections::HashMap::new();
+        // Load upstream outputs from the node's requires (so tools can reference them)
+        let upstream_outputs = {
+            let req_rows = self.db.execute_with(
+                "SELECT requires FROM execution_nodes WHERE id = $1",
+                pg_args!(nid),
+            ).await.unwrap_or_default();
+            let requires: Vec<uuid::Uuid> = req_rows.first()
+                .and_then(|r| r.get("requires"))
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()?.parse().ok()).collect())
+                .unwrap_or_default();
+            if requires.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let req_uuids: Vec<String> = requires.iter().map(|u| format!("'{u}'")).collect();
+                let ups_sql = format!(
+                    "SELECT agent_slug, output FROM execution_nodes \
+                     WHERE id = ANY(ARRAY[{}]::uuid[]) AND status = 'passed' AND output IS NOT NULL",
+                    req_uuids.join(",")
+                );
+                let ups_rows = self.db.execute(&ups_sql).await.unwrap_or_default();
+                let mut map = std::collections::HashMap::new();
+                for r in ups_rows {
+                    if let (Some(slug), Some(output)) = (
+                        r.get("agent_slug").and_then(Value::as_str),
+                        r.get("output"),
+                    ) {
+                        map.insert(slug.to_string(), output.clone());
+                    }
+                }
+                map
+            }
+        };
 
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
@@ -2044,7 +2284,7 @@ Respond with ONLY the JSON object:
                     break;
                 }
 
-                let result = tools::execute_tool(tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings).await;
+                let result = actions::execute_action(tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings).await;
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
                     "tool": tool_name,
@@ -2437,12 +2677,13 @@ fn parse_synthesis_json(text: &str, step_results: &[Value]) -> (Value, String) {
 }
 
 /// Load enriched spawn context fields from the execution_nodes table.
+/// Returns (spawn_context, acceptance_criteria, spawn_examples, description).
 async fn load_spawn_fields(
     db: &crate::pg::PgClient,
     node_id: uuid::Uuid,
-) -> (Option<String>, Option<Value>, Option<String>) {
+) -> (Option<String>, Option<Value>, Option<String>, Option<Value>) {
     match db.execute_with(
-        "SELECT spawn_context, acceptance_criteria, spawn_examples FROM execution_nodes WHERE id = $1",
+        "SELECT spawn_context, acceptance_criteria, spawn_examples, description FROM execution_nodes WHERE id = $1",
         pg_args!(node_id),
     ).await {
         Ok(rows) => {
@@ -2458,11 +2699,14 @@ async fn load_spawn_fields(
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(String::from);
-                (ctx, criteria, examples)
+                let description = row.get("description")
+                    .filter(|v| !v.is_null() && v.as_object().map_or(true, |o| !o.is_empty()))
+                    .cloned();
+                (ctx, criteria, examples, description)
             } else {
-                (None, None, None)
+                (None, None, None, None)
             }
         }
-        Err(_) => (None, None, None),
+        Err(_) => (None, None, None, None),
     }
 }

@@ -15,10 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-page text-ink">
+      <body className="min-h-screen bg-page text-ink flex">
         <AuthProvider>
           <Nav />
-          <main className="flex-1">{children}</main>
+          <main className="flex-1 overflow-y-auto h-screen">{children}</main>
         </AuthProvider>
       </body>
     </html>

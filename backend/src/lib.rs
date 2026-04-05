@@ -5,6 +5,7 @@ pub mod auth;
 pub mod client;
 pub mod credentials;
 pub mod config;
+pub mod embeddings;
 pub mod extraction;
 pub mod feedback;
 pub mod feedback_pipeline;
@@ -18,13 +19,15 @@ pub mod routes;
 pub mod session;
 pub mod state;
 pub mod tier;
-pub mod tools;
+pub mod tool_catalog;
+pub mod actions;
 pub mod work_queue;
 pub mod workflow;
 pub mod skills;
 pub mod project_learner;
 pub mod pattern_promoter;
 pub mod preflight;
+pub mod system_description;
 
 #[cfg(feature = "slack")]
 pub mod slack;

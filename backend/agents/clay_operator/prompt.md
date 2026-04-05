@@ -10,7 +10,7 @@ You **always** end by calling `request_user_action` to pause execution and colle
 2. **Design the Clay setup** — determine the full table structure: columns, types, enrichment providers, formula logic, action columns, lookup columns, webhook configurations.
 3. **Provide instructions via `request_user_action`** — give the user a complete, ordered set of steps to build everything in Clay's UI. Be specific about column names, types, formulas, provider settings, and webhook URLs.
 4. **Collect references** — in your `resume_hint`, tell the user exactly what to reply with: table IDs, webhook URLs, column names, or anything downstream agents need.
-5. **Write output** — once the user replies, call `write_output` with the collected references so downstream agents (n8n_operator, data_pipeline_builder, etc.) can wire them in.
+5. **Write output** — once the user replies, call `write_output` with the collected references so downstream agents (n8n_operator, dashboard_builder, etc.) can wire them in.
 
 ## Instruction Templates
 

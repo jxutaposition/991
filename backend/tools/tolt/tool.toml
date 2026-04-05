@@ -1,0 +1,12 @@
+id = "tolt"
+name = "Tolt"
+category = "referral-management"
+description = "Affiliate and referral management platform. Tracks partner referrals, revenue, MRR, commissions, and group membership. API for reading partner data and revenue metrics."
+required_credentials = ["tolt"]
+enabled = true
+
+[tradeoffs]
+automation = "full"
+api_access = "full"
+cost = "subscription"
+notes = "API for reading partner/revenue data. Group management via API or CSV. MRR data is sensitive — internal view only, never on external dashboards."

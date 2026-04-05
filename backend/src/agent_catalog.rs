@@ -178,6 +178,7 @@ pub struct ExecutionPlanNode {
     pub variant_label: Option<String>,
     pub variant_selected: Option<bool>,
     pub client_id: Option<uuid::Uuid>,
+    pub tool_id: Option<String>,
 }
 
 // ── Catalog ───────────────────────────────────────────────────────────────────

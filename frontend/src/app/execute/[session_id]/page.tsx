@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Lock, LockOpen, GripHorizontal, Trash2, Square, AlertTriangle, X } from "lucide-react";
+import { Trash2, Square, AlertTriangle, X, FileText, Columns, LayoutGrid, MessageSquare, MessageCircle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ExecutionCanvas,
@@ -15,9 +15,14 @@ import {
   type ThinkingBlock,
   type NodeMessage,
 } from "@/components/inspector-panel";
-import type { StreamEntry } from "@/components/conversation-stream";
+import { type StreamEntry } from "@/components/conversation-stream";
 import { CanvasToolbar } from "@/components/canvas-toolbar";
 import { DragResizeLayout } from "@/components/drag-resize-layout";
+import { SystemDescriptionView } from "@/components/system-description-view";
+import type { ProjectDescriptionData, DescriptionVersion } from "@/components/document-header";
+import type { NodeIssue } from "@/components/issue-card";
+import { CommentSidebar, type CommentThread } from "@/components/comment-sidebar";
+import { ProjectChat } from "@/components/project-chat";
 
 interface ExecutionSession {
   id: string;
@@ -25,6 +30,8 @@ interface ExecutionSession {
   status: string;
   nodes: ExecutionNode[];
   plan_approved_at: string | null;
+  project_id?: string | null;
+  project_description_id?: string | null;
 }
 
 export interface ToolInfo {
@@ -126,8 +133,7 @@ export default function SessionPage() {
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
   const [catalogMap, setCatalogMap] = useState<CatalogMap>({});
   const canvasRef = useRef<CanvasHandle>(null);
-  const [bottomHeight, setBottomHeight] = useState(288); // ~max-h-72 default
-  const [isDraggingBottom, setIsDraggingBottom] = useState(false);
+  
   const [thinkingBlocks, setThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [thinkingBlocksLoading, setThinkingBlocksLoading] = useState(false);
   const [liveThinkingChunks, setLiveThinkingChunks] = useState<Record<string, string>>({});
@@ -145,6 +151,29 @@ export default function SessionPage() {
   const selectedNodeIdRef = useRef(selectedNodeId);
   selectedNodeIdRef.current = selectedNodeId;
 
+  // Master orchestrator bottom panel state
+  const [masterStreamEntries, setMasterStreamEntries] = useState<StreamEntry[]>([]);
+  const [masterStreamLoading, setMasterStreamLoading] = useState(false);
+  const [masterLiveTextChunks, setMasterLiveTextChunks] = useState<Record<string, string>>({});
+  const [masterLiveThinkingChunks, setMasterLiveThinkingChunks] = useState<Record<string, string>>({});
+  const pendingMasterText = useRef<Record<string, string>>({});
+  const pendingMasterThinking = useRef<Record<string, string>>({});
+
+  // Planning progress (streamed via SSE while status === 'planning')
+  const [planningMessages, setPlanningMessages] = useState<string[]>([]);
+  const [planningError, setPlanningError] = useState<string | null>(null);
+
+  // Living system description state
+  type ViewMode = "document" | "split" | "canvas";
+  const [viewMode, setViewMode] = useState<ViewMode>("canvas");
+  const [projectDescription, setProjectDescription] = useState<ProjectDescriptionData | null>(null);
+  const [descriptionVersions, setDescriptionVersions] = useState<DescriptionVersion[]>([]);
+  const [sessionIssues, setSessionIssues] = useState<NodeIssue[]>([]);
+  const [commentThreads, setCommentThreads] = useState<CommentThread[]>([]);
+  const [showCommentSidebar, setShowCommentSidebar] = useState(false);
+  const [showQuickAsk, setShowQuickAsk] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+
   // RAF-throttled delta accumulation for streaming
   const pendingText = useRef<Record<string, string>>({});
   const pendingThinking = useRef<Record<string, string>>({});
@@ -156,6 +185,8 @@ export default function SessionPage() {
       setLiveTextChunks({ ...pendingText.current });
       setLiveThinkingChunks({ ...pendingThinking.current });
       setLivePreviewMap({ ...pendingPreviewMap.current });
+      setMasterLiveTextChunks({ ...pendingMasterText.current });
+      setMasterLiveThinkingChunks({ ...pendingMasterThinking.current });
       rafId.current = undefined;
     });
   }, []);
@@ -169,36 +200,6 @@ export default function SessionPage() {
       }
     };
   }, []);
-
-  const handleBottomDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDraggingBottom(true);
-      const startY = e.clientY;
-      const startHeight = bottomHeight;
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = startY - moveEvent.clientY;
-        const newHeight = Math.max(100, Math.min(window.innerHeight * 0.7, startHeight + delta));
-        setBottomHeight(newHeight);
-      };
-
-      const handleMouseUp = () => {
-        setIsDraggingBottom(false);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-    },
-    [bottomHeight]
-  );
 
   const fetchSession = useCallback(async () => {
     try {
@@ -223,10 +224,56 @@ export default function SessionPage() {
     } catch { /* transient */ }
   }, [session_id, apiFetch]);
 
+  // Fetch session issues
+  const fetchIssues = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/api/execute/${session_id}/issues`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setSessionIssues(data.issues ?? []);
+    } catch { /* transient */ }
+  }, [session_id, apiFetch]);
+
+  const fetchThreads = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/api/execute/${session_id}/threads`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setCommentThreads(data.threads ?? []);
+    } catch { /* transient */ }
+  }, [session_id, apiFetch]);
+
+  // Fetch project description if session has one
+  const hasAutoSwitchedView = useRef(false);
+  const fetchProjectDescription = useCallback(async () => {
+    if (!session) return;
+    const projectId = session?.project_id;
+    if (!projectId) return;
+    try {
+      const r = await apiFetch(`/api/projects/${projectId}/descriptions`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data.description) {
+        setProjectDescription(data.description);
+        setDescriptionVersions(data.versions ?? []);
+        if (!hasAutoSwitchedView.current) {
+          hasAutoSwitchedView.current = true;
+          setViewMode("document");
+        }
+      }
+    } catch { /* transient */ }
+  }, [session, apiFetch]);
+
   useEffect(() => {
     fetchSession();
     fetchFailures();
-  }, [fetchSession, fetchFailures]);
+    fetchIssues();
+    fetchThreads();
+  }, [fetchSession, fetchFailures, fetchIssues, fetchThreads]);
+
+  useEffect(() => {
+    fetchProjectDescription();
+  }, [fetchProjectDescription]);
 
   // Fetch credential status for agents in this session
   useEffect(() => {
@@ -336,6 +383,35 @@ export default function SessionPage() {
     }
   }, [selectedNodeId, session_id, apiFetch]);
 
+  // Derive master orchestrator node (the one without parent_uid)
+  const masterNode = session?.nodes.find(n => !n.parent_uid) ?? null;
+  const masterNodeId = masterNode?.id ?? null;
+  const masterNodeIdRef = useRef(masterNodeId);
+  masterNodeIdRef.current = masterNodeId;
+
+  const fetchMasterStream = useCallback(async () => {
+    if (!masterNodeId || !session_id) {
+      setMasterStreamEntries([]);
+      return;
+    }
+    setMasterStreamLoading(true);
+    try {
+      const r = await apiFetch(`/api/execute/${session_id}/nodes/${masterNodeId}/stream`);
+      if (!r.ok) { setMasterStreamEntries([]); setMasterStreamLoading(false); return; }
+      const data = await r.json();
+      setMasterStreamEntries(data.stream ?? []);
+    } catch {
+      setMasterStreamEntries([]);
+    } finally {
+      setMasterStreamLoading(false);
+    }
+  }, [masterNodeId, session_id, apiFetch]);
+
+  // Fetch master stream when master node becomes available
+  useEffect(() => {
+    fetchMasterStream();
+  }, [fetchMasterStream]);
+
   // Fetch thinking blocks, messages, and stream when selected node changes
   useEffect(() => {
     fetchThinkingBlocks();
@@ -353,7 +429,6 @@ export default function SessionPage() {
   useEffect(() => {
     if (
       !session ||
-      session.status === "planning" ||
       session.status === "awaiting_approval"
     )
       return;
@@ -367,7 +442,24 @@ export default function SessionPage() {
         const streamEntry = data.stream_entry;
         const nodeUid = data.node_uid as string | undefined;
         const isSelectedNode = nodeUid === selectedNodeIdRef.current;
+        const isMasterNode = nodeUid === masterNodeIdRef.current;
         const eventType = data.type as string | undefined;
+
+        // Handle planning phase events
+        if (eventType === "planner_progress") {
+          setPlanningMessages((prev) => [...prev, data.message as string]);
+          return;
+        }
+        if (eventType === "plan_ready") {
+          setPlanningMessages([]);
+          fetchSession();
+          return;
+        }
+        if (eventType === "planner_error") {
+          setPlanningError(data.error as string);
+          fetchSession();
+          return;
+        }
 
         // Only re-fetch session/failures on meaningful state changes (not every delta)
         const isTerminalEvent = eventType === "node_completed" || eventType === "node_started"
@@ -379,6 +471,10 @@ export default function SessionPage() {
           if (isSelectedNode) {
             fetchNodeEvents();
             fetchNodeMessages();
+          }
+          // Re-fetch master stream on terminal events
+          if (isMasterNode) {
+            fetchMasterStream();
           }
         }
 
@@ -394,6 +490,27 @@ export default function SessionPage() {
           setLivePreviewMap((m) => { const next = { ...m }; delete next[nodeUid]; return next; });
         }
 
+        // Accumulate live chunks for MASTER node (bottom panel)
+        if (streamEntry && isMasterNode) {
+          const st = streamEntry.stream_type;
+          if (st === "text_delta") {
+            const key = String(streamEntry.block_index ?? 0);
+            pendingMasterText.current[key] = (pendingMasterText.current[key] || "") + (streamEntry.content || "");
+            scheduleRaf();
+          } else if (st === "thinking_delta") {
+            const key = String(streamEntry.block_index ?? 0);
+            pendingMasterThinking.current[key] = (pendingMasterThinking.current[key] || "") + (streamEntry.content || "");
+            scheduleRaf();
+          } else if (st === "message_stop") {
+            pendingMasterText.current = {};
+            pendingMasterThinking.current = {};
+            setMasterLiveTextChunks({});
+            setMasterLiveThinkingChunks({});
+            fetchMasterStream();
+          }
+        }
+
+        // Accumulate live chunks for SELECTED node (inspector panel)
         if (streamEntry && isSelectedNode) {
           const st = streamEntry.stream_type;
 
@@ -450,7 +567,7 @@ export default function SessionPage() {
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream, scheduleRaf]);
+  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchThinkingBlocks, fetchNodeMessages, fetchNodeStream, fetchMasterStream, scheduleRaf]);
 
   useEffect(() => {
     setNodeEventsLoading(true);
@@ -481,6 +598,54 @@ export default function SessionPage() {
       console.error("Failed to delete session:", err);
     }
   };
+
+  // ── Living Description Handlers ─────────────────────────────────────────
+  const handleIssueResolve = async (issueId: string) => {
+    await apiFetch(`/api/execute/${session_id}/issues/${issueId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "resolve" }),
+    });
+    fetchIssues();
+  };
+
+  const handleIssueDismiss = async (issueId: string) => {
+    await apiFetch(`/api/execute/${session_id}/issues/${issueId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "dismiss" }),
+    });
+    fetchIssues();
+  };
+
+  const handleProjectDescriptionUpdate = async (fields: Partial<ProjectDescriptionData>) => {
+    const projectId = session?.project_id;
+    if (!projectId) return;
+    await apiFetch(`/api/projects/${projectId}/descriptions/update`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+    fetchProjectDescription();
+  };
+
+  const handleNodeDescriptionUpdate = async (nodeId: string, description: Record<string, unknown>) => {
+    await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/description`, {
+      method: "PATCH",
+      body: JSON.stringify({ description }),
+    });
+    fetchSession();
+  };
+
+  const handleCommentCreate = useCallback(async (nodeId: string, sectionPath: string) => {
+    try {
+      const r = await apiFetch(`/api/execute/${session_id}/threads`, {
+        method: "POST",
+        body: JSON.stringify({ node_id: nodeId, section_path: sectionPath, message: "New discussion" }),
+      });
+      if (r.ok) {
+        await fetchThreads();
+        setShowCommentSidebar(true);
+      }
+    } catch { /* transient */ }
+  }, [session_id, apiFetch, fetchThreads]);
 
   const handleApprove = async () => {
     setApproving(true);
@@ -552,286 +717,371 @@ export default function SessionPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-49px)]">
-      {/* Header */}
-      <div className="border-b border-rim px-6 py-3 flex items-center justify-between bg-page shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className={`text-xs font-medium ${STATUS_COLORS[session.status] ?? "text-ink-3"}`}
-          >
-            {session.status.replace(/_/g, " ").toUpperCase()}
-          </span>
-          <span className="text-rim-strong">{"\u00B7"}</span>
-          <span className="text-sm text-ink-2 truncate max-w-xl">
-            {session.request_text}
-          </span>
+      {/* Unified top bar: status + progress + view toggles + actions */}
+      <div className="border-b border-rim px-3 h-10 flex items-center gap-3 bg-page shrink-0">
+        {/* Status badge */}
+        <span className={`text-[11px] font-semibold uppercase tracking-wide shrink-0 ${STATUS_COLORS[session.status] ?? "text-ink-3"}`}>
+          {session.status.replace(/_/g, " ")}
+        </span>
+
+        {/* Inline progress bar (only during execution) */}
+        {session.status === "executing" && (() => {
+          const mn = session.nodes.find(n => !n.parent_uid);
+          const children = mn ? session.nodes.filter(n => n.parent_uid === mn.id) : session.nodes;
+          const total = children.length;
+          const done = children.filter(n => n.status === "passed" || n.status === "failed" || n.status === "skipped").length;
+          const running = children.find(n => n.status === "running");
+          const pct = total > 0 ? (done / total) * 100 : 0;
+          return total > 0 ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="w-24 h-1 rounded-full bg-rim overflow-hidden">
+                <div className="h-full bg-brand rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-[11px] text-ink-3 whitespace-nowrap">
+                {done + (running ? 1 : 0)}/{total}
+              </span>
+            </div>
+          ) : null;
+        })()}
+
+        {/* Request text */}
+        <span className="text-xs text-ink-3 truncate min-w-0 flex-1">
+          {session.request_text}
+        </span>
+
+        {/* Separator */}
+        <span className="text-rim-strong shrink-0">{"\u2502"}</span>
+
+        {/* View mode toggles */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {(["document", "split", "canvas"] as const).map((mode) => {
+            const Icon = mode === "document" ? FileText : mode === "split" ? Columns : LayoutGrid;
+            return (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`p-1.5 rounded text-xs transition-colors ${
+                  viewMode === mode ? "text-brand bg-brand/10" : "text-ink-3 hover:text-ink"
+                }`}
+                title={mode.charAt(0).toUpperCase() + mode.slice(1)}
+              >
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-2 shrink-0 ml-4">
+
+        {/* Comments */}
+        <button
+          onClick={() => setShowCommentSidebar((v) => !v)}
+          className={`flex items-center gap-1 p-1.5 rounded text-xs transition-colors shrink-0 ${
+            showCommentSidebar ? "text-brand bg-brand/10" : "text-ink-3 hover:text-ink"
+          }`}
+          title="Comments"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          {commentThreads.filter((t) => t.status === "open").length > 0 && (
+            <span className="text-[9px] px-1 rounded-full bg-brand text-white leading-4 min-w-[14px] text-center">
+              {commentThreads.filter((t) => t.status === "open").length}
+            </span>
+          )}
+        </button>
+
+        {/* Separator */}
+        <span className="text-rim-strong shrink-0">{"\u2502"}</span>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {session.status === "awaiting_approval" && (
             <button
               onClick={handleApprove}
               disabled={approving || hasProbeFailures}
-              className="bg-brand text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
+              className="bg-brand text-white px-3 py-1 rounded text-xs font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
               title={hasProbeFailures ? "Fix credential issues before approving" : undefined}
             >
-              {approving ? "Approving\u2026" : "Approve & Execute \u2192"}
+              {approving ? "Approving\u2026" : "Approve"}
             </button>
           )}
           {session.status === "executing" && (
             <button
               onClick={handleStop}
               disabled={stopping}
-              className="bg-red-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+              className="bg-red-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-1"
             >
-              <Square className="w-3.5 h-3.5 fill-current" />
+              <Square className="w-3 h-3 fill-current" />
               {stopping ? "Stopping\u2026" : "Stop"}
             </button>
           )}
           <button
             onClick={handleDeleteSession}
-            className="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-ink-3 transition-colors"
+            className="p-1.5 rounded hover:bg-red-50 hover:text-red-500 text-ink-3 transition-colors"
             title="Delete session"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Preflight failure banner */}
+      {/* Contextual banners (only shown when needed) */}
       {session.status === "awaiting_approval" && hasProbeFailures && (
-        <div className="border-b border-red-200 px-6 py-3 shrink-0 bg-red-50/80">
-          <p className="text-sm font-medium text-red-800 mb-2">
-            Credential check failed — fix before approving:
+        <div className="border-b border-red-200 px-4 py-2 shrink-0 bg-red-50/80">
+          <p className="text-xs font-medium text-red-800 mb-1">
+            Credential check failed:
           </p>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {probeFailures.map(([slug, r]) => {
               const colors = PROBE_COLORS[r.status] ?? PROBE_COLORS.missing;
               return (
-                <div key={slug} className="flex items-start gap-2 text-xs">
-                  <span className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${colors.bg} ${colors.text} border ${colors.border}`}>
+                <div key={slug} className="flex items-center gap-2 text-[11px]">
+                  <span className={`shrink-0 px-1 py-0.5 rounded font-medium ${colors.bg} ${colors.text} border ${colors.border}`}>
                     {PROBE_LABELS[r.status] ?? r.status}
                   </span>
                   <span className="font-mono text-ink">{slug}</span>
                   {r.error && <span className="text-ink-2">{"\u2014"} {r.error}</span>}
-                  {r.hint && <span className="text-ink-3 italic">{r.hint}</span>}
                 </div>
               );
             })}
           </div>
         </div>
       )}
-
-      {/* Approval error banner */}
       {approvalError && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 text-sm text-amber-800 shrink-0 whitespace-pre-line">
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 shrink-0 whitespace-pre-line">
           {approvalError}
         </div>
       )}
-
-      {/* Node failure banner */}
       {!failureBannerDismissed && (() => {
         const failedNodes = failures.filter(n => n.status === "failed");
         if (failedNodes.length === 0) return null;
         const first = failedNodes[0];
-        const catLabel = first.error_category;
         return (
-          <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-red-800">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>
-                {failedNodes.length} node{failedNodes.length > 1 ? "s" : ""} failed
-                {catLabel && <span className="text-red-600 ml-1">({catLabel.replace(/_/g, " ")})</span>}
-              </span>
-              <button
-                onClick={() => handleNodeClick(first.id)}
-                className="underline ml-1 hover:text-red-900"
-              >
-                View
-              </button>
+          <div className="bg-red-50 border-b border-red-200 px-4 py-1.5 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-red-800">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>{failedNodes.length} node{failedNodes.length > 1 ? "s" : ""} failed</span>
+              <button onClick={() => handleNodeClick(first.id)} className="underline hover:text-red-900">View</button>
             </div>
-            <button
-              onClick={() => setFailureBannerDismissed(true)}
-              className="text-red-400 hover:text-red-600"
-            >
-              <X className="w-4 h-4" />
+            <button onClick={() => setFailureBannerDismissed(true)} className="text-red-400 hover:text-red-600">
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         );
       })()}
 
-      {/* Execution progress bar */}
-      {session.status === "executing" && (() => {
-        const masterNode = session.nodes.find(n => !n.parent_uid);
-        const childNodes = masterNode
-          ? session.nodes.filter(n => n.parent_uid === masterNode.id)
-          : session.nodes;
-        const total = childNodes.length;
-        const completed = childNodes.filter(n => n.status === "passed" || n.status === "failed" || n.status === "skipped").length;
-        const running = childNodes.find(n => n.status === "running");
-        const pct = total > 0 ? (completed / total) * 100 : 0;
-        return total > 0 ? (
-          <div className="border-b border-rim px-6 py-2 bg-blue-50/50 shrink-0 flex items-center gap-3">
-            <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+      {/* Main content area — top portion */}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        {viewMode === "document" && (
+          <div className="flex h-full">
+            <div className="flex-1 min-w-0">
+              <SystemDescriptionView
+                nodes={session.nodes}
+                sessionStatus={session.status}
+                requestText={session.request_text}
+                selectedNodeId={selectedNodeId}
+                projectDescription={projectDescription}
+                issues={sessionIssues}
+                livePreviewMap={livePreviewMap}
+                versions={descriptionVersions}
+                onNodeClick={handleNodeClick}
+                onProjectDescriptionUpdate={handleProjectDescriptionUpdate}
+                onNodeDescriptionUpdate={handleNodeDescriptionUpdate}
+                onIssueResolve={handleIssueResolve}
+                onIssueDismiss={handleIssueDismiss}
+                onCommentCreate={handleCommentCreate}
+                issueCount={sessionIssues.length}
+                openIssueCount={sessionIssues.filter(i => i.status === "open").length}
+              />
             </div>
-            <span className="text-xs text-ink-2 whitespace-nowrap">
-              Step {completed + (running ? 1 : 0)}/{total}
-              {running && <>{": "}<span className="font-medium text-blue-700">{running.agent_slug}</span></>}
-            </span>
-          </div>
-        ) : null;
-      })()}
-
-      {/* Main content: canvas + inspector */}
-      <DragResizeLayout
-        defaultRightWidth={420}
-        minRightWidth={320}
-        maxRightWidth="70%"
-        left={
-          <div className="relative h-full bg-surface">
-            <ExecutionCanvas
-              ref={canvasRef}
-              nodes={session.nodes}
-              sessionStatus={session.status}
-              selectedNodeId={selectedNodeId}
-              onNodeClick={handleNodeClick}
-              onZoomChange={setZoomLevel}
-              credentialStatus={credentialStatus}
-              catalogMap={catalogMap}
-              livePreviewMap={livePreviewMap}
-            />
-            <CanvasToolbar
-              zoomLevel={zoomLevel}
-              onZoomIn={() => canvasRef.current?.zoomIn()}
-              onZoomOut={() => canvasRef.current?.zoomOut()}
-              onFitToScreen={() => canvasRef.current?.resetTransform()}
-            />
-          </div>
-        }
-        right={
-          <InspectorPanel
-            selectedNode={selectedNode}
-            nodeEvents={nodeEvents}
-            nodeEventsLoading={nodeEventsLoading}
-            allNodes={session.nodes}
-            credentialStatus={credentialStatus}
-            catalogMap={catalogMap}
-            sessionStatus={session.status}
-            onNodeUpdate={handleNodeUpdate}
-            thinkingBlocks={thinkingBlocks}
-            thinkingBlocksLoading={thinkingBlocksLoading}
-            liveThinkingChunks={liveThinkingChunks}
-            nodeMessages={nodeMessages}
-            nodeMessagesLoading={nodeMessagesLoading}
-            onReply={handleReply}
-            streamEntries={streamEntries}
-            streamLoading={streamLoading}
-            liveTextChunks={liveTextChunks}
-            failures={failures}
-            onNodeSelect={handleNodeClick}
-          />
-        }
-      />
-
-      {/* Plan list -- shown while awaiting approval */}
-      {session.status === "awaiting_approval" && (
-        <div className="border-t border-rim bg-page shrink-0 overflow-hidden flex flex-col" style={{ height: bottomHeight }}>
-          {/* Drag handle */}
-          <div
-            onMouseDown={handleBottomDragStart}
-            className={`relative flex items-center justify-center h-2 cursor-row-resize shrink-0 group
-              ${isDraggingBottom ? "bg-brand/20" : "hover:bg-brand/10"}
-              transition-colors`}
-          >
-            <div className="z-10 flex w-8 h-4 items-center justify-center rounded-sm border border-rim bg-surface shadow-sm group-hover:border-brand/40 transition-colors">
-              <GripHorizontal className="h-3.5 w-3.5 text-ink-3 group-hover:text-brand transition-colors" />
-            </div>
-            <div className="absolute -top-2 -bottom-2 inset-x-0" />
-          </div>
-          <div className="p-4 overflow-auto flex-1">
-          <p className="text-xs text-ink-3 uppercase tracking-wider mb-3">
-            Execution Plan {"\u2014"} {session.nodes.length} steps
-            <span className="ml-2 text-ink-3 normal-case">Click a node on the canvas to edit</span>
-          </p>
-          <div className="space-y-2">
-            {session.nodes.map((node, i) => {
-              const credInfo = credentialStatus?.agents[node.agent_slug];
-              const catalog = catalogMap[node.agent_slug];
-              const isBlocked = credInfo?.status === "blocked";
-              const toolCount = catalog?.tools?.filter(
-                (t) => !["read_upstream_output", "write_output", "spawn_agent"].includes(t.name)
-              ).length ?? 0;
-              const integrationCount = credInfo?.required_integrations?.length ?? 0;
-
-              return (
-                <div
-                  key={node.id}
-                  className={`flex items-start gap-3 text-sm py-1.5 px-2 rounded-lg cursor-pointer hover:bg-surface transition-colors ${
-                    selectedNodeId === node.id ? "bg-blue-50 border border-blue-200" : ""
-                  } ${isBlocked ? "border-l-4 border-l-amber-400" : ""}`}
-                  onClick={() => handleNodeClick(node.id)}
-                >
-                  <span className="text-ink-3 shrink-0 w-5 pt-0.5">
-                    {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-ink font-mono font-medium text-xs">
-                        {node.agent_slug}
-                      </span>
-                      {catalog && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-3">
-                          {catalog.category.replace(/_/g, " ")}
-                        </span>
-                      )}
-                      {isBlocked && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-0.5">
-                          <Lock className="w-2.5 h-2.5" /> blocked
-                        </span>
-                      )}
-                      {integrationCount > 0 && !isBlocked && (() => {
-                        const agentIntegrations = credInfo?.required_integrations ?? [];
-                        const probes = credentialStatus?.probe_results ?? {};
-                        const issues = agentIntegrations
-                          .map((s) => ({ slug: s, probe: probes[s] }))
-                          .filter(({ probe }) => probe && !probe.ok);
-                        if (issues.length > 0) {
-                          const worst = issues[0].probe!;
-                          const colors = PROBE_COLORS[worst.status] ?? PROBE_COLORS.missing;
-                          return (
-                            <span
-                              className={`text-[9px] px-1.5 py-0.5 rounded-full ${colors.bg} ${colors.text} flex items-center gap-0.5`}
-                              title={worst.hint || worst.error || ""}
-                            >
-                              <Lock className="w-2.5 h-2.5" />
-                              {issues.map(({ slug, probe }) => (
-                                <span key={slug}>{slug}: {PROBE_LABELS[probe!.status]}</span>
-                              ))}
-                            </span>
-                          );
-                        }
-                        return (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 flex items-center gap-0.5">
-                            <LockOpen className="w-2.5 h-2.5" /> verified
-                          </span>
-                        );
-                      })()}
-                      {toolCount > 0 && (
-                        <span className="text-[9px] text-ink-3">
-                          {toolCount} tool{toolCount !== 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-ink-2 text-xs leading-relaxed">
-                      {node.task_description}
-                    </span>
-                  </div>
+            {showCommentSidebar && (
+              <div className="w-80 border-l border-rim bg-page overflow-y-auto shrink-0">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-rim">
+                  <span className="text-xs font-semibold text-ink-2 uppercase tracking-wider">Comments</span>
+                  <button onClick={() => setShowCommentSidebar(false)} className="text-ink-3 hover:text-ink">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              );
-            })}
+                <CommentSidebar
+                  threads={commentThreads}
+                  sessionId={session_id as string}
+                  apiFetch={apiFetch}
+                  onThreadCreated={fetchThreads}
+                />
+              </div>
+            )}
           </div>
+        )}
+
+        {viewMode === "split" && (
+          <div className="flex h-full">
+            <div className="flex-1 min-w-0">
+              <DragResizeLayout
+                defaultRightWidth={420}
+                minRightWidth={320}
+                maxRightWidth="70%"
+                left={
+                  <SystemDescriptionView
+                    nodes={session.nodes}
+                    sessionStatus={session.status}
+                    requestText={session.request_text}
+                    selectedNodeId={selectedNodeId}
+                    projectDescription={projectDescription}
+                    issues={sessionIssues}
+                    livePreviewMap={livePreviewMap}
+                    versions={descriptionVersions}
+                    onNodeClick={handleNodeClick}
+                    onProjectDescriptionUpdate={handleProjectDescriptionUpdate}
+                    onNodeDescriptionUpdate={handleNodeDescriptionUpdate}
+                    onIssueResolve={handleIssueResolve}
+                    onIssueDismiss={handleIssueDismiss}
+                    onCommentCreate={handleCommentCreate}
+                    issueCount={sessionIssues.length}
+                    openIssueCount={sessionIssues.filter(i => i.status === "open").length}
+                  />
+                }
+                right={
+                  <div className="relative h-full bg-surface">
+                    <ExecutionCanvas
+                      ref={canvasRef}
+                      nodes={session.nodes}
+                      sessionStatus={session.status}
+                      selectedNodeId={selectedNodeId}
+                      onNodeClick={handleNodeClick}
+                      onZoomChange={setZoomLevel}
+                      credentialStatus={credentialStatus}
+                      catalogMap={catalogMap}
+                      livePreviewMap={livePreviewMap}
+                    />
+                    <CanvasToolbar
+                      zoomLevel={zoomLevel}
+                      onZoomIn={() => canvasRef.current?.zoomIn()}
+                      onZoomOut={() => canvasRef.current?.zoomOut()}
+                      onFitToScreen={() => canvasRef.current?.resetTransform()}
+                    />
+                  </div>
+                }
+              />
+            </div>
+            {showCommentSidebar && (
+              <div className="w-80 border-l border-rim bg-page overflow-y-auto shrink-0">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-rim">
+                  <span className="text-xs font-semibold text-ink-2 uppercase tracking-wider">Comments</span>
+                  <button onClick={() => setShowCommentSidebar(false)} className="text-ink-3 hover:text-ink">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <CommentSidebar
+                  threads={commentThreads}
+                  sessionId={session_id as string}
+                  apiFetch={apiFetch}
+                  onThreadCreated={fetchThreads}
+                />
+              </div>
+            )}
           </div>
+        )}
+
+        {viewMode === "canvas" && (
+          <div className="flex h-full">
+            {/* Collapsible chat panel */}
+            <div
+              className={`shrink-0 overflow-hidden border-r border-rim transition-[width] duration-200 ${
+                chatCollapsed ? "w-0 border-r-0" : "w-[340px]"
+              }`}
+            >
+              {!chatCollapsed && (
+                <InspectorPanel
+                  selectedNode={selectedNode}
+                  nodeEvents={nodeEvents}
+                  nodeEventsLoading={nodeEventsLoading}
+                  allNodes={session.nodes}
+                  credentialStatus={credentialStatus}
+                  catalogMap={catalogMap}
+                  sessionStatus={session.status}
+                  onNodeUpdate={handleNodeUpdate}
+                  thinkingBlocks={thinkingBlocks}
+                  thinkingBlocksLoading={thinkingBlocksLoading}
+                  liveThinkingChunks={liveThinkingChunks}
+                  nodeMessages={nodeMessages}
+                  nodeMessagesLoading={nodeMessagesLoading}
+                  onReply={handleReply}
+                  streamEntries={streamEntries}
+                  streamLoading={streamLoading}
+                  liveTextChunks={liveTextChunks}
+                  failures={failures}
+                  onNodeSelect={handleNodeClick}
+                  masterNode={masterNode}
+                  masterStreamEntries={masterStreamEntries}
+                  masterStreamLoading={masterStreamLoading}
+                  masterLiveTextChunks={masterLiveTextChunks}
+                  masterLiveThinkingChunks={masterLiveThinkingChunks}
+                  planningMessages={planningMessages}
+                  planningError={planningError}
+                />
+              )}
+            </div>
+
+            {/* Canvas */}
+            <div className="relative flex-1 min-w-0 bg-surface">
+              {/* Chat collapse/expand toggle */}
+              <button
+                onClick={() => setChatCollapsed(prev => !prev)}
+                className="absolute top-2 left-2 z-20 p-1.5 rounded-md border border-rim bg-page/80 backdrop-blur-sm text-ink-3 hover:text-ink hover:bg-surface transition-colors shadow-sm"
+                title={chatCollapsed ? "Show chat" : "Hide chat"}
+              >
+                {chatCollapsed ? (
+                  <PanelLeftOpen className="w-4 h-4" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+              </button>
+
+              <ExecutionCanvas
+                ref={canvasRef}
+                nodes={session.nodes}
+                sessionStatus={session.status}
+                selectedNodeId={selectedNodeId}
+                onNodeClick={handleNodeClick}
+                onZoomChange={setZoomLevel}
+                credentialStatus={credentialStatus}
+                catalogMap={catalogMap}
+                livePreviewMap={livePreviewMap}
+              />
+              <CanvasToolbar
+                zoomLevel={zoomLevel}
+                onZoomIn={() => canvasRef.current?.zoomIn()}
+                onZoomOut={() => canvasRef.current?.zoomOut()}
+                onFitToScreen={() => canvasRef.current?.resetTransform()}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Quick Ask floating panel */}
+      {showQuickAsk && (
+        <div
+          className="fixed z-50 rounded-lg border border-rim bg-surface shadow-lg overflow-hidden flex flex-col"
+          style={{ bottom: 56, right: 16, width: 350, height: 400 }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b border-rim bg-gray-50 shrink-0">
+            <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">Quick Ask</span>
+            <button onClick={() => setShowQuickAsk(false)} className="text-ink-3 hover:text-ink">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <ProjectChat
+            projectId={session?.project_id ?? undefined}
+            sessionId={session_id as string}
+            apiFetch={apiFetch}
+          />
         </div>
       )}
+      <button
+        onClick={() => setShowQuickAsk(prev => !prev)}
+        className="fixed z-50 bottom-4 right-4 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand text-white shadow-lg hover:bg-brand-hover transition-colors text-xs font-medium"
+      >
+        <MessageCircle className="w-4 h-4" />
+        Quick Ask
+      </button>
     </div>
   );
 }

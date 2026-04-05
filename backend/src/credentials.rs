@@ -57,25 +57,19 @@ pub async fn upsert_credential(
     encrypted_value: &[u8],
     metadata: Option<&Value>,
 ) -> anyhow::Result<Uuid> {
-    let slug_esc = integration_slug.replace('\'', "''");
-    let type_esc = credential_type.replace('\'', "''");
-    let hex_val = hex::encode(encrypted_value);
-    let meta = metadata
-        .map(|m| m.to_string())
-        .unwrap_or_else(|| "{}".to_string());
-    let meta_esc = meta.replace('\'', "''");
+    let meta = metadata.cloned().unwrap_or(serde_json::json!({}));
 
-    let sql = format!(
+    let rows = db.execute_with(
         "INSERT INTO client_credentials (client_id, integration_slug, credential_type, encrypted_value, metadata) \
-         VALUES ('{client_id}', '{slug_esc}', '{type_esc}', '\\x{hex_val}'::bytea, '{meta_esc}'::jsonb) \
+         VALUES ($1, $2, $3, $4, $5) \
          ON CONFLICT (client_id, integration_slug) DO UPDATE SET \
          credential_type = EXCLUDED.credential_type, \
          encrypted_value = EXCLUDED.encrypted_value, \
          metadata = EXCLUDED.metadata, \
          updated_at = NOW() \
-         RETURNING id"
-    );
-    let rows = db.execute(&sql).await?;
+         RETURNING id",
+        crate::pg_args!(client_id, integration_slug.to_string(), credential_type.to_string(), encrypted_value.to_vec(), meta),
+    ).await?;
     let id = rows
         .first()
         .and_then(|r| r.get("id"))
@@ -86,11 +80,11 @@ pub async fn upsert_credential(
 }
 
 pub async fn list_credentials(db: &PgClient, client_id: Uuid) -> anyhow::Result<Vec<Value>> {
-    let sql = format!(
+    Ok(db.execute_with(
         "SELECT id, integration_slug, credential_type, metadata, created_at, updated_at \
-         FROM client_credentials WHERE client_id = '{client_id}' ORDER BY integration_slug"
-    );
-    Ok(db.execute(&sql).await?)
+         FROM client_credentials WHERE client_id = $1 ORDER BY integration_slug",
+        crate::pg_args!(client_id),
+    ).await?)
 }
 
 pub async fn delete_credential(
@@ -98,11 +92,10 @@ pub async fn delete_credential(
     client_id: Uuid,
     integration_slug: &str,
 ) -> anyhow::Result<bool> {
-    let slug_esc = integration_slug.replace('\'', "''");
-    let sql = format!(
-        "DELETE FROM client_credentials WHERE client_id = '{client_id}' AND integration_slug = '{slug_esc}'"
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "DELETE FROM client_credentials WHERE client_id = $1 AND integration_slug = $2",
+        crate::pg_args!(client_id, integration_slug.to_string()),
+    ).await?;
     Ok(true)
 }
 
@@ -111,11 +104,12 @@ pub async fn load_credentials_for_client(
     master_key_hex: &str,
     client_id: Uuid,
 ) -> anyhow::Result<CredentialMap> {
-    let sql = format!(
+    let rows = db.execute_with(
         "SELECT integration_slug, credential_type, encrypted_value, metadata \
-         FROM client_credentials WHERE client_id = '{client_id}'"
-    );
-    decrypt_rows(&db.execute(&sql).await?, master_key_hex)
+         FROM client_credentials WHERE client_id = $1",
+        crate::pg_args!(client_id),
+    ).await?;
+    decrypt_rows(&rows, master_key_hex)
 }
 
 /// Load credentials for a project with fallback to client-level defaults.
@@ -128,11 +122,12 @@ pub async fn load_credentials_for_project(
 ) -> anyhow::Result<CredentialMap> {
     let mut map = load_credentials_for_client(db, master_key_hex, client_id).await?;
 
-    let sql = format!(
+    let proj_rows = db.execute_with(
         "SELECT integration_slug, credential_type, encrypted_value, metadata \
-         FROM project_credentials WHERE project_id = '{project_id}'"
-    );
-    let project_creds = decrypt_rows(&db.execute(&sql).await?, master_key_hex)?;
+         FROM project_credentials WHERE project_id = $1",
+        crate::pg_args!(project_id),
+    ).await?;
+    let project_creds = decrypt_rows(&proj_rows, master_key_hex)?;
 
     // Project-level overrides client-level
     for (slug, cred) in project_creds {
@@ -150,25 +145,19 @@ pub async fn upsert_project_credential(
     encrypted_value: &[u8],
     metadata: Option<&Value>,
 ) -> anyhow::Result<Uuid> {
-    let slug_esc = integration_slug.replace('\'', "''");
-    let type_esc = credential_type.replace('\'', "''");
-    let hex_val = hex::encode(encrypted_value);
-    let meta = metadata
-        .map(|m| m.to_string())
-        .unwrap_or_else(|| "{}".to_string());
-    let meta_esc = meta.replace('\'', "''");
+    let meta = metadata.cloned().unwrap_or(serde_json::json!({}));
 
-    let sql = format!(
+    let rows = db.execute_with(
         "INSERT INTO project_credentials (project_id, integration_slug, credential_type, encrypted_value, metadata) \
-         VALUES ('{project_id}', '{slug_esc}', '{type_esc}', '\\x{hex_val}'::bytea, '{meta_esc}'::jsonb) \
+         VALUES ($1, $2, $3, $4, $5) \
          ON CONFLICT (project_id, integration_slug) DO UPDATE SET \
          credential_type = EXCLUDED.credential_type, \
          encrypted_value = EXCLUDED.encrypted_value, \
          metadata = EXCLUDED.metadata, \
          updated_at = NOW() \
-         RETURNING id"
-    );
-    let rows = db.execute(&sql).await?;
+         RETURNING id",
+        crate::pg_args!(project_id, integration_slug.to_string(), credential_type.to_string(), encrypted_value.to_vec(), meta),
+    ).await?;
     let id = rows
         .first()
         .and_then(|r| r.get("id"))
@@ -179,11 +168,11 @@ pub async fn upsert_project_credential(
 }
 
 pub async fn list_project_credentials(db: &PgClient, project_id: Uuid) -> anyhow::Result<Vec<Value>> {
-    let sql = format!(
+    Ok(db.execute_with(
         "SELECT id, integration_slug, credential_type, metadata, created_at, updated_at \
-         FROM project_credentials WHERE project_id = '{project_id}' ORDER BY integration_slug"
-    );
-    Ok(db.execute(&sql).await?)
+         FROM project_credentials WHERE project_id = $1 ORDER BY integration_slug",
+        crate::pg_args!(project_id),
+    ).await?)
 }
 
 pub async fn delete_project_credential(
@@ -191,11 +180,10 @@ pub async fn delete_project_credential(
     project_id: Uuid,
     integration_slug: &str,
 ) -> anyhow::Result<bool> {
-    let slug_esc = integration_slug.replace('\'', "''");
-    let sql = format!(
-        "DELETE FROM project_credentials WHERE project_id = '{project_id}' AND integration_slug = '{slug_esc}'"
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "DELETE FROM project_credentials WHERE project_id = $1 AND integration_slug = $2",
+        crate::pg_args!(project_id, integration_slug.to_string()),
+    ).await?;
     Ok(true)
 }
 

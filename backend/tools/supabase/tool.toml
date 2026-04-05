@@ -1,0 +1,12 @@
+id = "supabase"
+name = "Supabase"
+category = "frontend-database"
+description = "Open-source Firebase alternative. PostgreSQL database with REST API, real-time subscriptions, auth, edge functions, and row-level security."
+required_credentials = ["supabase"]
+enabled = true
+
+[tradeoffs]
+automation = "full"
+api_access = "full"
+cost = "free-tier-available"
+notes = "Full CRUD via REST API (PostgREST). RLS policies control data visibility. Edge Functions for server-side logic. Project URL and API key required."

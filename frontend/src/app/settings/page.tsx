@@ -3,10 +3,53 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { KeyRound, User, ChevronRight, Plus } from "lucide-react";
+import {
+  KeyRound,
+  User,
+  ChevronRight,
+  Plus,
+  GitPullRequest,
+  MessageSquare,
+  Table2,
+  FlaskConical,
+} from "lucide-react";
+
+const settingsSections = [
+  {
+    href: "/settings/integrations",
+    icon: KeyRound,
+    label: "Integrations",
+    description: "Manage API keys and OAuth connections for your agents",
+    requiresWorkspace: true,
+  },
+  {
+    href: "/agent-prs",
+    icon: GitPullRequest,
+    label: "Agent PRs",
+    description: "Review proposed agent updates from observation sessions",
+  },
+  {
+    href: "/feedback",
+    icon: MessageSquare,
+    label: "Feedback",
+    description: "Signals, patterns, and the feedback synthesis pipeline",
+  },
+  {
+    href: "/data-viewer",
+    icon: Table2,
+    label: "Data Viewer",
+    description: "Browse database tables and run ad-hoc SQL queries",
+  },
+  {
+    href: "/testing",
+    icon: FlaskConical,
+    label: "Testing",
+    description: "Scripted demos, live tests, and shadow sessions",
+  },
+];
 
 export default function SettingsPage() {
-  const { user, clients, activeClient, setActiveClient, apiFetch, token } = useAuth();
+  const { user, clients, activeClient, setActiveClient, apiFetch } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -17,7 +60,11 @@ export default function SettingsPage() {
     setCreating(true);
     setCreateError("");
     try {
-      const slug = newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const slug = newName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
       const res = await apiFetch("/api/auth/workspaces", {
         method: "POST",
         body: JSON.stringify({ slug, name: newName.trim() }),
@@ -32,23 +79,12 @@ export default function SettingsPage() {
       setNewName("");
       window.location.reload();
     } catch (e: unknown) {
-      setCreateError(e instanceof Error ? e.message : "Failed to create workspace");
+      setCreateError(
+        e instanceof Error ? e.message : "Failed to create workspace"
+      );
     } finally {
       setCreating(false);
     }
-  };
-
-  const joinExistingWorkspace = async (clientSlug: string) => {
-    try {
-      const res = await apiFetch("/api/auth/workspaces", {
-        method: "POST",
-        body: JSON.stringify({ slug: clientSlug, name: clientSlug }),
-      });
-      if (res.ok) {
-        setActiveClient(clientSlug);
-        window.location.reload();
-      }
-    } catch {}
   };
 
   return (
@@ -167,7 +203,11 @@ export default function SettingsPage() {
                 {creating ? "Creating..." : "Create"}
               </button>
               <button
-                onClick={() => { setShowCreate(false); setNewName(""); setCreateError(""); }}
+                onClick={() => {
+                  setShowCreate(false);
+                  setNewName("");
+                  setCreateError("");
+                }}
                 className="px-4 py-1.5 rounded text-xs font-medium text-ink-3 hover:text-ink border border-rim"
               >
                 Cancel
@@ -177,25 +217,28 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Navigation */}
+      {/* Sub-section navigation */}
       <section className="space-y-2">
-        <Link
-          href="/settings/integrations"
-          className={`flex items-center gap-3 px-5 py-4 border border-rim rounded-lg bg-page hover:border-rim-strong transition-colors group ${
-            !activeClient ? "opacity-50 pointer-events-none" : ""
-          }`}
-        >
-          <KeyRound className="w-5 h-5 text-ink-3 group-hover:text-brand transition-colors" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-ink">Integrations</p>
-            <p className="text-xs text-ink-3">
-              {activeClient
-                ? "Manage API keys and OAuth connections for your agents"
-                : "Create a workspace first to manage integrations"}
-            </p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-ink-3" />
-        </Link>
+        {settingsSections.map((section) => {
+          const Icon = section.icon;
+          const disabled = section.requiresWorkspace && !activeClient;
+          return (
+            <Link
+              key={section.href}
+              href={section.href}
+              className={`flex items-center gap-3 px-5 py-4 border border-rim rounded-lg bg-page hover:border-rim-strong transition-colors group ${
+                disabled ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
+              <Icon className="w-5 h-5 text-ink-3 group-hover:text-brand transition-colors shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-ink">{section.label}</p>
+                <p className="text-xs text-ink-3">{section.description}</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-ink-3 shrink-0" />
+            </Link>
+          );
+        })}
       </section>
     </div>
   );

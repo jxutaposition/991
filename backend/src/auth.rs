@@ -60,20 +60,15 @@ pub async fn google_sign_in(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("No sub in Google token"))?;
 
-    let email_esc = email.replace('\'', "''");
-    let name_esc = name.replace('\'', "''");
-    let avatar_esc = avatar.replace('\'', "''");
-    let gid_esc = google_id.replace('\'', "''");
-
     // Upsert user
-    let sql = format!(
+    let rows = db.execute_with(
         "INSERT INTO users (email, name, avatar_url, google_id) \
-         VALUES ('{email_esc}', '{name_esc}', '{avatar_esc}', '{gid_esc}') \
+         VALUES ($1, $2, $3, $4) \
          ON CONFLICT (google_id) DO UPDATE SET \
          name = EXCLUDED.name, avatar_url = EXCLUDED.avatar_url, updated_at = NOW() \
-         RETURNING id"
-    );
-    let rows = db.execute(&sql).await?;
+         RETURNING id",
+        crate::pg_args!(email.to_string(), name.to_string(), avatar.to_string(), google_id.to_string()),
+    ).await?;
     let user_id: Uuid = rows
         .first()
         .and_then(|r| r.get("id"))
@@ -99,11 +94,10 @@ pub async fn google_sign_in(
     // Store session
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
     let expires_at = chrono::Utc::now() + chrono::Duration::days(7);
-    let sql = format!(
-        "INSERT INTO user_sessions (user_id, token_hash, expires_at) \
-         VALUES ('{user_id}', '{token_hash}', '{expires_at}')"
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+        crate::pg_args!(user_id, token_hash, expires_at),
+    ).await?;
 
     Ok((
         token,
@@ -140,6 +134,16 @@ pub async fn auth_middleware(
             )
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
+            // Verify session exists and hasn't been revoked
+            let token_hash = hex::encode(sha2::Sha256::digest(token.as_bytes()));
+            let session_rows = state.db.execute_with(
+                "SELECT 1 FROM user_sessions WHERE token_hash = $1 AND expires_at > NOW()",
+                crate::pg_args!(token_hash),
+            ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if session_rows.is_empty() {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+
             let user = AuthenticatedUser {
                 user_id: claims
                     .claims
@@ -163,10 +167,10 @@ pub async fn check_client_role(
     client_id: Uuid,
     required_role: &str,
 ) -> anyhow::Result<bool> {
-    let sql = format!(
-        "SELECT role FROM user_client_roles WHERE user_id = '{user_id}' AND client_id = '{client_id}'"
-    );
-    let rows = db.execute(&sql).await?;
+    let rows = db.execute_with(
+        "SELECT role FROM user_client_roles WHERE user_id = $1 AND client_id = $2",
+        crate::pg_args!(user_id, client_id),
+    ).await?;
     let user_role = rows
         .first()
         .and_then(|r| r.get("role"))

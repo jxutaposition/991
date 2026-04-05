@@ -12,6 +12,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use lele2_backend::{
+    tool_catalog::ToolCatalog,
     agent_catalog::AgentCatalog,
     config::Settings,
     pattern_promoter,
@@ -58,6 +59,18 @@ async fn main() -> anyhow::Result<()> {
         SkillCatalog::load(&db).await.expect("failed to load skill catalog"),
     );
     info!("loaded {} skills", skill_catalog.len());
+    // Load tool catalog (seeds from backend/tools/ if DB is empty)
+    info!("loading tool catalog from DB (seed dir: {:?})", settings.tools_dir);
+    let tool_catalog = Arc::new(
+        ToolCatalog::load(&db, &settings.tools_dir)
+            .await
+            .expect("failed to load tool catalog"),
+    );
+    info!(
+        "loaded {} tools in {} categories",
+        tool_catalog.tool_count(),
+        tool_catalog.category_count()
+    );
 
     let event_bus = EventBus::new();
 
@@ -80,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         event_bus: event_bus.clone(),
         catalog: catalog.clone(),
         skill_catalog: skill_catalog.clone(),
+        tool_catalog: tool_catalog.clone(),
         #[cfg(feature = "slack")]
         slack: slack_client,
     });
@@ -91,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         db.clone(),
         catalog.clone(),
         skill_catalog.clone(),
+        tool_catalog.clone(),
         event_bus.clone(),
         shutdown_rx.clone(),
     );
@@ -201,6 +216,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/catalog/:slug/stats", get(routes::catalog_agent_stats))
         // Skills
         .route("/api/skills", get(routes::skills_list))
+        // Platform Tools (SD-004)
+        .route("/api/tools", get(routes::tools_list))
+        .route("/api/tools/:tool_id", get(routes::tools_get))
+        .route("/api/tool-categories", get(routes::tool_categories_list))
         // Projects
         .route("/api/projects", get(routes::projects_list))
         .route("/api/projects", post(routes::project_create))
@@ -218,7 +237,36 @@ async fn main() -> anyhow::Result<()> {
         // Overlays
         .route("/api/overlays", get(routes::overlays_list))
         .route("/api/overlays/promote", post(routes::overlays_promote))
-        .route("/api/overlays/:overlay_id/history", get(routes::overlay_history));
+        .route("/api/overlays/:overlay_id/history", get(routes::overlay_history))
+        // Knowledge Corpus (SD-003 Part 9-10)
+        .route("/api/knowledge/documents", get(routes::knowledge_documents_list))
+        .route("/api/knowledge/documents", post(routes::knowledge_document_upload))
+        .route("/api/knowledge/documents/:doc_id", get(routes::knowledge_document_get))
+        .route("/api/knowledge/documents/:doc_id", axum::routing::delete(routes::knowledge_document_delete))
+        .route("/api/knowledge/documents/:doc_id/chunks", get(routes::knowledge_document_chunks))
+        .route("/api/knowledge/documents/:doc_id/progress", get(routes::knowledge_document_progress))
+        .route("/api/knowledge/folders", get(routes::knowledge_folders))
+        .route("/api/knowledge/folders/delete", post(routes::knowledge_folder_delete))
+        .route("/api/knowledge/search", post(routes::knowledge_search))
+        .merge(
+            Router::new()
+                .route("/api/knowledge/upload", post(routes::knowledge_document_upload_multipart))
+                .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024))
+        )
+        // Living System Descriptions (SD-005)
+        .route("/api/projects/:project_id/descriptions", get(routes::project_description_get).post(routes::project_description_create))
+        .route("/api/projects/:project_id/descriptions/update", axum::routing::patch(routes::project_description_update))
+        .route("/api/projects/:project_id/execute", post(routes::project_execute_rich))
+        .route("/api/execute/:session_id/nodes/:node_id/description", axum::routing::patch(routes::execution_node_description_update))
+        .route("/api/execute/:session_id/issues", get(routes::execution_session_issues))
+        .route("/api/execute/:session_id/nodes/:node_id/issues", post(routes::execution_node_issue_create))
+        .route("/api/execute/:session_id/issues/:issue_id", axum::routing::patch(routes::execution_issue_update))
+        // Description Threads (conversational editing)
+        .route("/api/execute/:session_id/threads", get(routes::thread_list).post(routes::thread_create))
+        .route("/api/execute/:session_id/threads/:thread_id/messages", post(routes::thread_message_create))
+        .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
+        // Project Chat (agent buddy)
+        .route("/api/projects/:project_id/chat", post(routes::project_chat));
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]

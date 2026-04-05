@@ -1,0 +1,12 @@
+id = "notion"
+name = "Notion"
+category = "documentation"
+description = "Workspace for docs, wikis, and databases. Full REST API for pages, databases, blocks, and search. Internal integrations require explicit page sharing."
+required_credentials = ["notion"]
+enabled = true
+
+[tradeoffs]
+automation = "full"
+api_access = "full"
+cost = "free-tier-available"
+notes = "Full CRUD via REST API. Internal integration tokens can only access pages explicitly shared with the integration. Rollup fields are NOT writable via API. Rich text blocks have 2000 char limit."

@@ -24,11 +24,12 @@ pub async fn run_extraction(
 ) -> anyhow::Result<()> {
     info!(session = %session_id, "starting extraction pipeline");
 
-    let dist_sql = format!(
-        "SELECT narrator_text, expert_correction, sequence_ref FROM distillations WHERE session_id = '{}' ORDER BY sequence_ref",
-        session_id
-    );
-    let distillations = db.execute(&dist_sql).await?;
+    let sid: uuid::Uuid = session_id.parse()
+        .map_err(|_| anyhow::anyhow!("invalid session_id UUID"))?;
+    let distillations = db.execute_with(
+        "SELECT narrator_text, expert_correction, sequence_ref FROM distillations WHERE session_id = $1 ORDER BY sequence_ref",
+        crate::pg_args!(sid),
+    ).await?;
 
     if distillations.is_empty() {
         info!(session = %session_id, "no distillations — skipping extraction");
@@ -43,14 +44,13 @@ pub async fn run_extraction(
 
     // Persist tasks (now includes expert_heuristic)
     for task in &tasks {
-        let desc_escaped = task.description.replace('\'', "''");
-        let heuristic_escaped = task.expert_heuristic.replace('\'', "''");
-        let sql = format!(
-            r#"INSERT INTO abstracted_tasks (id, session_id, description, expert_heuristic, status)
-               VALUES ('{}', '{}', '{}', '{}', 'pending')"#,
-            task.id, session_id, desc_escaped, heuristic_escaped
-        );
-        let _ = db.execute(&sql).await;
+        if let Err(e) = db.execute_with(
+            "INSERT INTO abstracted_tasks (id, session_id, description, expert_heuristic, status) \
+             VALUES ($1, $2, $3, $4, 'pending')",
+            crate::pg_args!(task.id, sid, task.description.clone(), task.expert_heuristic.clone()),
+        ).await {
+            warn!(task_id = %task.id, error = %e, "failed to persist abstracted task");
+        }
     }
 
     // Step 2: Match tasks to agents
@@ -60,17 +60,17 @@ pub async fn run_extraction(
 
     for m in &matches {
         let status = if m.confidence >= 0.60 { "matched" } else { "unmatched" };
-        let slug_val = m
-            .matched_agent_slug
-            .as_deref()
-            .map(|s| format!("'{}'", s.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".to_string());
-
-        let sql = format!(
-            "UPDATE abstracted_tasks SET matched_agent_slug = {}, match_confidence = {}, status = '{}' WHERE id = '{}'",
-            slug_val, m.confidence, status, m.task_id
-        );
-        let _ = db.execute(&sql).await;
+        if let Err(e) = db.execute_with(
+            "UPDATE abstracted_tasks SET matched_agent_slug = $1, match_confidence = $2, status = $3 WHERE id = $4",
+            crate::pg_args!(
+                m.matched_agent_slug.clone(),
+                m.confidence,
+                status.to_string(),
+                m.task_id
+            ),
+        ).await {
+            warn!(task_id = %m.task_id, error = %e, "failed to update task match");
+        }
     }
 
     // Step 3: Drift detection for high-confidence matches

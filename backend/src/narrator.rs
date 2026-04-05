@@ -132,20 +132,22 @@ pub async fn persist_narration(
     model: &str,
 ) -> anyhow::Result<String> {
     let id = uuid::Uuid::new_v4();
-    let text_escaped = narrator_text.replace('\'', "''");
-    let sql = format!(
-        r#"
-        INSERT INTO distillations (id, session_id, sequence_ref, narrator_text, model)
-        VALUES ('{id}', '{session_id}', {sequence_ref}, '{text_escaped}', '{model}')
-        "#
-    );
-    db.execute(&sql).await?;
+    let sid: uuid::Uuid = session_id.parse()
+        .map_err(|_| anyhow::anyhow!("invalid session_id UUID"))?;
+
+    db.execute_with(
+        "INSERT INTO distillations (id, session_id, sequence_ref, narrator_text, model) \
+         VALUES ($1, $2, $3, $4, $5)",
+        crate::pg_args!(id, sid, sequence_ref, narrator_text.to_string(), model.to_string()),
+    ).await?;
 
     // Increment distillation_count on the session
-    let count_sql = format!(
-        "UPDATE observation_sessions SET distillation_count = distillation_count + 1 WHERE id = '{session_id}'"
-    );
-    let _ = db.execute(&count_sql).await;
+    if let Err(e) = db.execute_with(
+        "UPDATE observation_sessions SET distillation_count = distillation_count + 1 WHERE id = $1",
+        crate::pg_args!(sid),
+    ).await {
+        warn!(session = %session_id, error = %e, "failed to increment distillation_count");
+    }
 
     info!(session = %session_id, seq = sequence_ref, "narration persisted");
     Ok(id.to_string())
@@ -157,17 +159,17 @@ pub async fn load_prior_narrations(
     session_id: &str,
     limit: i64,
 ) -> Vec<PriorNarration> {
-    let sql = format!(
-        r#"
-        SELECT sequence_ref, narrator_text, expert_correction
-        FROM distillations
-        WHERE session_id = '{session_id}'
-        ORDER BY sequence_ref DESC
-        LIMIT {limit}
-        "#
-    );
+    let sid = match session_id.parse::<uuid::Uuid>() {
+        Ok(id) => id,
+        Err(_) => return Vec::new(),
+    };
+    let clamped_limit = limit.min(100).max(1);
 
-    match db.execute(&sql).await {
+    match db.execute_with(
+        "SELECT sequence_ref, narrator_text, expert_correction \
+         FROM distillations WHERE session_id = $1 ORDER BY sequence_ref DESC LIMIT $2",
+        crate::pg_args!(sid, clamped_limit),
+    ).await {
         Ok(rows) => {
             let mut narrations: Vec<PriorNarration> = rows
                 .iter()
@@ -194,22 +196,26 @@ pub async fn load_prior_narrations(
 
 /// Compute a coverage score for a completed session (0.0–1.0).
 pub async fn compute_coverage_score(db: &PgClient, session_id: &str) -> f64 {
-    let total_sql = format!(
-        "SELECT COUNT(*) as total FROM action_events WHERE session_id = '{session_id}'"
-    );
-    let narrated_sql = format!(
-        "SELECT COUNT(DISTINCT sequence_ref) as narrated FROM distillations WHERE session_id = '{session_id}'"
-    );
+    let sid = match session_id.parse::<uuid::Uuid>() {
+        Ok(id) => id,
+        Err(_) => return 0.0,
+    };
 
     let total = db
-        .execute(&total_sql)
+        .execute_with(
+            "SELECT COUNT(*) as total FROM action_events WHERE session_id = $1",
+            crate::pg_args!(sid),
+        )
         .await
         .ok()
         .and_then(|r| r.first()?.get("total")?.as_i64())
         .unwrap_or(0);
 
     let narrated = db
-        .execute(&narrated_sql)
+        .execute_with(
+            "SELECT COUNT(DISTINCT sequence_ref) as narrated FROM distillations WHERE session_id = $1",
+            crate::pg_args!(sid),
+        )
         .await
         .ok()
         .and_then(|r| r.first()?.get("narrated")?.as_i64())

@@ -14,7 +14,6 @@ import {
   Check,
   Send,
   MessageCircle,
-  Activity,
   Hand,
 } from "lucide-react";
 import type { ExecutionNode } from "./execution-canvas";
@@ -48,7 +47,7 @@ interface ConversationStreamProps {
 
 function StreamingCursor() {
   return (
-    <span className="inline-block w-1.5 h-4 bg-ink animate-pulse ml-0.5 align-middle" />
+    <span className="inline-block w-0.5 h-[1.1em] bg-brand animate-pulse ml-px align-text-bottom" />
   );
 }
 
@@ -70,7 +69,6 @@ export function ConversationStream({
     Object.keys(liveTextChunks).length > 0 ||
     Object.keys(liveThinkingChunks).length > 0;
 
-  // Auto-scroll to bottom when entries or live chunks change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -98,20 +96,6 @@ export function ConversationStream({
     [handleSend]
   );
 
-  const canReply =
-    selectedNode.status === "awaiting_reply" ||
-    selectedNode.status === "passed" ||
-    selectedNode.status === "failed";
-
-  // Filter out noisy internal events
-  const HIDDEN_EVENTS = new Set([
-    "executor_start",
-    "executor_llm_send",
-    "executor_llm_receive",
-    "executor_thinking",
-  ]);
-
-  // Dedup guard: track which block indices have finalized assistant entries
   const finalizedAssistantCount = useMemo(
     () =>
       entries.filter(
@@ -127,29 +111,24 @@ export function ConversationStream({
   return (
     <div className="flex flex-col h-full">
       {/* Stream area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1.5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-2 space-y-1">
         {loading ? (
-          <p className="text-sm text-ink-3">Loading conversation...</p>
+          <p className="text-sm text-ink-3 px-4 py-4">Loading conversation...</p>
         ) : entries.length === 0 && !hasLiveContent ? (
-          <div className="text-center py-8">
-            <Activity className="w-8 h-8 text-ink-3/30 mx-auto mb-2" />
+          <div className="text-center py-12 px-4">
             <p className="text-sm text-ink-3">
               {selectedNode.status === "running"
-                ? "Conversation will appear as the agent runs..."
+                ? "Waiting for agent output..."
                 : selectedNode.status === "pending" ||
                     selectedNode.status === "ready"
-                  ? "Conversation will appear once execution starts."
-                  : "No activity recorded for this node."}
+                  ? "Chat will appear once execution starts."
+                  : "No activity yet."}
             </p>
           </div>
         ) : (
           <>
             {entries.map((entry, i) => {
-              if (
-                entry.stream_type === "event" &&
-                HIDDEN_EVENTS.has(entry.sub_type)
-              )
-                return null;
+              if (entry.stream_type === "event") return null;
 
               switch (entry.stream_type) {
                 case "thinking":
@@ -186,17 +165,10 @@ export function ConversationStream({
                     );
                   }
                   return (
-                    <StreamChatBubble
+                    <StreamChatMessage
                       key={entry.id ?? `m-${i}`}
                       entry={entry}
                       isStreaming={false}
-                    />
-                  );
-                case "event":
-                  return (
-                    <StreamEventPill
-                      key={entry.id ?? `e-${i}`}
-                      entry={entry}
                     />
                   );
                 default:
@@ -204,7 +176,7 @@ export function ConversationStream({
               }
             })}
 
-            {/* Live thinking chunks (dedup: only show if not yet finalized) */}
+            {/* Live thinking chunks */}
             {Object.entries(liveThinkingChunks)
               .filter(
                 ([blockIdx]) =>
@@ -224,14 +196,14 @@ export function ConversationStream({
                 />
               ))}
 
-            {/* Live text chunks (dedup: only show if not yet finalized) */}
+            {/* Live text chunks */}
             {Object.entries(liveTextChunks)
               .filter(
                 ([blockIdx]) =>
                   Number(blockIdx) >= finalizedAssistantCount
               )
               .map(([blockIdx, text]) => (
-                <StreamChatBubble
+                <StreamChatMessage
                   key={`live-text-${blockIdx}`}
                   entry={{
                     stream_type: "message",
@@ -247,13 +219,13 @@ export function ConversationStream({
         {selectedNode.status === "running" &&
           entries.length === 0 &&
           !hasLiveContent && (
-            <div className="flex items-center gap-2 px-3 py-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              <span className="text-xs text-ink-3">Agent is working...</span>
+            <div className="flex items-center gap-2 px-4 py-2">
+              <div className="w-1.5 h-1.5 bg-brand rounded-full animate-pulse" />
+              <span className="text-sm text-ink-3">Agent is working...</span>
             </div>
           )}
         {selectedNode.status === "awaiting_reply" && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200">
+          <div className="flex items-center gap-2 mx-4 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200">
             <MessageCircle className="w-3.5 h-3.5 text-amber-600" />
             <span className="text-xs text-amber-700">
               Agent is waiting for your reply
@@ -262,42 +234,35 @@ export function ConversationStream({
         )}
       </div>
 
-      {/* Reply input */}
-      {canReply && onReply && (
-        <div className="border-t border-rim p-3 shrink-0">
+      {/* Reply input -- always visible */}
+      {onReply && (
+        <div className="border-t border-rim px-4 py-3 shrink-0">
           <div className="flex items-end gap-2">
             <textarea
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                selectedNode.status === "awaiting_reply"
-                  ? "Reply to the agent..."
-                  : "Continue the conversation..."
-              }
-              className="flex-1 text-sm text-ink border border-rim rounded-lg p-2 leading-relaxed resize-none min-h-[36px] max-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand"
+              placeholder="Send a message..."
+              className="flex-1 text-sm text-ink border border-rim rounded-lg px-3 py-2 leading-relaxed resize-none min-h-[40px] max-h-[120px] focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand bg-surface"
               rows={1}
               disabled={sending}
             />
             <button
               onClick={handleSend}
               disabled={!replyText.trim() || sending}
-              className="shrink-0 p-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 transition-colors"
-              title="Send reply"
+              className="shrink-0 p-2.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-40 transition-colors"
+              title="Send"
             >
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-[10px] text-ink-3 mt-1.5">
-            Press Enter to send, Shift+Enter for new line
-          </p>
         </div>
       )}
     </div>
   );
 }
 
-// ── Thinking Block ───────────────────────────────────────────────────────────
+// ── Thinking Block (minimal, Cursor-style) ──────────────────────────────────
 
 function StreamThinkingBlock({
   entry,
@@ -310,86 +275,40 @@ function StreamThinkingBlock({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const text = entry.thinking_text ?? "";
-  const previewLength = 120;
-  const preview =
-    text.length > previewLength
-      ? text.slice(0, previewLength).trimEnd() + "\u2026"
-      : text;
 
-  // Auto-open while streaming
   useEffect(() => {
     if (isStreaming) setOpen(true);
   }, [isStreaming]);
 
   return (
-    <div
-      className={`rounded-lg border overflow-hidden ${
-        isStreaming
-          ? "border-violet-400/40 bg-violet-500/5 border-l-2 border-l-violet-400"
-          : "border-violet-500/10 bg-violet-500/[0.03]"
-      }`}
-    >
+    <div className="mx-4 my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-violet-500/5 transition-colors"
+        className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2 py-1 transition-colors"
       >
         {open ? (
-          <ChevronDown className="w-3 h-3 text-violet-400 shrink-0" />
+          <ChevronDown className="w-3 h-3 shrink-0" />
         ) : (
-          <ChevronRight className="w-3 h-3 text-violet-400 shrink-0" />
+          <ChevronRight className="w-3 h-3 shrink-0" />
         )}
-        <Brain className="w-3 h-3 text-violet-400 shrink-0" />
-        <span className="text-xs font-medium text-violet-600">
-          Thinking{entry.iteration != null ? ` (iter ${entry.iteration})` : ""}
-          {isStreaming && (
-            <span className="text-[9px] font-medium text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded-full ml-2">
-              LIVE
-            </span>
-          )}
-        </span>
-        <span className="ml-auto flex items-center gap-2">
-          {entry.token_count != null && (
-            <span className="text-[9px] text-violet-500/70 font-mono">
-              {entry.token_count.toLocaleString()} tokens
-            </span>
-          )}
-        </span>
+        <Brain className="w-3 h-3 shrink-0" />
+        <span>Thinking{isStreaming ? "..." : ""}</span>
       </button>
-      {!open && (
-        <div className="px-3 pb-1.5 -mt-0.5">
-          <p className="text-xs text-ink-3 font-mono truncate">
-            {preview}
-            {isStreaming && <StreamingCursor />}
-          </p>
-        </div>
-      )}
       {open && (
-        <div className="border-t border-violet-500/10">
-          <div className="px-3 py-2 max-h-[400px] overflow-y-auto">
-            <pre className="text-xs font-mono text-ink-2 whitespace-pre-wrap leading-relaxed break-words">
-              {text}
-              {isStreaming && <StreamingCursor />}
-            </pre>
-          </div>
-          {!isStreaming && (
-            <div className="flex items-center justify-between px-3 py-1 border-t border-violet-500/10 bg-violet-500/[0.02]">
-              <span className="text-[9px] text-ink-3">
-                {text.length.toLocaleString()} chars
-                {entry.token_count != null &&
-                  ` \u00B7 ${entry.token_count.toLocaleString()} tokens`}
-              </span>
-              <SmallCopyButton text={text} />
-            </div>
-          )}
+        <div className="ml-[22px] pb-1">
+          <pre className="text-xs font-mono text-ink-3 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
+            {text}
+            {isStreaming && <StreamingCursor />}
+          </pre>
         </div>
       )}
     </div>
   );
 }
 
-// ── Chat Bubble ──────────────────────────────────────────────────────────────
+// ── Chat Message (full-width, no bubbles) ───────────────────────────────────
 
-function StreamChatBubble({
+function StreamChatMessage({
   entry,
   isStreaming,
 }: {
@@ -401,68 +320,37 @@ function StreamChatBubble({
     entry.metadata &&
     (entry.metadata as Record<string, unknown>).source === "human_reply";
   const content = entry.content ?? "";
-  const isAssistant = !isUser;
 
   return (
-    <div className={`flex gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
-          isUser
-            ? isHumanReply
-              ? "bg-brand/10"
-              : "bg-gray-100"
-            : "bg-violet-100"
-        }`}
-      >
+    <div className={`px-4 py-3 ${isUser ? "bg-surface/50" : ""}`}>
+      <div className="flex items-center gap-1.5 mb-1.5">
         {isUser ? (
-          <User
-            className={`w-3 h-3 ${isHumanReply ? "text-brand" : "text-ink-3"}`}
-          />
+          <User className="w-3.5 h-3.5 text-brand shrink-0" />
         ) : (
-          <Bot className="w-3 h-3 text-violet-600" />
+          <Bot className="w-3.5 h-3.5 text-ink-2 shrink-0" />
         )}
+        <span className="text-xs font-semibold text-ink-2">
+          {isUser ? (isHumanReply ? "You" : "System") : "Assistant"}
+        </span>
       </div>
-      <div
-        className={`max-w-full rounded-lg px-3 py-2 ${
-          isUser
-            ? isHumanReply
-              ? "bg-brand/10 border border-brand/20"
-              : "bg-gray-100"
-            : "bg-surface border border-rim"
-        }`}
-      >
-        {isHumanReply && (
-          <span className="text-[9px] text-brand font-medium block mb-0.5">
-            You
-          </span>
-        )}
-        {isAssistant && !isStreaming ? (
-          <div className="text-sm text-ink leading-relaxed break-words prose prose-sm prose-slate max-w-none [&_pre]:bg-gray-50 [&_pre]:p-2 [&_pre]:rounded [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-gray-50 [&_code]:px-1 [&_code]:rounded">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content}
-            </ReactMarkdown>
-          </div>
-        ) : (
-          <p className="text-sm text-ink whitespace-pre-wrap leading-relaxed break-words">
-            {content}
-            {isStreaming && <StreamingCursor />}
-          </p>
-        )}
-        {!isStreaming && (
-          <span
-            className={`text-[9px] block mt-1 ${isUser ? "text-right" : ""} text-ink-3`}
-          >
-            {new Date(entry.created_at).toLocaleTimeString()}
-          </span>
-        )}
-      </div>
+      {!isUser && !isStreaming ? (
+        <div className="text-[13px] text-ink leading-relaxed prose prose-sm max-w-none prose-pre:bg-surface prose-pre:border prose-pre:border-rim prose-pre:rounded-lg prose-pre:p-3 prose-pre:text-xs prose-pre:text-ink-2 prose-code:text-[12px] prose-code:bg-surface prose-code:text-ink-2 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-headings:text-ink prose-headings:font-semibold prose-p:my-2 prose-li:my-0.5 prose-a:text-brand prose-a:no-underline hover:prose-a:underline">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      ) : (
+        <p className="text-[13px] text-ink whitespace-pre-wrap leading-relaxed">
+          {content}
+          {isStreaming && <StreamingCursor />}
+        </p>
+      )}
     </div>
   );
 }
 
-// ── Tool Call / Result ────────────────────────────────────────────────────────
+// ── Tool Call (compact, expandable) ─────────────────────────────────────────
 
 function StreamToolCall({ entry }: { entry: StreamEntry }) {
+  const [expanded, setExpanded] = useState(false);
   const isResult = entry.sub_type === "tool_result";
   const toolName =
     ((entry.metadata as Record<string, unknown>)?.tool_name as string) ||
@@ -470,25 +358,34 @@ function StreamToolCall({ entry }: { entry: StreamEntry }) {
     "tool";
   const content = entry.content ?? "";
 
+  if (isResult && !content) return null;
+
   return (
-    <div className="flex items-start gap-2 px-2 py-0.5">
-      <Wrench className="w-3 h-3 text-cyan-500 mt-0.5 shrink-0" />
-      <div className="text-xs text-ink-3 min-w-0 flex-1">
-        <span className="font-mono font-medium text-ink-2">
+    <div className="mx-4 py-0.5">
+      <button
+        onClick={() => isResult && content ? setExpanded(!expanded) : undefined}
+        className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2 transition-colors"
+      >
+        <Wrench className="w-3 h-3 text-cyan-500 shrink-0" />
+        <span className="font-mono">
           {isResult ? `${toolName} \u2192 result` : `${toolName}()`}
         </span>
         {isResult && content && (
-          <div className="mt-0.5 bg-surface rounded p-1.5 max-h-[80px] overflow-y-auto">
-            <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-              {content.slice(0, 500)}
-              {content.length > 500 ? "..." : ""}
-            </pre>
-          </div>
+          expanded ? (
+            <ChevronDown className="w-3 h-3 shrink-0" />
+          ) : (
+            <ChevronRight className="w-3 h-3 shrink-0" />
+          )
         )}
-      </div>
-      <span className="text-[9px] text-ink-3 ml-auto shrink-0">
-        {new Date(entry.created_at).toLocaleTimeString()}
-      </span>
+      </button>
+      {expanded && isResult && content && (
+        <div className="ml-[22px] mt-1 bg-gray-50 rounded p-2 max-h-[120px] overflow-y-auto">
+          <pre className="text-[11px] font-mono text-ink-2 whitespace-pre-wrap break-all">
+            {content.slice(0, 1000)}
+            {content.length > 1000 ? "..." : ""}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -513,7 +410,6 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
       resumeHint = parsed.resume_hint ?? "";
     }
   } catch {
-    // Tool input might be stored differently in metadata
     const meta = entry.metadata as Record<string, unknown> | null;
     if (meta?.tool_input && typeof meta.tool_input === "object") {
       const input = meta.tool_input as Record<string, unknown>;
@@ -525,7 +421,7 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
   }
 
   return (
-    <div className="rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
+    <div className="mx-4 rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-100 border-b border-amber-200">
         <Hand className="w-4 h-4 text-amber-600 shrink-0" />
         <span className="text-sm font-semibold text-amber-800">
@@ -535,7 +431,7 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
 
       {instructions && (
         <div className="px-4 py-3">
-          <div className="text-sm text-ink leading-relaxed break-words prose prose-sm prose-slate max-w-none [&_pre]:bg-white [&_pre]:p-2 [&_pre]:rounded [&_pre]:border [&_pre]:border-amber-200 [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-white [&_code]:px-1 [&_code]:rounded [&_ol]:pl-5 [&_ul]:pl-5">
+          <div className="text-sm text-ink leading-relaxed prose prose-sm max-w-none prose-pre:bg-white prose-pre:p-2 prose-pre:rounded prose-pre:border prose-pre:border-amber-200 prose-pre:text-xs prose-code:text-xs prose-code:bg-white prose-code:px-1 prose-code:rounded prose-ol:pl-5 prose-ul:pl-5">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {instructions}
             </ReactMarkdown>
@@ -589,45 +485,6 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
   );
 }
 
-// ── Event Pill ───────────────────────────────────────────────────────────────
-
-function StreamEventPill({ entry }: { entry: StreamEntry }) {
-  const eventType = entry.sub_type;
-
-  return (
-    <div className="flex items-center gap-2 py-0.5 px-2">
-      <div
-        className={`w-1.5 h-1.5 rounded-full shrink-0 ${eventDotColor(eventType)}`}
-      />
-      <span className="text-xs text-ink-3">
-        {formatEventType(eventType)}
-      </span>
-      {entry.content &&
-        (() => {
-          try {
-            const payload = JSON.parse(entry.content);
-            if (payload && typeof payload === "object") {
-              const summary = formatPayload(payload);
-              if (summary) {
-                return (
-                  <span className="text-[9px] text-ink-3/70 font-mono truncate max-w-[200px]">
-                    {summary}
-                  </span>
-                );
-              }
-            }
-          } catch {
-            // Not JSON, skip
-          }
-          return null;
-        })()}
-      <span className="text-[9px] text-ink-3 ml-auto shrink-0">
-        {new Date(entry.created_at).toLocaleTimeString()}
-      </span>
-    </div>
-  );
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function SmallCopyButton({ text }: { text: string }) {
@@ -652,57 +509,4 @@ function SmallCopyButton({ text }: { text: string }) {
       )}
     </button>
   );
-}
-
-function formatEventType(eventType: string): string {
-  const labels: Record<string, string> = {
-    node_started: "Node started",
-    node_completed: "Node completed",
-    tool_call: "Tool call",
-    tool_result: "Tool result",
-    critic_start: "Critic started",
-    critic_done: "Critic done",
-    judge_start: "Judge started",
-    judge_done: "Judge verdict",
-    judge_pass: "Judge passed",
-    judge_fail: "Judge failed",
-    judge_reject: "Judge rejected",
-    node_retry: "Node retry",
-    child_agent_spawned: "Child agent spawned",
-    checkpoint_reached: "Checkpoint",
-    session_completed: "Session completed",
-  };
-  return labels[eventType] || eventType.replace(/_/g, " ");
-}
-
-function formatPayload(payload: Record<string, unknown>): string {
-  const parts: string[] = [];
-  if (payload.tool) parts.push(`tool=${payload.tool}`);
-  if (payload.iteration) parts.push(`iter=${payload.iteration}`);
-  if (payload.verdict) parts.push(`verdict=${payload.verdict}`);
-  if (payload.score != null) parts.push(`score=${payload.score}`);
-  if (payload.status) parts.push(`status=${payload.status}`);
-  if (payload.duration_ms != null) parts.push(`${payload.duration_ms}ms`);
-  if (payload.passed != null) parts.push(payload.passed ? "passed" : "failed");
-  if (payload.feedback)
-    parts.push(String(payload.feedback).slice(0, 60) + "\u2026");
-  if (!parts.length) return "";
-  return parts.join(" \u00B7 ");
-}
-
-function eventDotColor(eventType: string): string {
-  if (eventType.includes("completed") || eventType.includes("pass"))
-    return "bg-green-500";
-  if (
-    eventType.includes("fail") ||
-    eventType.includes("reject") ||
-    eventType.includes("retry")
-  )
-    return "bg-red-500";
-  if (eventType.includes("judge")) return "bg-purple-500";
-  if (eventType.includes("critic")) return "bg-amber-500";
-  if (eventType.includes("tool")) return "bg-cyan-500";
-  if (eventType.includes("spawn")) return "bg-indigo-400";
-  if (eventType.includes("started")) return "bg-blue-500";
-  return "bg-gray-400";
 }

@@ -1,0 +1,12 @@
+id = "vercel"
+name = "Vercel"
+category = "frontend-hosting"
+description = "Cloud platform for frontend deployment. Full REST API for project creation, environment variables, deployments, and domain management. Git-based deploy workflow."
+required_credentials = ["vercel"]
+enabled = true
+
+[tradeoffs]
+automation = "full"
+api_access = "full"
+cost = "free-tier-available"
+notes = "Full API for project lifecycle. No manual steps required. Supports preview deployments on PRs. Git-push triggers auto-deploy."

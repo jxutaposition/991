@@ -52,6 +52,16 @@ export interface ExecutionNode {
   variant_group?: string | null;
   variant_label?: string | null;
   variant_selected?: boolean | null;
+  // Living system description (SD-005)
+  description?: {
+    display_name?: string;
+    architecture?: { purpose?: string; connections?: string[]; data_flow?: string };
+    technical_spec?: { approach?: string; tools?: string[]; configuration?: Record<string, unknown> };
+    io_contract?: { inputs?: Array<{ name: string; source?: string; schema?: unknown }>; outputs?: Array<{ name: string; schema?: unknown }> };
+    optionality?: Array<{ decision: string; tradeoffs?: string; recommendation?: string }>;
+    visual_refs?: Array<{ type: string; url: string; caption?: string }>;
+    prior_artifacts?: Array<{ title: string; reference?: string }>;
+  } | null;
 }
 
 function ElapsedTimer({ startedAt }: { startedAt: string }) {
@@ -489,7 +499,7 @@ function parseRequires(requires: string[] | string | null): string[] {
   return [];
 }
 
-function buildDag(nodes: ExecutionNode[]) {
+export function buildDag(nodes: ExecutionNode[]) {
   const byId = new Map<string, ExecutionNode>();
   for (const n of nodes) byId.set(n.id, n);
 

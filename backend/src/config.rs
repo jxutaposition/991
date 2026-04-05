@@ -20,11 +20,16 @@ pub struct Settings {
     pub storage_secret_key: String,
     pub storage_bucket: String,
 
+    // Embeddings (OpenAI text-embedding-3-small for RAG queries)
+    pub openai_api_key: Option<String>,
+
     // Web search (optional)
     pub tavily_api_key: Option<String>,
 
     /// Path to the agents/ directory.
     pub agents_dir: PathBuf,
+    /// Path to the tools/ directory.
+    pub tools_dir: PathBuf,
 
     // Slack integration (optional — disabled if slack_bot_token is None)
     pub slack_bot_token: Option<String>,
@@ -67,6 +72,10 @@ pub struct Settings {
     /// Set to 0 to disable. Only applies to models that support it.
     pub thinking_budget_tokens: u32,
 
+    /// Max characters to return from HTTP response bodies (tool results sent to LLM).
+    /// Claude models support 200k tokens (~800k chars); this caps individual responses.
+    pub http_response_max_chars: usize,
+
     /// Allowed CORS origins. Comma-separated list of origins.
     /// Set to "*" for permissive mode (not recommended in production).
     /// Defaults to "http://localhost:3000".
@@ -101,8 +110,12 @@ impl Settings {
                 .unwrap_or_else(|_| "minioadmin".to_string()),
             storage_bucket: env::var("STORAGE_BUCKET")
                 .unwrap_or_else(|_| "lele-screenshots".to_string()),
+            openai_api_key: env::var("OPENAI_API_KEY").ok().filter(|s| !s.is_empty()),
             tavily_api_key: env::var("TAVILY_API_KEY").ok().filter(|s| !s.is_empty()),
             agents_dir,
+            tools_dir: PathBuf::from(
+                env::var("TOOLS_DIR").unwrap_or_else(|_| "./tools".to_string()),
+            ),
             slack_bot_token: env::var("SLACK_BOT_TOKEN").ok().filter(|s| !s.is_empty()),
             slack_app_token: env::var("SLACK_APP_TOKEN").ok().filter(|s| !s.is_empty()),
             slack_signing_secret: env::var("SLACK_SIGNING_SECRET").ok().filter(|s| !s.is_empty()),
@@ -128,6 +141,10 @@ impl Settings {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10_000),
+            http_response_max_chars: env::var("HTTP_RESPONSE_MAX_CHARS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100_000),
             cors_origins: env::var("CORS_ORIGINS")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string())
                 .split(',')

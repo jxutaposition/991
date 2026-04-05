@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
-  Activity,
   Brain,
   Clock,
   CheckCircle2,
@@ -133,6 +132,13 @@ interface InspectorPanelProps {
   liveTextChunks?: Record<string, string>;
   failures?: ExecutionNode[];
   onNodeSelect?: (id: string) => void;
+  masterNode?: ExecutionNode | null;
+  masterStreamEntries?: StreamEntry[];
+  masterStreamLoading?: boolean;
+  masterLiveTextChunks?: Record<string, string>;
+  masterLiveThinkingChunks?: Record<string, string>;
+  planningMessages?: string[];
+  planningError?: string | null;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
@@ -820,6 +826,27 @@ function ChatBubble({ message }: { message: NodeMessage }) {
   );
 }
 
+function PlanningProgress({ messages, error }: { messages: string[]; error?: string | null }) {
+  return (
+    <div className="flex-1 flex flex-col justify-end px-4 py-3 space-y-2 overflow-y-auto">
+      {messages.map((msg, i) => (
+        <div key={i} className="flex items-center gap-2 text-sm text-ink-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shrink-0" />
+          {msg}
+        </div>
+      ))}
+      {error ? (
+        <div className="text-sm text-red-600">{error}</div>
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-ink-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shrink-0" />
+          Planning...
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function InspectorPanel({
   selectedNode,
   nodeEvents,
@@ -840,13 +867,19 @@ export function InspectorPanel({
   liveTextChunks = {},
   failures = [],
   onNodeSelect,
+  masterNode,
+  masterStreamEntries = [],
+  masterStreamLoading = false,
+  masterLiveTextChunks = {},
+  masterLiveThinkingChunks = {},
+  planningMessages = [],
+  planningError,
 }: InspectorPanelProps) {
   const [selectedEvent, setSelectedEvent] = useState<ExecutionEvent | null>(
     null
   );
 
-  const isActive = selectedNode && (selectedNode.status === "running" || selectedNode.status === "passed" || selectedNode.status === "failed" || selectedNode.status === "awaiting_reply");
-  const defaultTab = !selectedNode ? "overview" : isActive ? "conversation" : "nodeinfo";
+  const defaultTab = "chat";
 
   // Session-level stats
   const sessionStats = useMemo(() => {
@@ -944,67 +977,42 @@ export function InspectorPanel({
     return entries;
   }, [selectedNode, nodeEvents]);
 
+  const failedCount = failures.filter(f => f.status === "failed").length;
+  const tabClass = "text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10";
+
   return (
-    <div className="flex h-full flex-col border-l border-rim bg-page">
+    <div className="flex h-full flex-col bg-page">
       <Tabs
         defaultValue={defaultTab}
         key={selectedNode?.id ?? "none"}
         className="flex flex-col h-full"
       >
         <TabsList className="w-full justify-start border-b border-rim bg-transparent px-2 py-0 h-10 shrink-0">
+          <TabsTrigger value="chat" className={tabClass}>
+            Chat
+          </TabsTrigger>
           {selectedNode ? (
             <>
-              <TabsTrigger
-                value="nodeinfo"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
+              <TabsTrigger value="nodeinfo" className={tabClass}>
                 Detail
               </TabsTrigger>
-              <TabsTrigger
-                value="conversation"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
-                <Activity className="w-3 h-3 mr-1" /> Conversation
-              </TabsTrigger>
-              <TabsTrigger
-                value="output"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
+              <TabsTrigger value="output" className={tabClass}>
                 Output
-              </TabsTrigger>
-              <TabsTrigger
-                value="failures"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
-                Failures
-                {failures.filter(f => f.status === "failed").length > 0 && (
-                  <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
-                    {failures.filter(f => f.status === "failed").length}
-                  </span>
-                )}
               </TabsTrigger>
             </>
           ) : (
-            <>
-              <TabsTrigger
-                value="overview"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
-                Overview
-              </TabsTrigger>
-              <TabsTrigger
-                value="failures"
-                className="text-xs data-[state=active]:text-ink data-[state=active]:border-b-2 data-[state=active]:border-brand rounded-none h-10"
-              >
-                Failures
-                {failures.filter(f => f.status === "failed").length > 0 && (
-                  <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
-                    {failures.filter(f => f.status === "failed").length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </>
+            <TabsTrigger value="overview" className={tabClass}>
+              Overview
+            </TabsTrigger>
           )}
+          <TabsTrigger value="failures" className={tabClass}>
+            Failures
+            {failedCount > 0 && (
+              <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
+                {failedCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Node Detail tab ─────────────────────────────── */}
@@ -1170,14 +1178,11 @@ export function InspectorPanel({
           </ScrollArea>
         </TabsContent>
 
-        {/* ── Timeline tab ────────────────────────────── */}
-        {/* ── Conversation tab (unified stream) ──────── */}
-        <TabsContent value="conversation" className="flex-1 min-h-0 m-0 flex flex-col">
-          {!selectedNode ? (
-            <div className="p-4">
-              <p className="text-xs text-ink-3">Select a node to view its conversation.</p>
-            </div>
-          ) : (
+        {/* ── Chat tab (unified: orchestrator / planning / node) ── */}
+        <TabsContent value="chat" className="flex-1 min-h-0 m-0 flex flex-col">
+          {sessionStatus === "planning" ? (
+            <PlanningProgress messages={planningMessages} error={planningError} />
+          ) : selectedNode && selectedNode.id !== masterNode?.id ? (
             <ConversationStream
               entries={streamEntries}
               loading={streamLoading}
@@ -1186,6 +1191,19 @@ export function InspectorPanel({
               liveThinkingChunks={liveThinkingChunks}
               liveTextChunks={liveTextChunks}
             />
+          ) : masterNode ? (
+            <ConversationStream
+              entries={masterStreamEntries}
+              loading={masterStreamLoading}
+              selectedNode={masterNode}
+              onReply={onReply}
+              liveThinkingChunks={masterLiveThinkingChunks}
+              liveTextChunks={masterLiveTextChunks}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-sm text-ink-3">
+              Chat will appear when the session starts.
+            </div>
           )}
         </TabsContent>
 

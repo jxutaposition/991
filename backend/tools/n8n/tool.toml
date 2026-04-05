@@ -1,0 +1,12 @@
+id = "n8n"
+name = "n8n"
+category = "workflow-automation"
+description = "Open-source workflow automation platform with full REST API. Create, update, activate, test, and manage workflows programmatically. Supports webhooks, scheduled triggers, 500+ integrations, code nodes (JS/Python), and conditional routing."
+required_credentials = ["n8n"]
+enabled = true
+
+[tradeoffs]
+automation = "full"
+api_access = "full"
+cost = "self-host-or-cloud"
+notes = "Full REST API for workflow CRUD. OAuth popup for credential connection requires manual browser step. API key auto-injected via X-N8N-API-KEY header."

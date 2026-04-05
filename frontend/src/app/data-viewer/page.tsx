@@ -147,7 +147,7 @@ export default function DataViewerPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-49px)]">
+    <div className="flex h-screen">
       {/* Left: Table Browser */}
       <div className="w-56 shrink-0 border-r border-rim bg-page overflow-y-auto">
         <div className="p-3 border-b border-rim">

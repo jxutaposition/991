@@ -290,7 +290,7 @@ test.describe("LinkedIn Lead Prospecting Pipeline", () => {
     // Matched agents should include at least 2 from the real agent catalog
     const matchedSlugs = new Set(matchedTasks.map((t: any) => t.matched_agent_slug));
     const catalogAgents = [
-      "clay_operator", "dashboard_builder", "data_pipeline_builder",
+      "clay_operator", "dashboard_builder",
       "lovable_operator", "n8n_operator", "notion_operator",
       "tolt_operator",
     ];

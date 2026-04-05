@@ -1,4 +1,4 @@
-/// GTM tool definitions for the agent executor.
+/// GTM action definitions for the agent executor.
 ///
 /// Each tool is defined here with its name, description, and input schema.
 /// In Phase 0 (MVP), tools return mock/stub responses.
@@ -12,7 +12,7 @@ use crate::anthropic::ToolDef;
 
 /// All tool definitions available in the global tool library.
 /// Each agent's tools.toml specifies which subset it can access.
-pub fn all_tool_defs() -> Vec<ToolDef> {
+pub fn all_action_defs() -> Vec<ToolDef> {
     vec![
         // Research tools
         ToolDef {
@@ -252,6 +252,21 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
             required_credential: None, // Generic — credential depends on agent context
         },
 
+        // Knowledge retrieval (RAG)
+        ToolDef {
+            name: "search_knowledge".to_string(),
+            description: "Search the expert knowledge corpus for relevant reference material. Returns the most semantically similar chunks from uploaded playbooks, ICP docs, battle cards, transcripts, and other documents. Use when you need factual reference data, client-specific context, or expert methodology that isn't in your system prompt.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language search query describing what information you need"},
+                    "limit": {"type": "integer", "description": "Max chunks to return (default 5, max 10)"}
+                },
+                "required": ["query"]
+            }),
+            required_credential: None,
+        },
+
         // Internal orchestration tools (always available)
         ToolDef {
             name: "read_upstream_output".to_string(),
@@ -336,8 +351,8 @@ pub fn all_tool_defs() -> Vec<ToolDef> {
 
 /// Return tool definitions for a specific agent based on its tools list.
 /// Always includes the internal orchestration tools.
-pub fn tools_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
-    let all = all_tool_defs();
+pub fn actions_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
+    let all = all_action_defs();
 
     let always_available = ["read_upstream_output", "write_output", "request_user_action"];
 
@@ -352,13 +367,13 @@ pub fn tools_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolD
 
 /// Return tool definitions including spawn_agent unconditionally.
 /// Used by the orchestrator and any agent that needs to spawn children.
-pub fn tools_for_orchestrator(agent_tools: &[String]) -> Vec<ToolDef> {
-    tools_for_agent(agent_tools, true)
+pub fn actions_for_orchestrator(agent_tools: &[String]) -> Vec<ToolDef> {
+    actions_for_agent(agent_tools, true)
 }
 
 /// Look up the required_credential for a tool by name.
-pub fn tool_credential(tool_name: &str) -> Option<String> {
-    all_tool_defs()
+pub fn action_credential(tool_name: &str) -> Option<String> {
+    all_action_defs()
         .into_iter()
         .find(|t| t.name == tool_name)
         .and_then(|t| t.required_credential)
@@ -369,7 +384,7 @@ pub fn tool_credential(tool_name: &str) -> Option<String> {
 /// Execute a tool call and return the result as a JSON string.
 /// Phase 0: Returns realistic mock data for all GTM tools.
 /// Phase 1+: Calls real integrations.
-pub async fn execute_tool(
+pub async fn execute_action(
     name: &str,
     input: &Value,
     session_id: &str,
@@ -400,7 +415,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
@@ -438,7 +453,7 @@ pub async fn execute_tool(
                 {
                     Ok(resp) => {
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         preview
                     }
                     Err(e) => json!({"error": format!("News search failed: {}", e)}).to_string(),
@@ -468,7 +483,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
@@ -512,7 +527,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
@@ -578,7 +593,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
@@ -617,7 +632,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
@@ -649,7 +664,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
@@ -676,7 +691,7 @@ pub async fn execute_tool(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(4000).collect();
+                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
                     }
                     Err(e) => json!({"error": format!("HubSpot email analytics failed: {}", e)}).to_string(),
@@ -702,8 +717,7 @@ pub async fn execute_tool(
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     let body = resp.text().await.unwrap_or_default();
-                    // Strip HTML tags for a rough text extraction
-                    let text: String = body.chars().take(8000).collect();
+                    let text: String = body.chars().take(settings.http_response_max_chars).collect();
                     json!({"status": status, "content": text}).to_string()
                 }
                 Err(e) => json!({"error": format!("Failed to fetch URL: {}", e)}).to_string(),
@@ -716,7 +730,7 @@ pub async fn execute_tool(
             let agent_slug = input.get("agent_slug").and_then(Value::as_str).unwrap_or("");
             let task = input.get("task_description").and_then(Value::as_str).unwrap_or("");
             json!({
-                "error": "spawn_agent should be handled by agent_runner, not tools::execute_tool",
+                "error": "spawn_agent should be handled by agent_runner, not actions::execute_action",
                 "agent_slug": agent_slug,
                 "task": task
             }).to_string()
@@ -763,6 +777,10 @@ pub async fn execute_tool(
             json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string()
         }
 
+        "search_knowledge" => {
+            json!({"error": "search_knowledge is handled by agent_runner, not execute_action"}).to_string()
+        }
+
         "web_search" => {
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
 
@@ -783,7 +801,7 @@ pub async fn execute_tool(
                 {
                     Ok(resp) => {
                         let body = resp.text().await.unwrap_or_default();
-                        let body_preview: String = body.chars().take(4000).collect();
+                        let body_preview: String = body.chars().take(settings.http_response_max_chars).collect();
                         body_preview
                     }
                     Err(e) => json!({"error": format!("Tavily search failed: {}", e)}).to_string(),
@@ -947,7 +965,7 @@ pub async fn execute_tool(
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     let body_text = resp.text().await.unwrap_or_default();
-                    let body_preview: String = body_text.chars().take(4000).collect();
+                    let body_preview: String = body_text.chars().take(settings.http_response_max_chars).collect();
                     if status >= 400 {
                         tracing::warn!(%method, %url, %status, body = %body_preview.chars().take(500).collect::<String>(), "http_request error response");
                     }
