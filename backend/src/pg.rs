@@ -51,6 +51,37 @@ impl PgClient {
             .map_err(|e| anyhow::anyhow!("SQL error: {}", e))?;
         Ok(rows.iter().map(pg_row_to_json).collect())
     }
+
+    /// Begin a database transaction.
+    pub async fn begin(&self) -> anyhow::Result<PgTransaction> {
+        let tx = self.pool.begin().await.map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
+        Ok(PgTransaction { tx })
+    }
+}
+
+/// A database transaction that can execute parameterized queries and be committed or rolled back.
+pub struct PgTransaction {
+    tx: sqlx::Transaction<'static, sqlx::Postgres>,
+}
+
+impl PgTransaction {
+    /// Execute a parameterized query within the transaction.
+    pub async fn execute_with(
+        &mut self,
+        sql: &str,
+        args: sqlx::postgres::PgArguments,
+    ) -> anyhow::Result<Vec<Value>> {
+        let rows = sqlx::query_with(sql, args)
+            .fetch_all(&mut *self.tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("SQL error: {}", e))?;
+        Ok(rows.iter().map(pg_row_to_json).collect())
+    }
+
+    /// Commit the transaction.
+    pub async fn commit(self) -> anyhow::Result<()> {
+        self.tx.commit().await.map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))
+    }
 }
 
 /// Build `PgArguments` for parameterized queries.

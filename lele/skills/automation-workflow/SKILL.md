@@ -18,11 +18,11 @@ Any change request in Clay, Tolt, Notion, n8n, Lovable, or Typeform. Anything th
 
 Check `skills/{service}/resources/api-reference.md`. If it doesn't exist: look up the docs (WebFetch or browser), write the reference file, then proceed.
 
-Get credentials from `client/access/{service}.md`. Never hardcode keys. After using a new API successfully, update the access file with any IDs or discoveries.
+Get credentials from `client/heyreach/access/secrets.md` or `client/heyreach/access/{service}.md`. Never hardcode keys. After using a new API successfully, update the access file with any IDs or discoveries.
 
 ### 2. Tool-specific navigation
 
-**Clay:** read `client/access/access.md` → browser navigate → wait for SPA load → snapshot. Use browser evaluate if snapshot isn't enough.
+**Clay:** read `client/heyreach/access/secrets.md` → browser navigate → wait for SPA load → snapshot. Use browser evaluate if snapshot isn't enough.
 
 Before designing any Clay table structure, lookup, enrichment column, or send-to-table action:
 - Read the "Important Notes" sections in the relevant Clay sub-skill files

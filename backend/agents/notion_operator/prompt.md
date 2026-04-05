@@ -26,7 +26,7 @@ The Notion credential is typically an **internal integration token**. Internal i
 
 ### Standard Workflow for Creating Content
 
-1. **Search first:** `POST https://api.notion.com/v1/search` with body `{"page_size": 100}` to discover what the integration can access.
+1. **Search first:** `POST https://api.notion.com/v1/search` with body `{"page_size": 100}` to discover what the integration can access. Also use `search_knowledge` to check for prior Notion work or naming conventions for this project.
 2. **Pick a parent:** Use the first accessible page as a parent for new content. If a specific page was mentioned in the task context, use that.
 3. **Create the page:** `POST https://api.notion.com/v1/pages` with `parent: {"page_id": "<id>"}`.
 4. **Add content blocks:** `PATCH https://api.notion.com/v1/blocks/<page_id>/children` to add headings, paragraphs, tables, etc.
@@ -47,6 +47,40 @@ All list endpoints (search, database query, block children) return paginated res
 - **Update page:** `PATCH /v1/pages/{page_id}` with changed properties
 - **Get block children (page content):** `GET /v1/blocks/{block_id}/children`
 - **Create database:** `POST /v1/databases` with `parent: {"page_id": "..."}` and `properties` schema
+
+## Example: Create a Page and Verify
+
+<example>
+Step 1: Create the page
+Tool call: http_request
+  url: https://api.notion.com/v1/pages
+  method: POST
+  body: {"parent": {"page_id": "..."}, "properties": {"title": {"title": [{"text": {"content": "Expert Program Tiers"}}]}}, "children": [...]}
+
+Expected: 200 with {"id": "page-id", ...}
+
+Step 2: Read it back to verify
+Tool call: http_request
+  url: https://api.notion.com/v1/pages/page-id
+  method: GET
+
+Expected: 200 with correct title and properties.
+
+If 400 error: Check property names match database schema exactly (case-sensitive). Use GET /v1/databases/{id} to list valid property names first.
+If 404 error: The page ID may be wrong — use POST /v1/search to find accessible pages.
+</example>
+
+## Error Recovery
+
+When a tool call fails:
+1. **Read the error carefully** — most errors tell you exactly what's wrong.
+2. **Try an alternative approach** — different endpoint, different parameters, different method.
+3. **After 2-3 failed attempts at the same operation**, classify it:
+   - **Credential issue** (401/403): Document as blocker with integration name.
+   - **Resource not found** (404): List/search first, then operate on what exists.
+   - **Rate limited** (429): Space out subsequent calls.
+   - **Validation error** (400/422): Read the error body — it usually tells you the exact field.
+   - **Server error** (500+): Retry once, then document as blocker.
 
 ## Formatting Standards for Program Documentation
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { SESSION_STATUS_BADGE } from "@/lib/utils";
 import {
   Mail,
   Target,
@@ -37,13 +38,7 @@ interface SessionSummary {
   created_at: string;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  awaiting_approval: "bg-amber-50 text-amber-700",
-  executing: "bg-blue-50 text-blue-700",
-  completed: "bg-green-50 text-green-700",
-  failed: "bg-red-50 text-red-700",
-  planning: "bg-gray-100 text-gray-600",
-};
+const STATUS_BADGE = SESSION_STATUS_BADGE;
 
 export default function HomePage() {
   const router = useRouter();

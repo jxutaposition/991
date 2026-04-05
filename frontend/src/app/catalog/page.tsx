@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/utils";
 
 interface AgentSummary {
   slug: string;
@@ -22,8 +23,7 @@ export default function CatalogPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/catalog")
-      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    apiFetch<{ agents: AgentSummary[] }>("/api/catalog")
       .then((data) => {
         setAgents(data.agents ?? []);
         setLoading(false);

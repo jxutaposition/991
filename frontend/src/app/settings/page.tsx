@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
   KeyRound,
@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Table2,
   FlaskConical,
+  Hash,
 } from "lucide-react";
 
 const settingsSections = [
@@ -54,6 +55,66 @@ export default function SettingsPage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+
+  // Slack channel settings
+  const [clientSlackChannel, setClientSlackChannel] = useState("");
+  const [clientSlackLoaded, setClientSlackLoaded] = useState(false);
+  const [savingSlack, setSavingSlack] = useState(false);
+  const [slackSaved, setSlackSaved] = useState(false);
+  const [projects, setProjects] = useState<{ id: string; slug: string; name: string; slack_channel_id: string | null }[]>([]);
+  const [projectSlackValues, setProjectSlackValues] = useState<Record<string, string>>({});
+  const [savingProjectSlack, setSavingProjectSlack] = useState<string | null>(null);
+
+  // Load client slack_channel_id and projects when activeClient changes
+  useEffect(() => {
+    if (!activeClient) return;
+    setClientSlackLoaded(false);
+    apiFetch(`/api/clients/${activeClient}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setClientSlackChannel(data.client?.slack_channel_id || "");
+        setClientSlackLoaded(true);
+      })
+      .catch(() => setClientSlackLoaded(true));
+
+    apiFetch(`/api/projects?client_slug=${activeClient}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.projects ?? [];
+        setProjects(list);
+        const vals: Record<string, string> = {};
+        for (const p of list) {
+          vals[p.id] = p.slack_channel_id || "";
+        }
+        setProjectSlackValues(vals);
+      })
+      .catch(() => {});
+  }, [activeClient, apiFetch]);
+
+  const saveClientSlack = useCallback(async () => {
+    if (!activeClient) return;
+    setSavingSlack(true);
+    try {
+      await apiFetch(`/api/clients/${activeClient}`, {
+        method: "PATCH",
+        body: JSON.stringify({ slack_channel_id: clientSlackChannel || "" }),
+      });
+      setSlackSaved(true);
+      setTimeout(() => setSlackSaved(false), 2000);
+    } catch { /* ignore */ }
+    setSavingSlack(false);
+  }, [activeClient, clientSlackChannel, apiFetch]);
+
+  const saveProjectSlack = useCallback(async (projectId: string) => {
+    setSavingProjectSlack(projectId);
+    try {
+      await apiFetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ slack_channel_id: projectSlackValues[projectId] || "" }),
+      });
+    } catch { /* ignore */ }
+    setSavingProjectSlack(null);
+  }, [projectSlackValues, apiFetch]);
 
   const createWorkspace = async () => {
     if (!newName.trim()) return;
@@ -216,6 +277,77 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+
+      {/* Slack Notifications */}
+      {activeClient && clientSlackLoaded && (
+        <section className="border border-rim rounded-lg p-5 bg-page mb-6">
+          <h2 className="text-sm font-semibold text-ink-3 uppercase tracking-wider mb-4">
+            Slack Notifications
+          </h2>
+          <p className="text-xs text-ink-3 mb-4">
+            Execution updates will be posted to the configured Slack channel. Set a default at the workspace level, or override per-project.
+          </p>
+
+          {/* Workspace default */}
+          <div className="mb-4">
+            <label className="text-xs font-medium text-ink-3 block mb-1">
+              Workspace default channel
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                <input
+                  type="text"
+                  value={clientSlackChannel}
+                  onChange={(e) => { setClientSlackChannel(e.target.value); setSlackSaved(false); }}
+                  placeholder="C01ABCDEF"
+                  className="w-full bg-page border border-rim rounded px-3 py-1.5 pl-8 text-sm text-ink focus:outline-none focus:border-brand font-mono"
+                />
+              </div>
+              <button
+                onClick={saveClientSlack}
+                disabled={savingSlack}
+                className="bg-brand text-white px-4 py-1.5 rounded text-xs font-medium hover:bg-brand-hover disabled:opacity-50"
+              >
+                {slackSaved ? "Saved" : savingSlack ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {/* Per-project overrides */}
+          {projects.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-ink-3 block mb-2">
+                Per-project overrides
+              </label>
+              <div className="space-y-2">
+                {projects.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2">
+                    <span className="text-xs text-ink w-32 truncate" title={p.name}>{p.name}</span>
+                    <div className="relative flex-1">
+                      <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                      <input
+                        type="text"
+                        value={projectSlackValues[p.id] || ""}
+                        onChange={(e) => setProjectSlackValues((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        placeholder={clientSlackChannel || "C01ABCDEF"}
+                        className="w-full bg-page border border-rim rounded px-3 py-1 pl-8 text-xs text-ink focus:outline-none focus:border-brand font-mono"
+                      />
+                    </div>
+                    <button
+                      onClick={() => saveProjectSlack(p.id)}
+                      disabled={savingProjectSlack === p.id}
+                      className="text-xs text-brand hover:text-brand-hover disabled:opacity-50 font-medium whitespace-nowrap"
+                    >
+                      {savingProjectSlack === p.id ? "..." : "Save"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Sub-section navigation */}
       <section className="space-y-2">

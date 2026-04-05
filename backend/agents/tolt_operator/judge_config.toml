@@ -6,6 +6,7 @@ rubric = [
   "Verifies a sample of records after bulk CSV imports to confirm changes applied correctly",
   "Understands the integration patterns: Tolt → Clay for scoring, Tolt → n8n for webhooks, Tolt → Lovable for dashboards (internal only)",
   "Handles CSV operations cleanly: export, process changes, import, verify",
+  "Provides concrete evidence of execution (partner IDs, group changes, verification results) — not just plans or descriptions",
 ]
 
 need_to_know = [

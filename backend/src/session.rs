@@ -53,7 +53,13 @@ impl EventBus {
     }
 
     pub async fn subscribe(&self, session_id: &str) -> Option<broadcast::Receiver<Value>> {
-        self.channels.read().await.get(session_id).map(|tx| tx.subscribe())
+        // Try read-only first for the common case
+        if let Some(tx) = self.channels.read().await.get(session_id) {
+            return Some(tx.subscribe());
+        }
+        // Lazily create the channel so SSE works even after server restarts
+        let tx = self.create_channel(session_id).await;
+        Some(tx.subscribe())
     }
 
     pub async fn is_running(&self, session_id: &str) -> bool {
@@ -73,13 +79,15 @@ impl EventBus {
     }
 
     /// Send an event to all subscribers of a session channel.
-    /// Returns false if the channel doesn't exist or has no receivers.
+    /// Creates the channel lazily if it doesn't exist yet (e.g. after server restart).
+    /// Returns false only if there are no active receivers.
     pub async fn send(&self, session_id: &str, event: serde_json::Value) -> bool {
         if let Some(tx) = self.channels.read().await.get(session_id) {
-            tx.send(event).is_ok()
-        } else {
-            false
+            return tx.send(event).is_ok();
         }
+        // Create channel so future subscribers/sends work
+        let tx = self.create_channel(session_id).await;
+        tx.send(event).is_ok()
     }
 
     pub async fn cleanup(&self, session_id: &str) {

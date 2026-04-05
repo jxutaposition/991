@@ -1,1 +1,1 @@
-actions = ["http_request", "git_repo_write", "vercel_deploy"]
+actions = ["http_request"]

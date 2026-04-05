@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/utils";
 
 interface AgentPR {
   id: string;
@@ -28,8 +29,7 @@ export default function AgentPRsPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/agent-prs?status=${filter}`)
-      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    apiFetch<{ prs: AgentPR[] }>(`/api/agent-prs?status=${filter}`)
       .then((data) => { setPrs(data.prs ?? []); setLoading(false); })
       .catch((err) => { console.error("Failed to load PRs:", err); setLoading(false); });
   }, [filter]);

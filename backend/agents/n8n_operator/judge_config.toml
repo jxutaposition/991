@@ -8,6 +8,7 @@ rubric = [
   "Uses n8n credential system for auth — never raw secrets in parameters",
   "Tests before activating: runs test executions to verify end-to-end data flow",
   "Flags OAuth2 consent requirements as blockers rather than silently failing",
+  "Provides concrete evidence of execution (workflow IDs, API responses, test results) — not just plans or descriptions",
 ]
 
 need_to_know = [

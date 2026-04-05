@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Trash2, Square, X, FileText, Columns, LayoutGrid, MessageSquare, MessageCircle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Trash2, Square, X, FileText, Columns, LayoutGrid, MessageSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ExecutionCanvas,
@@ -19,7 +19,6 @@ import { SystemDescriptionView } from "@/components/system-description-view";
 import type { ProjectDescriptionData, DescriptionVersion } from "@/components/document-header";
 import type { NodeIssue } from "@/components/issue-card";
 import { CommentSidebar, type CommentThread } from "@/components/comment-sidebar";
-import { ProjectChat } from "@/components/project-chat";
 
 interface ExecutionSession {
   id: string;
@@ -149,6 +148,7 @@ export default function SessionPage() {
   const [masterLiveThinkingChunks, setMasterLiveThinkingChunks] = useState<Record<string, string>>({});
   const pendingMasterText = useRef<Record<string, string>>({});
   const pendingMasterThinking = useRef<Record<string, string>>({});
+  const masterFetchSeq = useRef(0);
 
   // Planning progress (streamed via SSE while status === 'planning')
   const [planningMessages, setPlanningMessages] = useState<string[]>([]);
@@ -162,7 +162,6 @@ export default function SessionPage() {
   const [sessionIssues, setSessionIssues] = useState<NodeIssue[]>([]);
   const [commentThreads, setCommentThreads] = useState<CommentThread[]>([]);
   const [showCommentSidebar, setShowCommentSidebar] = useState(false);
-  const [showQuickAsk, setShowQuickAsk] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
 
   // RAF-throttled delta accumulation for streaming
@@ -306,6 +305,7 @@ export default function SessionPage() {
   const fetchNodeEvents = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
       setNodeEvents([]);
+      setNodeEventsLoading(false);
       return;
     }
     try {
@@ -323,6 +323,7 @@ export default function SessionPage() {
   const fetchNodeStream = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
       setStreamEntries([]);
+      setStreamLoading(false);
       return;
     }
     setStreamLoading(true);
@@ -349,16 +350,19 @@ export default function SessionPage() {
       setMasterStreamEntries([]);
       return;
     }
+    const seq = ++masterFetchSeq.current;
     setMasterStreamLoading(true);
     try {
       const r = await apiFetch(`/api/execute/${session_id}/nodes/${masterNodeId}/stream`);
+      if (seq !== masterFetchSeq.current) return;
       if (!r.ok) { setMasterStreamEntries([]); setMasterStreamLoading(false); return; }
       const data = await r.json();
+      if (seq !== masterFetchSeq.current) return;
       setMasterStreamEntries(data.stream ?? []);
     } catch {
-      setMasterStreamEntries([]);
+      if (seq === masterFetchSeq.current) setMasterStreamEntries([]);
     } finally {
-      setMasterStreamLoading(false);
+      if (seq === masterFetchSeq.current) setMasterStreamLoading(false);
     }
   }, [masterNodeId, session_id, apiFetch]);
 
@@ -382,11 +386,7 @@ export default function SessionPage() {
   }, [fetchNodeStream]);
 
   useEffect(() => {
-    if (
-      !session ||
-      session.status === "awaiting_approval"
-    )
-      return;
+    if (!session) return;
     let isMounted = true;
     const es = new EventSource(`/api/execute/${session_id}/events`);
     es.onmessage = (msg) => {
@@ -399,6 +399,11 @@ export default function SessionPage() {
         const isSelectedNode = nodeUid === selectedNodeIdRef.current;
         const isMasterNode = nodeUid === masterNodeIdRef.current;
         const eventType = data.type as string | undefined;
+
+        // Debug: trace SSE events for session chat
+        if (streamEntry?.stream_type === "message" || streamEntry?.stream_type === "message_stop") {
+          console.log("[SSE]", streamEntry.stream_type, streamEntry.sub_type, { isMasterNode, nodeUid, masterRef: masterNodeIdRef.current });
+        }
 
         // Handle planning phase events
         if (eventType === "planner_progress") {
@@ -462,6 +467,9 @@ export default function SessionPage() {
             setMasterLiveTextChunks({});
             setMasterLiveThinkingChunks({});
             fetchMasterStream();
+          } else if (st === "message") {
+            // Append finalized messages (user chat, assistant replies) immediately
+            setMasterStreamEntries((prev) => [...prev, streamEntry as StreamEntry]);
           }
         }
 
@@ -516,6 +524,10 @@ export default function SessionPage() {
         clearInterval(pollTimer);
         pollTimer = null;
       }
+      // Re-fetch session to catch any state changes (e.g. plan_ready) that
+      // happened between session creation and SSE subscription, since
+      // broadcast receivers only see events sent after they subscribe.
+      fetchSession();
     };
     return () => {
       isMounted = false;
@@ -536,12 +548,57 @@ export default function SessionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      // Immediately refetch to show the user's message
       fetchNodeStream();
       fetchSession();
     },
     [session_id, apiFetch, fetchNodeStream, fetchSession]
   );
+
+  const handleSessionChat = useCallback(
+    async (_nodeId: string, message: string) => {
+      await apiFetch(`/api/execute/${session_id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      fetchMasterStream();
+
+      // Poll for the assistant response — the background LLM task takes seconds.
+      // SSE should also deliver it, but polling guarantees it appears regardless.
+      const poll = async () => {
+        const nid = masterNodeIdRef.current;
+        if (!nid) return;
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const r = await apiFetch(
+              `/api/execute/${session_id}/nodes/${nid}/stream`
+            );
+            if (!r.ok) continue;
+            const data = await r.json();
+            const entries = (data.stream ?? []) as StreamEntry[];
+            const last = entries[entries.length - 1];
+            if (
+              last &&
+              last.stream_type === "message" &&
+              (last.sub_type === "assistant" || last.role === "assistant")
+            ) {
+              setMasterStreamEntries(entries);
+              break;
+            }
+          } catch {
+            // ignore
+          }
+        }
+      };
+      poll();
+    },
+    [session_id, apiFetch, fetchMasterStream]
+  );
+
+  const activeReplyHandler = session?.status === "awaiting_approval" || session?.status === "planning"
+    ? handleSessionChat
+    : handleReply;
 
   const handleDeleteSession = async () => {
     if (!confirm("Delete this session? This cannot be undone.")) return;
@@ -948,7 +1005,7 @@ export default function SessionPage() {
                     sessionStatus={session.status}
                     onNodeUpdate={handleNodeUpdate}
                     liveThinkingChunks={liveThinkingChunks}
-                    onReply={handleReply}
+                    onReply={activeReplyHandler}
                     streamEntries={streamEntries}
                     streamLoading={streamLoading}
                     liveTextChunks={liveTextChunks}
@@ -990,32 +1047,6 @@ export default function SessionPage() {
         )}
       </div>
 
-      {/* Quick Ask floating panel */}
-      {showQuickAsk && (
-        <div
-          className="fixed z-50 rounded-lg border border-rim bg-surface shadow-lg overflow-hidden flex flex-col"
-          style={{ bottom: 56, right: 16, width: 350, height: 400 }}
-        >
-          <div className="flex items-center justify-between px-3 py-2 border-b border-rim bg-gray-50 shrink-0">
-            <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">Quick Ask</span>
-            <button onClick={() => setShowQuickAsk(false)} className="text-ink-3 hover:text-ink">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <ProjectChat
-            projectId={session?.project_id ?? undefined}
-            sessionId={session_id as string}
-            apiFetch={apiFetch}
-          />
-        </div>
-      )}
-      <button
-        onClick={() => setShowQuickAsk(prev => !prev)}
-        className="fixed z-50 bottom-4 right-4 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand text-white shadow-lg hover:bg-brand-hover transition-colors text-xs font-medium"
-      >
-        <MessageCircle className="w-4 h-4" />
-        Quick Ask
-      </button>
     </div>
   );
 }

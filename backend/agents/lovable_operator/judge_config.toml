@@ -7,6 +7,7 @@ rubric = [
   "Treats every Lovable chat change as production — no staging environment exists",
   "Checks RLS policies when data exists in Supabase but doesn't appear in the app",
   "Distinguishes between Supabase and Clay as separate systems — missing data usually means a missing write step",
+  "Provides concrete evidence of execution (Supabase query results, diagnostic findings, deployment URLs) — not just plans or descriptions",
 ]
 
 need_to_know = [

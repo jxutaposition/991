@@ -27,6 +27,7 @@ const PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM workflow orchestrator. Your
 - depends_on is an array of 0-based indices of EARLIER nodes (strictly lower indices) that must complete first. A node at index N can only depend on indices 0..N-1. Never reference the node's own index or higher. No cycles.
 - Prefer parallelism: if two agents don't need each other's output, give them empty depends_on arrays.
 - Keep the plan focused — typically 2-8 agents. Don't use agents that aren't relevant to the request.
+- IMPORTANT: Use each agent_slug AT MOST ONCE in the plan. If the request requires multiple workflows, pipelines, or artifacts from the same tool, combine them into a single node with a compound task_description (e.g. "Build 3 workflows: (1) onboarding flow, (2) data sync, (3) tracking"). The agent handles sequencing internally. Duplicate slugs waste execution resources.
 - IMPORTANT: Every agent in the plan must BUILD something or ACT on an external system. Do NOT include agents just for thinking, planning, or designing. Design/strategy reasoning happens in the master_orchestrator, not in subagents. The master_orchestrator enriches context for each builder agent — no separate "designer" step is needed.
 - Keep task_description values concise (under 120 chars). Details come from upstream outputs at runtime.
 
@@ -137,28 +138,41 @@ pub async fn plan_execution(
     Err(anyhow::anyhow!("planner output is not valid JSON: {last_error}"))
 }
 
-fn sanitize_depends_on(nodes: &mut Vec<PlannedNode>) {
+/// Trait to allow `sanitize_depends_on` to work on both `PlannedNode` and `RichPlannedNode`.
+trait HasDependsOn {
+    fn agent_slug(&self) -> &str;
+    fn depends_on_mut(&mut self) -> &mut Vec<usize>;
+}
+
+impl HasDependsOn for PlannedNode {
+    fn agent_slug(&self) -> &str { &self.agent_slug }
+    fn depends_on_mut(&mut self) -> &mut Vec<usize> { &mut self.depends_on }
+}
+
+impl HasDependsOn for RichPlannedNode {
+    fn agent_slug(&self) -> &str { &self.agent_slug }
+    fn depends_on_mut(&mut self) -> &mut Vec<usize> { &mut self.depends_on }
+}
+
+fn sanitize_depends_on<T: HasDependsOn>(nodes: &mut Vec<T>) {
+    // Retain only backward references (dep < i), which enforces topological ordering
+    // and prevents both self-references and cycles.
     for i in 0..nodes.len() {
-        let original_len = nodes[i].depends_on.len();
-        nodes[i].depends_on.retain(|&dep| dep < i);
-        if nodes[i].depends_on.len() != original_len {
+        let original_len = nodes[i].depends_on_mut().len();
+        nodes[i].depends_on_mut().retain(|&dep| dep < i);
+        if nodes[i].depends_on_mut().len() != original_len {
             warn!(
                 node = i,
-                agent = %nodes[i].agent_slug,
+                agent = %nodes[i].agent_slug(),
                 "dropped invalid depends_on entries (self/forward references)"
             );
         }
     }
-    let node_count = nodes.len();
-    for node in nodes.iter_mut() {
-        node.depends_on.retain(|&dep| dep < node_count);
-    }
 }
 
-/// Convert a list of PlannedNodes into ExecutionPlanNodes with stable UUIDs.
-/// Returns (nodes, uid_map) where uid_map[position_index] = uid.
-pub fn plan_to_execution_nodes(
-    plan: &[PlannedNode],
+/// Shared implementation for converting planned nodes to execution nodes.
+fn build_execution_nodes(
+    slugs_tasks_deps: &[(&str, &str, &[usize])],
     session_id: uuid::Uuid,
     git_sha: &str,
     catalog: &crate::agent_catalog::AgentCatalog,
@@ -166,33 +180,26 @@ pub fn plan_to_execution_nodes(
     use crate::agent_catalog::{ExecutionPlanNode, NodeStatus};
     use uuid::Uuid;
 
-    // First pass: assign UIDs
-    let uids: Vec<Uuid> = (0..plan.len()).map(|_| Uuid::new_v4()).collect();
+    let uids: Vec<Uuid> = (0..slugs_tasks_deps.len()).map(|_| Uuid::new_v4()).collect();
 
-    // Second pass: build nodes with resolved requires
     let mut nodes = Vec::new();
-    for (i, planned) in plan.iter().enumerate() {
-        let agent = catalog.get(&planned.agent_slug).ok_or_else(|| {
-            anyhow::anyhow!(
-                "planner referenced unknown agent slug: {}",
-                planned.agent_slug
-            )
+    for (i, &(slug, task, deps)) in slugs_tasks_deps.iter().enumerate() {
+        let agent = catalog.get(slug).ok_or_else(|| {
+            anyhow::anyhow!("planner referenced unknown agent slug: {}", slug)
         })?;
 
-        let requires: Vec<Uuid> = planned.depends_on.iter().map(|&dep| uids[dep]).collect();
-
-        let status = if requires.is_empty() {
-            NodeStatus::Pending
-        } else {
-            NodeStatus::Waiting
-        };
+        let requires: Vec<Uuid> = deps.iter()
+            .filter(|&&dep| dep < uids.len())
+            .map(|&dep| uids[dep])
+            .collect();
+        let status = if requires.is_empty() { NodeStatus::Pending } else { NodeStatus::Waiting };
 
         nodes.push(ExecutionPlanNode {
             uid: uids[i],
             session_id,
             agent_slug: agent.slug.clone(),
             agent_git_sha: git_sha.to_string(),
-            task_description: planned.task_description.clone(),
+            task_description: task.to_string(),
             status,
             requires,
             attempt_count: 0,
@@ -203,9 +210,7 @@ pub fn plan_to_execution_nodes(
             judge_feedback: None,
             judge_config: agent.judge_config.clone(),
             max_iterations: agent.max_iterations,
-            model: agent
-                .model
-                .clone()
+            model: agent.model.clone()
                 .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string()),
             skip_judge: agent.skip_judge,
             variant_group: None,
@@ -217,6 +222,19 @@ pub fn plan_to_execution_nodes(
     }
 
     Ok(nodes)
+}
+
+/// Convert a list of PlannedNodes into ExecutionPlanNodes with stable UUIDs.
+pub fn plan_to_execution_nodes(
+    plan: &[PlannedNode],
+    session_id: uuid::Uuid,
+    git_sha: &str,
+    catalog: &crate::agent_catalog::AgentCatalog,
+) -> anyhow::Result<Vec<crate::agent_catalog::ExecutionPlanNode>> {
+    let items: Vec<(&str, &str, &[usize])> = plan.iter()
+        .map(|p| (p.agent_slug.as_str(), p.task_description.as_str(), p.depends_on.as_slice()))
+        .collect();
+    build_execution_nodes(&items, session_id, git_sha, catalog)
 }
 
 // ── Rich Description Planner ─────────────────────────────────────────────────
@@ -252,6 +270,7 @@ const RICH_PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM system architect. Your
 - depends_on is an array of 0-based indices of EARLIER components. No cycles, no self-references.
 - Prefer parallelism: if two components don't need each other's output, give them empty depends_on.
 - Keep the plan focused — typically 2-8 components.
+- IMPORTANT: Use each agent_slug AT MOST ONCE. If the request requires multiple workflows, pipelines, or artifacts from the same tool, combine them into a single component with a compound task_description. The agent handles sequencing internally. Duplicate slugs waste execution resources.
 - Every component must BUILD something or ACT on an external system. No planning-only components.
 
 ## Description Structure
@@ -345,7 +364,7 @@ pub async fn plan_rich_description(
 
         match serde_json::from_str::<RichPlanOutput>(cleaned) {
             Ok(mut output) if !output.components.is_empty() => {
-                sanitize_rich_depends_on(&mut output.components);
+                sanitize_depends_on(&mut output.components);
                 info!(
                     component_count = output.components.len(),
                     title = %output.title,
@@ -374,23 +393,7 @@ pub async fn plan_rich_description(
     Err(anyhow::anyhow!("rich planner output is not valid JSON: {last_error}"))
 }
 
-fn sanitize_rich_depends_on(nodes: &mut Vec<RichPlannedNode>) {
-    for i in 0..nodes.len() {
-        let original_len = nodes[i].depends_on.len();
-        nodes[i].depends_on.retain(|&dep| dep < i);
-        if nodes[i].depends_on.len() != original_len {
-            warn!(
-                node = i,
-                agent = %nodes[i].agent_slug,
-                "dropped invalid depends_on entries in rich plan"
-            );
-        }
-    }
-    let node_count = nodes.len();
-    for node in nodes.iter_mut() {
-        node.depends_on.retain(|&dep| dep < node_count);
-    }
-}
+// sanitize_rich_depends_on removed — uses the generic sanitize_depends_on<T> above.
 
 /// Convert rich planned nodes into ExecutionPlanNodes, preserving the description JSONB.
 /// Returns (nodes, descriptions) where descriptions[i] is the JSONB for node i.
@@ -400,57 +403,10 @@ pub fn rich_plan_to_execution_nodes(
     git_sha: &str,
     catalog: &crate::agent_catalog::AgentCatalog,
 ) -> anyhow::Result<Vec<crate::agent_catalog::ExecutionPlanNode>> {
-    use crate::agent_catalog::{ExecutionPlanNode, NodeStatus};
-    use uuid::Uuid;
-
-    let uids: Vec<Uuid> = (0..plan.len()).map(|_| Uuid::new_v4()).collect();
-
-    let mut nodes = Vec::new();
-    for (i, planned) in plan.iter().enumerate() {
-        let agent = catalog.get(&planned.agent_slug).ok_or_else(|| {
-            anyhow::anyhow!(
-                "rich planner referenced unknown agent slug: {}",
-                planned.agent_slug
-            )
-        })?;
-
-        let requires: Vec<Uuid> = planned.depends_on.iter().map(|&dep| uids[dep]).collect();
-        let status = if requires.is_empty() {
-            NodeStatus::Pending
-        } else {
-            NodeStatus::Waiting
-        };
-
-        nodes.push(ExecutionPlanNode {
-            uid: uids[i],
-            session_id,
-            agent_slug: agent.slug.clone(),
-            agent_git_sha: git_sha.to_string(),
-            task_description: planned.task_description.clone(),
-            status,
-            requires,
-            attempt_count: 0,
-            parent_uid: None,
-            input: None,
-            output: None,
-            judge_score: None,
-            judge_feedback: None,
-            judge_config: agent.judge_config.clone(),
-            max_iterations: agent.max_iterations,
-            model: agent
-                .model
-                .clone()
-                .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string()),
-            skip_judge: agent.skip_judge,
-            variant_group: None,
-            variant_label: None,
-            variant_selected: None,
-            client_id: None,
-            tool_id: None,
-        });
-    }
-
-    Ok(nodes)
+    let items: Vec<(&str, &str, &[usize])> = plan.iter()
+        .map(|p| (p.agent_slug.as_str(), p.task_description.as_str(), p.depends_on.as_slice()))
+        .collect();
+    build_execution_nodes(&items, session_id, git_sha, catalog)
 }
 
 /// After plan generation, check each component's required tools against available

@@ -115,11 +115,13 @@ pub fn subscribe_to_session(
                     // Fetch full session data for the summary
                     let summary = load_session_summary(&db, &session_id).await;
                     if let Some((request_text, nodes)) = summary {
+                        let orchestrator_output = load_orchestrator_output(&db, &session_id).await;
                         let blocks = slack_messages::session_completed_blocks(
                             &request_text,
                             &nodes,
                             &std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
                             &session_id,
+                            orchestrator_output.as_deref(),
                         );
                         let _ = slack
                             .post_message(&channel_id, &blocks, "Execution complete", Some(&thread_ts))
@@ -183,4 +185,32 @@ async fn load_session_summary(
     let nodes = db.execute(&nodes_sql).await.ok()?;
 
     Some((request_text, nodes))
+}
+
+/// Load the master orchestrator's final output/summary for the completion message.
+async fn load_orchestrator_output(
+    db: &PgClient,
+    session_id: &str,
+) -> Option<String> {
+    let sql = format!(
+        "SELECT output FROM execution_nodes \
+         WHERE session_id = '{session_id}' AND agent_slug = 'master_orchestrator' AND depth = 0 \
+         LIMIT 1"
+    );
+    let rows = db.execute(&sql).await.ok()?;
+    let output = rows.first()?.get("output")?;
+
+    // Try extracting a summary string, fall back to the full output text
+    if let Some(summary) = output.get("summary").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        return Some(summary.to_string());
+    }
+    if let Some(text) = output.as_str() {
+        return Some(text.to_string());
+    }
+    // For JSON output, pretty-print a truncated version
+    let rendered = output.to_string();
+    if rendered.len() > 2 && rendered != "null" {
+        return Some(rendered);
+    }
+    None
 }

@@ -5,5 +5,4 @@ description = "Operates Tolt affiliate/referral platform: manages partner groups
 intents = ["tolt", "affiliate", "referral", "commission", "partner group", "tolt group", "referral revenue", "tolt csv", "affiliate tracking"]
 max_iterations = 12
 skip_judge = false
-flexible_tool_use = true
 required_integrations = ["tolt"]

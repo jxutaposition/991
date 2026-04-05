@@ -131,10 +131,12 @@ async fn execute_node(
 
     // Persist + broadcast node_started event
     let start_payload = serde_json::json!({"agent_slug": &agent_slug});
-    let _ = db.execute_with(
+    if let Err(e) = db.execute_with(
         "INSERT INTO execution_events (session_id, node_id, event_type, payload) VALUES ($1, $2, $3, $4)",
         pg_args!(session_id, uid, "node_started".to_string(), start_payload),
-    ).await;
+    ).await {
+        warn!(uid = %uid, error = %e, "failed to persist node_started event");
+    }
 
     event_bus.send(
         &session_id.to_string(),
@@ -167,7 +169,7 @@ async fn execute_node(
     }
 
     // Record run history for tier computation
-    let _ = tier::record_run(
+    if let Err(e) = tier::record_run(
         &db,
         &agent_slug,
         &node.task_description,
@@ -175,46 +177,50 @@ async fn execute_node(
         &uid.to_string(),
         result.status.as_str(),
         result.judge_score,
-    )
-    .await;
+    ).await {
+        warn!(uid = %uid, error = %e, "failed to record tier run history");
+    }
 
     // Record failures as feedback signals for agent learning
     if result.status == NodeStatus::Failed {
         if let Some(judge_fb) = &result.judge_feedback {
-            let _ = feedback::record_judge_failure_signal(
+            if let Err(e) = feedback::record_judge_failure_signal(
                 &db,
                 &agent_slug,
                 &session_id.to_string(),
                 judge_fb,
                 &node.task_description,
-            )
-            .await;
+            ).await {
+                warn!(uid = %uid, error = %e, "failed to record judge failure signal");
+            }
         }
         let category = classify_error(&result);
         if let Some(ref cat) = category {
             if cat != "validation_error" {
-                let _ = feedback::record_failure_signal(
+                if let Err(e) = feedback::record_failure_signal(
                     &db,
                     &agent_slug,
                     &session_id.to_string(),
                     cat,
                     result.error.as_deref().unwrap_or("unknown"),
                     &node.task_description,
-                )
-                .await;
+                ).await {
+                    warn!(uid = %uid, error = %e, "failed to record failure signal");
+                }
             }
         }
     }
 
     // Extract blockers/errors from agent output and record as feedback signals
     if let Some(ref output) = result.output {
-        let _ = feedback::record_blockers_from_output(
+        if let Err(e) = feedback::record_blockers_from_output(
             &db,
             &agent_slug,
             &session_id.to_string(),
             output,
-        )
-        .await;
+        ).await {
+            warn!(uid = %uid, error = %e, "failed to record blockers from output");
+        }
     }
 
     // Auto-resolve credential issues on successful execution
@@ -276,7 +282,8 @@ async fn claim_ready_nodes(
             status, requires, attempt_count, parent_uid,
             input, output, judge_score, judge_feedback,
             judge_config, max_iterations, model, skip_judge,
-            variant_group, variant_label, variant_selected, client_id
+            variant_group, variant_label, variant_selected, client_id,
+            tool_id
         FROM claimed
         "#
     );
@@ -420,12 +427,14 @@ async fn persist_node_result(
         "narrative_preview": narrative_preview,
         "score": result.judge_score,
     });
-    let _ = db.execute_with(
+    if let Err(e) = db.execute_with(
         r#"INSERT INTO execution_events (session_id, node_id, event_type, payload)
            SELECT session_id, id, 'node_completed', $1
            FROM execution_nodes WHERE id = $2"#,
         pg_args!(event_payload, *uid),
-    ).await;
+    ).await {
+        warn!(uid = %uid, error = %e, "failed to persist node_completed event");
+    }
 
     Ok(())
 }
@@ -452,7 +461,7 @@ pub async fn unblock_downstream(
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM unnest(d.requires) AS req_id
-                JOIN execution_nodes rn ON rn.id = req_id
+                JOIN execution_nodes rn ON rn.id = req_id AND rn.session_id = $1
                 WHERE rn.status != 'passed'
             )
         )
@@ -510,12 +519,13 @@ pub async fn skip_downstream(
 }
 
 /// Mark session as completed if all nodes are in a terminal state.
-/// Preview nodes (spawned but never started) are treated as terminal.
+/// Preview nodes (spawned but never started) and awaiting_reply nodes
+/// (waiting for user input) are treated as terminal.
 pub async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bus: &EventBus) {
     let sql = r#"
         SELECT
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped', 'preview')) as terminal
+            COUNT(*) FILTER (WHERE status IN ('passed', 'failed', 'skipped', 'preview', 'cancelled', 'awaiting_reply')) as terminal
         FROM execution_nodes
         WHERE session_id = $1
     "#;
@@ -541,6 +551,9 @@ pub async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bu
                     serde_json::json!({"type": "session_completed"}),
                 ).await;
 
+                // Clean up the EventBus channel now that the session is done
+                event_bus.cleanup(&session_id.to_string()).await;
+
                 info!(session = %session_id, "session completed");
             }
         }
@@ -564,7 +577,7 @@ async fn recover_stale_nodes(db: &PgClient) -> anyhow::Result<()> {
         END,
         started_at = NULL
         WHERE status = 'running'
-          AND started_at < NOW() - INTERVAL '{timeout_secs} seconds'
+          AND (started_at IS NULL OR started_at < NOW() - INTERVAL '{timeout_secs} seconds')
         RETURNING id, attempt_count, session_id, agent_slug, task_description
         "#
     );
@@ -580,14 +593,16 @@ async fn recover_stale_nodes(db: &PgClient) -> anyhow::Result<()> {
             let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("unknown");
             let session_id = row.get("session_id").and_then(Value::as_str).unwrap_or("");
             let task_desc = row.get("task_description").and_then(Value::as_str).unwrap_or("");
-            let _ = feedback::record_failure_signal(
+            if let Err(e) = feedback::record_failure_signal(
                 db,
                 agent_slug,
                 session_id,
                 "timeout",
                 "Node timed out after exceeding stale threshold",
                 task_desc,
-            ).await;
+            ).await {
+                warn!(agent = agent_slug, error = %e, "failed to record timeout failure signal");
+            }
         }
     }
 

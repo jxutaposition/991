@@ -6,6 +6,7 @@
 use serde_json::Value;
 
 use crate::pg::PgClient;
+use crate::pg_args;
 
 const T1_THRESHOLD: i64 = 3;
 
@@ -13,18 +14,15 @@ const T1_THRESHOLD: i64 = 3;
 /// Uses task_fingerprint matching: for now, a simple slug-based lookup.
 /// Future: LLM-based or embedding-based fingerprinting for semantic matching.
 pub async fn compute_tier(db: &PgClient, agent_slug: &str, _task_description: &str) -> String {
-    let slug_escaped = agent_slug.replace('\'', "''");
-
-    let sql = format!(
+    let rows = match db.execute_with(
         r#"SELECT
             COUNT(*) FILTER (WHERE status = 'passed') as passes,
             COUNT(*) FILTER (WHERE status = 'failed') as failures,
             AVG(judge_score) FILTER (WHERE judge_score IS NOT NULL) as avg_score
            FROM agent_run_history
-           WHERE agent_slug = '{slug_escaped}'"#
-    );
-
-    let rows = match db.execute(&sql).await {
+           WHERE agent_slug = $1"#,
+        pg_args!(agent_slug.to_string()),
+    ).await {
         Ok(r) => r,
         Err(_) => return "T3".to_string(),
     };
@@ -62,23 +60,23 @@ pub async fn record_run(
     status: &str,
     judge_score: Option<f64>,
 ) -> anyhow::Result<()> {
-    let slug_escaped = agent_slug.replace('\'', "''");
     let fingerprint = compute_fingerprint(agent_slug, task_description);
-    let fingerprint_escaped = fingerprint.replace('\'', "''");
+    let session_uuid: uuid::Uuid = session_id.parse().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
+    let node_uuid: uuid::Uuid = node_id.parse().map_err(|e| anyhow::anyhow!("invalid node_id: {e}"))?;
 
-    let score_val = judge_score
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let sql = format!(
+    db.execute_with(
         r#"INSERT INTO agent_run_history
             (agent_slug, task_fingerprint, session_id, node_id, status, judge_score)
-           VALUES
-            ('{slug_escaped}', '{fingerprint_escaped}', '{session_id}'::uuid,
-             '{node_id}'::uuid, '{status}', {score_val})"#
-    );
-
-    db.execute(&sql).await?;
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
+        pg_args!(
+            agent_slug.to_string(),
+            fingerprint,
+            session_uuid,
+            node_uuid,
+            status.to_string(),
+            judge_score,
+        ),
+    ).await?;
     Ok(())
 }
 

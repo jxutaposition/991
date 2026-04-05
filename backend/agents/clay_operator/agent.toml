@@ -5,4 +5,3 @@ description = "Designs Clay table structures, enrichment columns, formulas, webh
 intents = ["clay", "clay table", "clay setup", "clay enrichment", "clay webhook", "clay social listening", "configure clay", "create clay table", "clay action column", "clay formula"]
 max_iterations = 15
 skip_judge = false
-flexible_tool_use = true

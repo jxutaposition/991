@@ -87,6 +87,9 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
+    // Spawn work queue background processor
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
     let state = Arc::new(AppState {
         settings: settings.clone(),
         db: db.clone(),
@@ -94,12 +97,10 @@ async fn main() -> anyhow::Result<()> {
         catalog: catalog.clone(),
         skill_catalog: skill_catalog.clone(),
         tool_catalog: tool_catalog.clone(),
+        shutdown_rx: shutdown_rx.clone(),
         #[cfg(feature = "slack")]
         slack: slack_client,
     });
-
-    // Spawn work queue background processor
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     work_queue::spawn(
         settings.clone(),
         db.clone(),
@@ -137,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/sessions", get(routes::execution_sessions_list))
         .route("/api/execute", post(routes::execution_create))
         .route("/api/execute/:session_id/approve", post(routes::execution_approve))
+        .route("/api/execute/:session_id/chat", post(routes::execution_session_chat))
         .route("/api/execute/:session_id/stop", post(routes::execution_stop))
         .route("/api/execute/:session_id", get(routes::execution_get).delete(routes::execution_session_delete))
         .route("/api/execute/:session_id/failures", get(routes::execution_failures))
@@ -173,6 +175,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/clients", get(routes::clients_list))
         .route("/api/clients", post(routes::client_create))
         .route("/api/clients/:slug", get(routes::client_get))
+        .route("/api/clients/:slug", axum::routing::patch(routes::client_update))
         .route("/api/clients/:slug/state", post(routes::client_set_state))
         // Experts
         .route("/api/experts", get(routes::experts_list))
@@ -223,6 +226,7 @@ async fn main() -> anyhow::Result<()> {
         // Projects
         .route("/api/projects", get(routes::projects_list))
         .route("/api/projects", post(routes::project_create))
+        .route("/api/projects/:project_id", axum::routing::patch(routes::project_update))
         // Project credentials
         .route("/api/projects/:project_id/credentials", get(routes::project_credentials_list))
         .route("/api/projects/:project_id/credentials", post(routes::project_credential_set))
@@ -243,11 +247,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/knowledge/documents", post(routes::knowledge_document_upload))
         .route("/api/knowledge/documents/:doc_id", get(routes::knowledge_document_get))
         .route("/api/knowledge/documents/:doc_id", axum::routing::delete(routes::knowledge_document_delete))
+        .route("/api/knowledge/documents/:doc_id/reprocess", post(routes::knowledge_document_reprocess))
         .route("/api/knowledge/documents/:doc_id/chunks", get(routes::knowledge_document_chunks))
+        .route("/api/knowledge/documents/:doc_id/raw", get(routes::knowledge_document_raw))
         .route("/api/knowledge/documents/:doc_id/progress", get(routes::knowledge_document_progress))
         .route("/api/knowledge/folders", get(routes::knowledge_folders))
         .route("/api/knowledge/folders/delete", post(routes::knowledge_folder_delete))
         .route("/api/knowledge/search", post(routes::knowledge_search))
+        .route("/api/knowledge/reprocess-bulk", post(routes::knowledge_reprocess_bulk))
         .merge(
             Router::new()
                 .route("/api/knowledge/upload", post(routes::knowledge_document_upload_multipart))
@@ -264,10 +271,7 @@ async fn main() -> anyhow::Result<()> {
         // Description Threads (conversational editing)
         .route("/api/execute/:session_id/threads", get(routes::thread_list).post(routes::thread_create))
         .route("/api/execute/:session_id/threads/:thread_id/messages", post(routes::thread_message_create))
-        .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
-        // Chat (agent buddy)
-        .route("/api/execute/:session_id/chat", post(routes::session_chat))
-        .route("/api/projects/:project_id/chat", post(routes::project_chat));
+        .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update));
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]
@@ -320,6 +324,12 @@ async fn main() -> anyhow::Result<()> {
             tokio::signal::ctrl_c().await.ok();
             info!("shutting down");
             let _ = shutdown_tx.send(true);
+
+            tokio::spawn(async {
+                tokio::signal::ctrl_c().await.ok();
+                eprintln!("forced shutdown");
+                std::process::exit(1);
+            });
         })
         .await?;
 

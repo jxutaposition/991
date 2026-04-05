@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use url::form_urlencoded;
 
+use crate::pg_args;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -228,11 +229,10 @@ async fn handle_status_command(state: &AppState, session_id_prefix: &str) -> Vec
     }
 
     // Look up specific session
-    let sql = format!(
-        "SELECT id, status FROM execution_sessions WHERE id::text LIKE '{}%' LIMIT 1",
-        session_id_prefix.replace('\'', "")
-    );
-    let sessions = state.db.execute(&sql).await.unwrap_or_default();
+    let sessions = state.db.execute_with(
+        "SELECT id, status FROM execution_sessions WHERE id::text LIKE $1 || '%' LIMIT 1",
+        pg_args!(session_id_prefix.to_string()),
+    ).await.unwrap_or_default();
 
     let session = match sessions.first() {
         Some(s) => s,
@@ -242,11 +242,10 @@ async fn handle_status_command(state: &AppState, session_id_prefix: &str) -> Vec
     let full_id = session.get("id").and_then(Value::as_str).unwrap_or("");
     let status = session.get("status").and_then(Value::as_str).unwrap_or("");
 
-    let nodes_sql = format!(
-        "SELECT agent_slug, status, judge_score FROM execution_nodes WHERE session_id = '{}' ORDER BY created_at",
-        full_id
-    );
-    let nodes = state.db.execute(&nodes_sql).await.unwrap_or_default();
+    let nodes = state.db.execute_with(
+        "SELECT agent_slug, status, judge_score FROM execution_nodes WHERE session_id = $1 ORDER BY created_at",
+        pg_args!(full_id.to_string()),
+    ).await.unwrap_or_default();
 
     slack_messages::status_blocks(full_id, status, &nodes)
 }
@@ -304,13 +303,10 @@ pub async fn interactions_handler(
                 log_slack_event(&state.db, "inbound", "button_click", Some(channel_id), Some(user_id), None, &json!({"action": action_id})).await;
 
                 // Look up the session for this channel + message
-                let mapping_sql = format!(
-                    "SELECT session_id FROM slack_channel_mappings WHERE slack_channel_id = '{}' AND thread_ts = '{}' AND is_active = true LIMIT 1",
-                    channel_id.replace('\'', ""),
-                    message_ts.replace('\'', ""),
-                );
-
-                let mappings = state.db.execute(&mapping_sql).await.unwrap_or_default();
+                let mappings = state.db.execute_with(
+                    "SELECT session_id FROM slack_channel_mappings WHERE slack_channel_id = $1 AND thread_ts = $2 AND is_active = true LIMIT 1",
+                    pg_args!(channel_id.to_string(), message_ts.to_string()),
+                ).await.unwrap_or_default();
                 let session_id = match mappings.first().and_then(|m| m.get("session_id")).and_then(Value::as_str) {
                     Some(id) => id.to_string(),
                     None => {
@@ -320,10 +316,10 @@ pub async fn interactions_handler(
                 };
 
                 // Get request_text for the updated message
-                let session_sql = format!(
-                    "SELECT request_text FROM execution_sessions WHERE id = '{session_id}'"
-                );
-                let sessions = state.db.execute(&session_sql).await.unwrap_or_default();
+                let sessions = state.db.execute_with(
+                    "SELECT request_text FROM execution_sessions WHERE id = $1",
+                    pg_args!(session_id.clone()),
+                ).await.unwrap_or_default();
                 let request_text = sessions
                     .first()
                     .and_then(|s| s.get("request_text"))
@@ -333,15 +329,15 @@ pub async fn interactions_handler(
                 if let Some(slack) = &state.slack {
                     if is_approve {
                         // Approve the session
-                        let approve_sql = format!(
-                            "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = '{session_id}' AND status = 'awaiting_approval'"
-                        );
-                        let _ = state.db.execute(&approve_sql).await;
+                        let _ = state.db.execute_with(
+                            "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = $1 AND status = 'awaiting_approval'",
+                            pg_args!(session_id.clone()),
+                        ).await;
 
-                        let unblock_sql = format!(
-                            "UPDATE execution_nodes SET status = 'ready' WHERE session_id = '{session_id}' AND status = 'pending' AND requires = '{{}}'"
-                        );
-                        let _ = state.db.execute(&unblock_sql).await;
+                        let _ = state.db.execute_with(
+                            "UPDATE execution_nodes SET status = 'ready' WHERE session_id = $1 AND status = 'pending' AND requires = '{}'",
+                            pg_args!(session_id.clone()),
+                        ).await;
 
                         // Create EventBus channel
                         state.event_bus.create_channel(&session_id).await;
@@ -365,10 +361,10 @@ pub async fn interactions_handler(
                         info!(session = %session_id, user = user_id, "plan approved via Slack");
                     } else {
                         // Reject
-                        let reject_sql = format!(
-                            "UPDATE execution_sessions SET status = 'failed', completed_at = NOW() WHERE id = '{session_id}'"
-                        );
-                        let _ = state.db.execute(&reject_sql).await;
+                        let _ = state.db.execute_with(
+                            "UPDATE execution_sessions SET status = 'failed', completed_at = NOW() WHERE id = $1",
+                            pg_args!(session_id.clone()),
+                        ).await;
 
                         let blocks = slack_messages::plan_rejected_blocks(request_text, user_id);
                         let _ = slack
@@ -439,32 +435,26 @@ pub async fn events_handler(
 
 async fn handle_thread_reply(state: &AppState, channel: &str, thread_ts: &str, text: &str) {
     // Look up the session for this thread
-    let mapping_sql = format!(
-        "SELECT session_id FROM slack_channel_mappings WHERE slack_channel_id = '{}' AND thread_ts = '{}' AND is_active = true LIMIT 1",
-        channel.replace('\'', ""),
-        thread_ts.replace('\'', ""),
-    );
-
-    let mappings = state.db.execute(&mapping_sql).await.unwrap_or_default();
+    let mappings = state.db.execute_with(
+        "SELECT session_id FROM slack_channel_mappings WHERE slack_channel_id = $1 AND thread_ts = $2 AND is_active = true LIMIT 1",
+        pg_args!(channel.to_string(), thread_ts.to_string()),
+    ).await.unwrap_or_default();
     let session_id = match mappings.first().and_then(|m| m.get("session_id")).and_then(Value::as_str) {
         Some(id) => id.to_string(),
         None => return, // Not a tracked thread
     };
 
     // Find a node with a pending clarification request
-    let node_sql = format!(
-        "SELECT id FROM execution_nodes WHERE session_id = '{}' AND clarification_request IS NOT NULL AND clarification_response IS NULL AND status = 'waiting' LIMIT 1",
-        session_id
-    );
-
-    let nodes = state.db.execute(&node_sql).await.unwrap_or_default();
+    let nodes = state.db.execute_with(
+        "SELECT id FROM execution_nodes WHERE session_id = $1 AND clarification_request IS NOT NULL AND clarification_response IS NULL AND status = 'waiting' LIMIT 1",
+        pg_args!(session_id.clone()),
+    ).await.unwrap_or_default();
     if let Some(node) = nodes.first() {
         if let Some(node_id) = node.get("id").and_then(Value::as_str) {
-            let text_escaped = text.replace('\'', "''");
-            let update_sql = format!(
-                "UPDATE execution_nodes SET clarification_response = '{text_escaped}', status = 'ready' WHERE id = '{node_id}'"
-            );
-            let _ = state.db.execute(&update_sql).await;
+            let _ = state.db.execute_with(
+                "UPDATE execution_nodes SET clarification_response = $1, status = 'ready' WHERE id = $2",
+                pg_args!(text.to_string(), node_id.to_string()),
+            ).await;
             info!(session = %session_id, node = node_id, "clarification response received via Slack");
         }
     }

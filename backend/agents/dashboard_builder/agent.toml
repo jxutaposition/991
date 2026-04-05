@@ -1,10 +1,10 @@
 slug = "dashboard_builder"
 name = "Dashboard Builder"
 category = "program_operations"
-description = "Builds dashboards end-to-end. Creates Supabase data layer (tables, RLS, edge functions), Grafana dashboards, and Notion databases via API. For Lovable web apps, generates detailed chat prompts and pauses for user to apply them — no Lovable editing API exists."
+description = "Builds dashboards end-to-end. Creates Supabase data layer (tables, RLS, edge functions) and Notion databases via API. For Lovable web apps, generates detailed chat prompts and pauses for user to apply them — no Lovable editing API exists."
 intents = ["dashboard", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "build dashboard", "create dashboard", "grafana", "lovable dashboard"]
 max_iterations = 20
 skip_judge = false
-flexible_tool_use = true
+
 expert_slug = "lele"
-required_integrations = ["supabase"]
+required_integrations = ["supabase", "notion"]

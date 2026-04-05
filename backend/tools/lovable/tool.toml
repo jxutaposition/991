@@ -1,7 +1,7 @@
 id = "lovable"
 name = "Lovable"
 category = "frontend-hosting"
-description = "Cloud-hosted web app builder with AI chat editor. Projects are Vite + React + TypeScript + Supabase. No REST API for project editing — changes are made via GitHub sync (push to connected branch) or by generating chat prompts for the user to paste into the Lovable editor."
+description = "Cloud-hosted web app builder with AI chat editor. Projects are Vite + React + TypeScript + Supabase. No REST API for project editing — changes are made by generating chat prompts for the user to paste into the Lovable editor."
 required_credentials = ["supabase"]
 enabled = true
 
@@ -9,4 +9,4 @@ enabled = true
 automation = "partial"
 api_access = "none"
 cost = "free-tier-available"
-notes = "No project creation API. No editing API. Changes deploy immediately (no staging). GitHub sync enables programmatic code changes if the project is connected to a repo. Manual project creation required via lovable.dev UI."
+notes = "No project creation API. No editing API. Changes deploy immediately (no staging). Manual project creation required via lovable.dev UI."

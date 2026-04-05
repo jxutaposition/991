@@ -63,11 +63,10 @@ impl WeightConfig {
 /// Resolve the weight for a signal type, checking per-agent overrides first.
 pub async fn resolve_weight(db: &PgClient, agent_slug: &str, signal_type: &str) -> f64 {
     let defaults = WeightConfig::default();
-    let slug_escaped = agent_slug.replace('\'', "''");
-    let sql = format!(
-        "SELECT weight_overrides FROM agent_definitions WHERE slug = '{slug_escaped}'"
-    );
-    if let Ok(rows) = db.execute(&sql).await {
+    if let Ok(rows) = db.execute_with(
+        "SELECT weight_overrides FROM agent_definitions WHERE slug = $1",
+        crate::pg_args!(agent_slug.to_string()),
+    ).await {
         if let Some(overrides) = rows
             .first()
             .and_then(|r| r.get("weight_overrides"))
@@ -109,22 +108,18 @@ pub async fn record_correction_signal(
     let weight = resolve_weight(db, agent_slug, "expert_correction").await;
     let signal_id = Uuid::new_v4();
     let desc = format!("Expert corrected narrator: '{}'", correction_text);
-    let desc_escaped = desc.replace('\'', "''");
-    let expert_escaped = correction_text.replace('\'', "''");
-    let agent_escaped = narrator_text.replace('\'', "''");
-    let slug_escaped = agent_slug.replace('\'', "''");
+    let session_uuid = session_id.parse::<Uuid>().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
 
-    let sql = format!(
-        r#"INSERT INTO feedback_signals
-            (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref,
-             description, expert_approach, agent_approach, impact)
-           VALUES
-            ('{signal_id}', '{slug_escaped}', 'expert_correction', 'ground_truth', {weight},
-             '{session_id}'::uuid, {sequence_ref}, '{desc_escaped}',
-             '{expert_escaped}', '{agent_escaped}', 'prompt')"#,
-    );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO feedback_signals \
+            (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref, \
+             description, expert_approach, agent_approach, impact) \
+         VALUES ($1, $2, 'expert_correction', 'ground_truth', $3, $4, $5, $6, $7, $8, 'prompt')",
+        crate::pg_args!(
+            signal_id, agent_slug.to_string(), weight, session_uuid, sequence_ref,
+            desc, correction_text.to_string(), narrator_text.to_string()
+        ),
+    ).await?;
     info!(signal = %signal_id, agent = agent_slug, weight, "recorded ground_truth correction signal");
     Ok(signal_id)
 }
@@ -135,48 +130,23 @@ pub async fn record_reasoning_signal(
     signal: &FeedbackSignal,
 ) -> anyhow::Result<Uuid> {
     let signal_id = Uuid::new_v4();
-    let slug_escaped = signal.agent_slug.replace('\'', "''");
-    let desc_escaped = signal.description.replace('\'', "''");
-    let expert = signal
-        .expert_approach
-        .as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let agent = signal
-        .agent_approach
-        .as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let session = signal
-        .session_id
-        .map(|s| format!("'{s}'::uuid"))
-        .unwrap_or_else(|| "NULL".to_string());
-    let seq = signal
-        .sequence_ref
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "NULL".to_string());
-    let impact_escaped = signal.impact.replace('\'', "''");
+    let expert_approach = signal.expert_approach.clone();
+    let agent_approach = signal.agent_approach.clone();
+    let session_id = signal.session_id;
+    let sequence_ref = signal.sequence_ref;
 
-    let expert_id_val = signal
-        .expert_id
-        .map(|id| format!("'{}'", id))
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let sql = format!(
-        r#"INSERT INTO feedback_signals
-            (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref,
-             description, expert_approach, agent_approach, impact, expert_id)
-           VALUES
-            ('{signal_id}', '{slug_escaped}', '{signal_type}', '{authority}', {weight},
-             {session}, {seq}, '{desc_escaped}', {expert}, {agent}, '{impact_escaped}',
-             {expert_id_val})"#,
-        signal_type = signal.signal_type,
-        authority = signal.authority,
-        weight = signal.weight,
-        expert_id_val = expert_id_val,
-    );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO feedback_signals \
+            (id, agent_slug, signal_type, authority, weight, session_id, sequence_ref, \
+             description, expert_approach, agent_approach, impact, expert_id) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        crate::pg_args!(
+            signal_id, signal.agent_slug.clone(), signal.signal_type.clone(),
+            signal.authority.clone(), signal.weight, session_id, sequence_ref,
+            signal.description.clone(), expert_approach, agent_approach,
+            signal.impact.clone(), signal.expert_id
+        ),
+    ).await?;
     Ok(signal_id)
 }
 
@@ -190,21 +160,19 @@ pub async fn record_judge_failure_signal(
 ) -> anyhow::Result<Uuid> {
     let weight = resolve_weight(db, agent_slug, "judge_failure").await;
     let signal_id = Uuid::new_v4();
-    let slug_escaped = agent_slug.replace('\'', "''");
     let desc = format!("Judge rejected output: {}", judge_feedback);
-    let desc_escaped = desc.replace('\'', "''");
-    let task_escaped = task_description.replace('\'', "''");
+    let session_uuid = session_id.parse::<Uuid>().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
 
-    let sql = format!(
-        r#"INSERT INTO feedback_signals
-            (id, agent_slug, signal_type, authority, weight, session_id,
-             description, agent_approach, impact)
-           VALUES
-            ('{signal_id}', '{slug_escaped}', 'judge_failure', 'inferred', {weight},
-             '{session_id}'::uuid, '{desc_escaped}', '{task_escaped}', 'prompt')"#,
-    );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO feedback_signals \
+            (id, agent_slug, signal_type, authority, weight, session_id, \
+             description, agent_approach, impact) \
+         VALUES ($1, $2, 'judge_failure', 'inferred', $3, $4, $5, $6, 'prompt')",
+        crate::pg_args!(
+            signal_id, agent_slug.to_string(), weight, session_uuid,
+            desc, task_description.to_string()
+        ),
+    ).await?;
     Ok(signal_id)
 }
 
@@ -322,20 +290,17 @@ pub async fn record_user_thumbs_signal(
 ) -> anyhow::Result<Uuid> {
     let weight = resolve_weight(db, agent_slug, "user_thumbs").await;
     let signal_id = Uuid::new_v4();
-    let slug_escaped = agent_slug.replace('\'', "''");
     let polarity = if is_positive { "positive" } else { "negative" };
-    let desc = format!("User {polarity} feedback: {comment}").replace('\'', "''");
+    let desc = format!("User {polarity} feedback: {comment}");
+    let session_uuid = session_id.parse::<Uuid>().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
 
-    let sql = format!(
-        r#"INSERT INTO feedback_signals
-            (id, agent_slug, signal_type, authority, weight, session_id,
-             description, impact)
-           VALUES
-            ('{signal_id}', '{slug_escaped}', 'user_thumbs', 'user', {weight},
-             '{session_id}'::uuid, '{desc}', 'prompt')"#,
-    );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO feedback_signals \
+            (id, agent_slug, signal_type, authority, weight, session_id, \
+             description, impact) \
+         VALUES ($1, $2, 'user_thumbs', 'user', $3, $4, $5, 'prompt')",
+        crate::pg_args!(signal_id, agent_slug.to_string(), weight, session_uuid, desc),
+    ).await?;
     info!(signal = %signal_id, agent = agent_slug, polarity, "recorded user thumbs signal");
     Ok(signal_id)
 }
@@ -350,19 +315,16 @@ pub async fn record_automated_check_signal(
 ) -> anyhow::Result<Uuid> {
     let weight = resolve_weight(db, agent_slug, "automated_check").await;
     let signal_id = Uuid::new_v4();
-    let slug_escaped = agent_slug.replace('\'', "''");
-    let desc = format!("Automated check '{check_name}': {details}").replace('\'', "''");
+    let desc = format!("Automated check '{check_name}': {details}");
+    let session_uuid = session_id.parse::<Uuid>().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
 
-    let sql = format!(
-        r#"INSERT INTO feedback_signals
-            (id, agent_slug, signal_type, authority, weight, session_id,
-             description, impact)
-           VALUES
-            ('{signal_id}', '{slug_escaped}', 'automated_check', 'automated', {weight},
-             '{session_id}'::uuid, '{desc}', 'prompt')"#,
-    );
-
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO feedback_signals \
+            (id, agent_slug, signal_type, authority, weight, session_id, \
+             description, impact) \
+         VALUES ($1, $2, 'automated_check', 'automated', $3, $4, $5, 'prompt')",
+        crate::pg_args!(signal_id, agent_slug.to_string(), weight, session_uuid, desc),
+    ).await?;
     info!(signal = %signal_id, agent = agent_slug, check_name, "recorded automated check signal");
     Ok(signal_id)
 }
@@ -402,19 +364,13 @@ pub async fn synthesize_feedback(
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
 
-        let slug_escaped = agent_slug.replace('\'', "''");
-        let impact_escaped = impact.replace('\'', "''");
-
-        let signals_sql = format!(
-            r#"SELECT id, description, expert_approach, agent_approach, authority
-               FROM feedback_signals
-               WHERE agent_slug = '{slug_escaped}'
-                 AND impact = '{impact_escaped}'
-                 AND resolution IS NULL
-               ORDER BY weight DESC, created_at
-               LIMIT 10"#
-        );
-        let signals = db.execute(&signals_sql).await?;
+        let signals = db.execute_with(
+            "SELECT id, description, expert_approach, agent_approach, authority \
+             FROM feedback_signals \
+             WHERE agent_slug = $1 AND impact = $2 AND resolution IS NULL \
+             ORDER BY weight DESC, created_at LIMIT 10",
+            crate::pg_args!(agent_slug.to_string(), impact.to_string()),
+        ).await?;
 
         if signals.is_empty() {
             continue;
@@ -427,10 +383,10 @@ pub async fn synthesize_feedback(
                 .unwrap_or(false)
         });
 
-        let agent_row_sql = format!(
-            "SELECT system_prompt, judge_config FROM agent_definitions WHERE slug = '{slug_escaped}'"
-        );
-        let agent_rows = db.execute(&agent_row_sql).await?;
+        let agent_rows = db.execute_with(
+            "SELECT system_prompt, judge_config FROM agent_definitions WHERE slug = $1",
+            crate::pg_args!(agent_slug.to_string()),
+        ).await?;
         let current_prompt = agent_rows
             .first()
             .and_then(|r| r.get("system_prompt").and_then(Value::as_str))
@@ -446,33 +402,32 @@ pub async fn synthesize_feedback(
 
         let pr_id = Uuid::new_v4();
         let reasoning = build_pr_reasoning(&signals);
-        let reasoning_escaped = reasoning.replace('\'', "''");
-        let gap_escaped = change.gap_summary.replace('\'', "''");
-        let changes_json = change.proposed_changes.to_string().replace('\'', "''");
 
         let signal_ids: Vec<String> = signals
             .iter()
             .filter_map(|s| s.get("id").and_then(Value::as_str).map(String::from))
             .collect();
-        let evidence_count = signal_ids.len();
+        let evidence_count = signal_ids.len() as i32;
 
-        let pr_sql = format!(
-            r#"INSERT INTO agent_prs
-                (id, pr_type, target_agent_slug, proposed_changes, reasoning, gap_summary,
-                 confidence, evidence_count, status, auto_merge_eligible)
-               VALUES
-                ('{pr_id}', '{pr_type}', '{slug_escaped}', '{changes_json}'::jsonb,
-                 '{reasoning_escaped}', '{gap_escaped}', {total_weight},
-                 {evidence_count}, 'open', {auto_merge})"#,
-            auto_merge = all_ground_truth,
-        );
-        db.execute(&pr_sql).await?;
+        db.execute_with(
+            "INSERT INTO agent_prs \
+                (id, pr_type, target_agent_slug, proposed_changes, reasoning, gap_summary, \
+                 confidence, evidence_count, status, auto_merge_eligible) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9)",
+            crate::pg_args!(
+                pr_id, pr_type.to_string(), agent_slug.to_string(),
+                change.proposed_changes.clone(), reasoning, change.gap_summary.clone(),
+                total_weight, evidence_count, all_ground_truth
+            ),
+        ).await?;
 
         for sid in &signal_ids {
-            let update_sql = format!(
-                "UPDATE feedback_signals SET resolution = 'applied', resolved_pr_id = '{pr_id}' WHERE id = '{sid}'::uuid"
-            );
-            let _ = db.execute(&update_sql).await;
+            if let Ok(signal_uuid) = sid.parse::<Uuid>() {
+                let _ = db.execute_with(
+                    "UPDATE feedback_signals SET resolution = 'applied', resolved_pr_id = $1 WHERE id = $2",
+                    crate::pg_args!(pr_id, signal_uuid),
+                ).await;
+            }
         }
 
         info!(pr = %pr_id, agent = agent_slug, impact, weight = total_weight, "synthesized feedback into PR");

@@ -53,94 +53,71 @@ A single runtime LLM instance that owns the full user request. It never loads pl
 - Sub-agent conversation histories
 - Raw action call results
 
-**Execution model:** Flat. The orchestrator spawns all sub-agents directly. No sub-orchestrators. No nesting beyond depth 1. If a task is too complex for one sub-agent, the orchestrator breaks it into smaller tasks — each a direct sub-agent.
+**Execution model:** Hierarchical with depth limit 3. The orchestrator can spawn sub-orchestrators for complex deliverables, which in turn spawn worker agents. See SD-003 for the full sub-orchestrator pattern.
 
 ```
 Orchestrator
-├── spawns Sub-agent 1 (dashboard-builder + lovable)
-├── spawns Sub-agent 2 (data-pipeline-builder + clay)
-├── spawns Sub-agent 3 (automation-builder + n8n)
+├── spawns Sub-agent 1 (n8n_operator)
+├── spawns Sub-agent 2 (clay_operator)
+├── spawns Sub-agent 3 (dashboard_builder)
 ├── reads outputs, validates
-├── retries failures
+├── retries failures with specific feedback
 └── synthesizes final output
 ```
 
-**Tool selection:** For each task, the orchestrator:
-1. Identifies the domain expert agent needed
-2. Determines the relevant tool category (e.g., `frontend-hosting`)
-3. Lists available tools in that category (filtered by connected credentials)
-4. Recommends one with structured reasoning (tradeoffs, project context, credential availability)
-5. The recommendation is shown to the user in the plan review UI
-6. The user can override before approving
+**Tool selection:** Currently, the orchestrator selects agents directly by slug from the catalog. Each agent has its own tool set defined in `tools.toml`. The planned tool-selection-with-reasoning flow (category browsing, tradeoff analysis, user override) is **not yet implemented**.
 
 ### Level 2: Domain Expert Agent
 
 A pre-defined agent type that embodies expertise for a category of work. Knows HOW to think about a problem — methodology, design principles, anti-patterns, decision frameworks. Does NOT know how to operate any specific platform.
 
-**Folder structure:**
+**Folder structure (actual):**
 ```
-backend/agents/dashboard-builder/
-├── agent.toml            # id, name, description, default_tool_categories
-├── methodology.md        # Domain expertise: layout principles, data viz best practices,
-│                         # public vs internal patterns, filtering strategies
-├── overlays/             # Scoped additions (SD-003 overlay system)
-│   ├── base/             # Universal methodology additions
-│   ├── expert/           # Per-expert style preferences
-│   ├── client/           # Per-client domain knowledge
-│   └── project/          # Per-project specifics
-├── examples/             # Prior work at the methodology level
-└── rubric.toml           # Judge criteria for this domain
+backend/agents/dashboard_builder/
+├── agent.toml            # slug, name, category, description, intents, max_iterations
+├── prompt.md             # System prompt (methodology + domain knowledge)
+├── tools.toml            # tools = ["http_request", "web_search", ...] — available actions
+├── judge_config.toml     # threshold, rubric[], need_to_know[]
+└── knowledge/            # Optional RAG documents (markdown)
 ```
 
-**Does NOT contain:**
-- Platform-specific API docs, limitations, or gotchas
-- References to specific tools (no mention of Lovable, Vercel, Clay, etc.)
+> **Note:** The original SD-004 vision proposed separating domain methodology from platform knowledge (agents own methodology only, tools own platform docs). In practice, agents retain both — e.g., `n8n_operator` has both workflow design methodology and n8n-specific API knowledge in its `prompt.md`. Platform knowledge is additionally stored in `tools/` and injected at runtime via the `tool_catalog`.
 
-**Composed at runtime:** When spawned, the system assembles its prompt from:
-1. `methodology.md` (from agent folder)
-2. Resolved overlays (base + expert + client + project)
-3. Selected tool's `knowledge.md` (from tool folder)
-4. Selected tool's `gotchas.md` and relevant `integration-patterns/`
-5. Task context and acceptance criteria (from orchestrator)
+**Composed at runtime:** When spawned, the system assembles the prompt from:
+1. `prompt.md` (from agent folder, loaded into `agent_definitions.system_prompt`)
+2. Resolved skill overlays (base + expert + client + project) if the agent matches a skill
+3. Selected tool's `knowledge.md` (from `tools/` folder, if `tool_id` is set on the node)
+4. Selected tool's `gotchas.md` (from `tools/` folder)
+5. Task context, acceptance criteria, and examples (from orchestrator's `spawn_agent` call)
 
-Available actions come from the selected tool's `actions.toml` plus universal actions.
+**Current agents:**
 
-**Migration from current agents:**
-
-| Current Agent | Becomes | Notes |
-|---------------|---------|-------|
-| `dashboard_builder` | Domain expert `dashboard-builder` | Methodology content stays |
-| `data_pipeline_builder` | Domain expert `data-pipeline-builder` | Methodology content stays |
-| `n8n_operator` | Splits: methodology -> `automation-builder`, platform -> `tools/n8n/` | |
-| `lovable_operator` | Eliminated. Platform knowledge -> `tools/lovable/` | Lovable is a platform, not a domain |
-| `clay_operator` | Eliminated. Platform knowledge -> `tools/clay/` | Same |
-| `notion_operator` | Eliminated. Platform knowledge -> `tools/notion/` | Same |
-| `tolt_operator` | Eliminated. Platform knowledge -> `tools/tolt/` | Same |
-| `master_orchestrator` | Becomes the Level 1 orchestrator | Special role |
-| `evaluator` | Stays as special validation agent | Uses browser actions |
+| Agent | Category | Description |
+|-------|----------|-------------|
+| `master_orchestrator` | orchestrator | Decomposes requests, spawns subagents, validates |
+| `n8n_operator` | automation | Builds data pipelines and automations with n8n |
+| `clay_operator` | enrichment | Designs Clay table structures, enrichment, formulas |
+| `notion_operator` | documentation | Operates Notion API (pages, databases, properties) |
+| `lovable_operator` | frontend | Diagnoses Lovable dashboards via Supabase |
+| `tolt_operator` | referral | Manages Tolt referral/affiliate platform |
+| `dashboard_builder` | frontend | Builds dashboards end-to-end (Supabase + Notion + Lovable) |
+| `evaluator` | validation | Validates artifacts against acceptance criteria |
 
 ### Level 3: Tool
 
 A specific software platform. A rich, expandable knowledge folder. A tool is NOT an agent — it never gets spawned as an LLM instance. Its knowledge gets loaded into a domain expert agent's context when that tool is selected.
 
-**Folder structure:**
+**Folder structure (actual):**
 ```
 backend/tools/lovable/
-├── tool.toml                  # id, name, category, required_credentials, tradeoffs
+├── tool.toml                  # id, name, category, description, required_credentials, tradeoffs
 ├── knowledge.md               # How the platform works, API docs, limitations
-│                              # (or knowledge/ directory for complex tools)
-├── actions.toml               # Which actions are available on this platform
-├── artifacts/                 # Prior things built on this platform
-│   └── heyreach-leaderboard/
-│       ├── description.md
-│       ├── screenshots/
-│       └── code-snapshot/
-├── conversations/             # Prior agent conversations using this tool (condensed)
-├── gotchas.md                 # Learned pitfalls
-└── integration-patterns/      # How this tool connects to other tools
-    ├── lovable-supabase.md
-    └── lovable-github-sync.md
+│                              # (or knowledge/ directory for complex tools like n8n)
+├── actions.toml               # actions = [...] — which Level 4 actions are available
+└── gotchas.md                 # Learned pitfalls (optional)
 ```
+
+> **Not yet implemented:** `artifacts/`, `conversations/`, and `integration-patterns/` subdirectories described in the original design. These will accumulate over time as agents complete work on each platform.
 
 **Tool categories** group interchangeable tools:
 
@@ -177,21 +154,17 @@ An executable function. Stateless. Takes input, produces output.
 
 **Shared actions** (used by many tools):
 - `http_request` — generic HTTP with auto-credential injection (SD-002)
-- `git_repo_write` — clone, write files, commit, push
+- `web_search` — Tavily-powered web search
+- `fetch_url` — fetch and parse a web page
 - `request_user_action` — pause for human step
 - `write_output` — agent writes final structured output
-- `shell_execute` — sandboxed shell command
+- `read_upstream_output` — read a completed upstream agent's output
+- `spawn_agent` — spawn a child agent synchronously (orchestrator only)
+- `search_knowledge` — RAG search over the expert knowledge corpus
 
-**Tool-specific actions:**
-- `vercel_deploy` — Vercel REST API
-- `cloudflare_pages_deploy` — Cloudflare API
+> **Not yet implemented:** `git_repo_write`, `shell_execute`, `read_context`, `ask_agent`, `ask_orchestrator`. These inter-agent communication actions are planned for Phase 3 but do not exist in code.
 
-**Inter-agent actions** (universal, available to all agents):
-- `read_context` — search DB for prior sub-agent outputs and session artifacts
-- `ask_agent` — resume a peer sub-agent's context with a question
-- `ask_orchestrator` — escalate to orchestrator (last resort)
-
-Actions are declared in code (`backend/src/actions/` directory). Each tool's `actions.toml` references which actions it uses. At spawn time, the system unions the tool's actions with universal actions.
+All actions are defined in a single file: `backend/src/actions.rs`. The `all_action_defs()` function returns the full tool library. Each tool's `actions.toml` references which actions are available; at spawn time, the agent runner filters to the intersection plus always-available actions (`read_upstream_output`, `write_output`, `request_user_action`).
 
 ---
 
@@ -235,32 +208,15 @@ Actions are declared in code (`backend/src/actions/` directory). Each tool's `ac
 
 ### Inter-agent context resolution
 
-When a sub-agent needs information from another sub-agent (e.g., Sub-agent C needs the Clay table ID that Sub-agent B created), it follows a three-step resolution chain. Design principle: **self-serve first, ask peers second, ask orchestrator last.**
+> **Status: Not implemented.** The three-step resolution chain described below is planned for Phase 3 but does not exist in code.
 
-**Step 1: `read_context` (cheapest — DB query, no LLM call)**
+Currently, sub-agents access upstream outputs via the `read_upstream_output` action, which reads from a `HashMap<String, Value>` of completed node outputs passed by the runner. The orchestrator passes rich context to child agents via the `spawn_agent` tool's `context` field. There is no peer-to-peer or agent-to-orchestrator communication.
 
-Searches the DB for:
-- Completed sub-agent outputs (structured JSON from `write_output`)
-- Session-level artifacts (files, URLs, IDs)
-- Orchestrator's decomposition context
+**Planned (Phase 3):**
 
-Works when the needed info was captured in a prior `write_output`. Handles ~80% of cases.
-
-**Step 2: `ask_agent` (moderate — one LLM call)**
-
-If `read_context` doesn't have it, the sub-agent targets a specific peer:
-```
-ask_agent(target: "sub-agent-B", question: "What Supabase table does the Clay pipeline write to?")
-```
-Sub-agent B's full conversation history is loaded, the question appended, one LLM call produces the answer. The Q&A is stored in Sub-agent B's history (it gets smarter).
-
-**Step 3: `ask_orchestrator` (last resort — largest context)**
-
-If the peer can't answer or the sub-agent doesn't know which peer to ask:
-```
-ask_orchestrator(question: "Which sub-agent set up the Clay table?")
-```
-The orchestrator's conversation is resumed. It has seen all summaries and knows the full decomposition. It answers or redirects.
+1. `read_context` — DB query for prior sub-agent outputs and session artifacts
+2. `ask_agent` — resume a peer sub-agent's conversation with a question
+3. `ask_orchestrator` — escalate to orchestrator for cross-task questions
 
 ### Conversation persistence
 
@@ -268,115 +224,47 @@ All conversation histories (orchestrator + sub-agents) are stored in `node_messa
 
 ---
 
-## Part 3: Disk Layout
+## Part 3: Disk Layout (Actual)
 
 ```
 backend/
-  agents/                          # Level 2: Domain Expert Agents
-    dashboard-builder/
-      agent.toml
-      methodology.md
-      overlays/
-      examples/
-      rubric.toml
-    data-pipeline-builder/
-      agent.toml
-      methodology.md
-      overlays/
-      examples/
-    automation-builder/
-      agent.toml
-      methodology.md
-      overlays/
-      examples/
-    lead-gen/
-      agent.toml
-      methodology.md
-      overlays/
-      examples/
+  agents/                          # Level 2: Agents (domain experts + operators)
+    master_orchestrator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml
+    dashboard_builder/
+      agent.toml, prompt.md, tools.toml, judge_config.toml
+    n8n_operator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml, knowledge/
+    clay_operator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml, knowledge/
+    notion_operator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml, knowledge/
+    lovable_operator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml, knowledge/
+    tolt_operator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml
+    evaluator/
+      agent.toml, prompt.md, tools.toml, judge_config.toml
 
-  tools/                           # Level 3: Platforms
-    lovable/
-      tool.toml
-      knowledge.md
-      actions.toml
-      artifacts/
-      conversations/
-      gotchas.md
-      integration-patterns/
-    vercel/
-      tool.toml
-      knowledge.md
-      actions.toml
-      artifacts/
-    clay/
-      tool.toml
-      knowledge/
-        overview.md
-        api-reference.md
-        table-design-patterns.md
-        enrichment-providers.md
-        formula-syntax.md
-        webhook-actions.md
-        linkedin-url-gotchas.md
-      actions.toml
-      artifacts/
-      gotchas.md
-      integration-patterns/
-    n8n/
-      tool.toml
-      knowledge/
-        node-configuration.md
-        expressions.md
-        workflow-patterns.md
-        code-nodes.md
-        code-js-reference.md
-        code-js-patterns.md
-        code-js-errors.md
-        code-python-reference.md
-        validation.md
-        error-catalog.md
-        false-positives.md
-        operation-patterns.md
-        heyreach-instance.md
-      actions.toml
-      artifacts/
-      gotchas.md
-      integration-patterns/
-    notion/
-      tool.toml
-      knowledge.md
-      actions.toml
-    supabase/
-      tool.toml
-      knowledge.md
-      actions.toml
-    tolt/
-      tool.toml
-      knowledge.md
-      actions.toml
+  tools/                           # Level 3: Platform knowledge stores
+    lovable/   tool.toml, knowledge.md, actions.toml, gotchas.md
+    clay/      tool.toml, knowledge.md, actions.toml
+    n8n/       tool.toml, knowledge/ (12+ files), actions.toml, gotchas.md
+    notion/    tool.toml, knowledge.md, actions.toml
+    supabase/  tool.toml, knowledge.md, actions.toml
+    tolt/      tool.toml, knowledge.md, actions.toml
+    vercel/    tool.toml, knowledge.md, actions.toml
 
-  src/actions/                     # Level 4: Executable functions (Rust)
-    mod.rs
-    http_request.rs
-    git_repo_write.rs
-    vercel_deploy.rs
-    cloudflare_pages_deploy.rs
-    shell_execute.rs
-    write_output.rs
-    read_context.rs
-    ask_agent.rs
-    ask_orchestrator.rs
-    request_user_action.rs
+  src/actions.rs                   # Level 4: All executable actions (single file)
 ```
 
 ### Minimum viable contents
 
-- **Agent**: `agent.toml` + `methodology.md`
-- **Tool**: `tool.toml` + `knowledge.md` + `actions.toml`
-- **Action**: one Rust module + registry entry
+- **Agent**: `agent.toml` + `prompt.md` + `tools.toml` + `judge_config.toml`
+- **Tool**: `tool.toml` + `knowledge.md` (or `knowledge/`) + `actions.toml`
+- **Action**: entry in `all_action_defs()` in `src/actions.rs`
 
-Everything else (`overlays/`, `examples/`, `artifacts/`, `conversations/`, `gotchas.md`, `integration-patterns/`) is optional and accumulates over time. The loader walks each directory, loads what exists, ignores what doesn't.
+Optional and accumulates: `knowledge/` directory, `gotchas.md`. Future: `artifacts/`, `conversations/`, `integration-patterns/`.
 
 ---
 
@@ -459,18 +347,18 @@ Each tool's `required_credentials` maps to SD-002's integration registry. Creden
 | Orchestrator description | Becomes the Level 1 flat orchestrator |
 | _(missing concept)_ | Level 3: Tool (platform knowledge) — new in SD-004 |
 
-### Terminology migration
+### Terminology (actual state)
 
-| Current codebase | SD-004 term | Notes |
-|-----------------|------------|-------|
-| `slug` | `id` | String identifier, not UUID |
-| `agent_definitions` (for operators) | Eliminated; content moves to `tools/` | Operators were platform knowledge |
-| `tool` (in code: executable function) | `action` | Avoids conflict with platform meaning |
-| `tool` (in conversation: software platform) | `tool` | Now a first-class concept |
-| `prompt.md` (methodology) | `methodology.md` | In `agents/` |
-| `prompt.md` (platform knowledge) | `knowledge.md` | In `tools/` |
-| `tools.toml` (per agent) | `actions.toml` | In `tools/`, not `agents/` |
-| `knowledge/*.md` (per agent) | `knowledge/*.md` (per tool) | Moves to tool folder |
+> **Note:** The terminology migration described in the original SD-004 was not executed. The codebase retains the original naming.
+
+| Concept | Term in Code | SD-004 Proposed | Status |
+|---------|-------------|-----------------|--------|
+| String identifier | `slug` | `id` | **Kept as `slug`** |
+| Operator agents | `agent_definitions` + `agents/` dir | Eliminated | **Retained** — operators still exist |
+| Executable function | `ToolDef` | `ActionDef` | **Kept as `ToolDef`** |
+| Software platform | `platform_tools` + `tools/` dir | `tool` | **Implemented as `platform_tools`** |
+| Agent prompt | `prompt.md` | `methodology.md` | **Kept as `prompt.md`** |
+| Per-agent tool list | `tools.toml` (in `agents/`) | `actions.toml` (in `tools/`) | **Both exist** — `tools.toml` in agents, `actions.toml` in tools |
 
 ---
 
@@ -510,23 +398,23 @@ Each tool's `required_credentials` maps to SD-002's integration registry. Creden
 
 ## Acceptance Criteria
 
-### Phase 1
-- [ ] `tool_categories` and `tools` tables exist with seed data
-- [ ] `execution_nodes` has `tool_id`, `tool_reasoning`, `tool_selected_by` columns
-- [ ] `backend/tools/` directory exists with at least lovable, clay, n8n, notion, supabase, tolt
-- [ ] Each tool has `tool.toml`, `knowledge.md` (or `knowledge/`), and `actions.toml`
-- [ ] `backend/agents/` contains only domain experts (dashboard-builder, data-pipeline-builder, automation-builder, lead-gen)
-- [ ] `tools.rs` renamed to `actions/` module; `ToolDef` renamed to `ActionDef`
-- [ ] `GET /api/tools` and `GET /api/tool-categories` endpoints return seeded data
+### Phase 1 (Implemented)
+- [x] `tool_categories` and `platform_tools` tables exist with seed data (migration 022)
+- [x] `execution_nodes` has `tool_id`, `tool_reasoning`, `tool_selected_by` columns (migration 022)
+- [x] `backend/tools/` directory exists with lovable, clay, n8n, notion, supabase, tolt, vercel
+- [x] Each tool has `tool.toml`, `knowledge.md` (or `knowledge/`), and `actions.toml`
+- [x] `GET /api/tools`, `GET /api/tools/:tool_id`, and `GET /api/tool-categories` endpoints work
+- [ ] `backend/agents/` restructured to domain experts only — **not done, operators retained**
+- [ ] `ToolDef` renamed to `ActionDef` — **not done, still `ToolDef` in `anthropic.rs`**
 
-### Phase 2
-- [ ] Orchestrator composes sub-agent prompts from methodology + tool knowledge
-- [ ] Tool selection produces structured reasoning
-- [ ] `tool_id` populated on execution nodes
-- [ ] Sub-agents only see actions from their selected tool + universals
+### Phase 2 (Partial)
+- [x] Tool knowledge injected into agent prompts when `tool_id` is set on a node
+- [ ] Orchestrator tool selection with structured reasoning — **not implemented**
+- [ ] `tool_id` auto-populated by orchestrator — **not implemented** (set manually or by planner)
+- [ ] User tool override in plan review UI — **not implemented**
 
-### Phase 3
-- [ ] `read_context` returns structured data from prior sub-agent outputs
-- [ ] `ask_agent` resumes a peer's conversation and returns an answer
-- [ ] `ask_orchestrator` resumes orchestrator context and returns an answer
-- [ ] Sub-agents use self-serve -> peer -> orchestrator resolution chain
+### Phase 3 (Not Started)
+- [ ] `read_context` action
+- [ ] `ask_agent` action
+- [ ] `ask_orchestrator` action
+- [ ] Self-serve -> peer -> orchestrator resolution chain

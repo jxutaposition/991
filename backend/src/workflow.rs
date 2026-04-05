@@ -85,7 +85,7 @@ pub async fn add_step(
         .map(|t| format!("'{}'", t.replace('\'', "''")))
         .unwrap_or_else(|| "NULL".to_string());
     let tier_val = tier_override
-        .map(|t| format!("'{t}'"))
+        .map(|t| format!("'{}'", t.replace('\'', "''")))
         .unwrap_or_else(|| "NULL".to_string());
     let config_val = config
         .map(|c| format!("'{}'::jsonb", c.to_string().replace('\'', "''")))
@@ -223,7 +223,7 @@ pub async fn instantiate_workflow(
         let tier_override_val = step
             .tier_override
             .as_deref()
-            .map(|t| format!("'{t}'"))
+            .map(|t| format!("'{}'", t.replace('\'', "''")))
             .unwrap_or_else(|| "NULL".to_string());
 
         let agent = catalog.get(&step.agent_slug);

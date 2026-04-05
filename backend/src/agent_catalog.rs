@@ -235,7 +235,7 @@ impl AgentCatalog {
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 required_integrations, version FROM agent_definitions WHERE slug = '{slug_escaped}'"
+                 expert_id, required_integrations, version FROM agent_definitions WHERE slug = '{slug_escaped}'"
             ))
             .await?;
 

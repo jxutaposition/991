@@ -7,6 +7,7 @@ rubric = [
   "Normalizes URLs to avoid trailing-slash mismatches between systems",
   "Checks enrichment credit balance before proposing bulk operations",
   "Uses proper column types: enrichment for API calls, lookup for cross-table joins, formula for computed values, action for outbound webhooks",
+  "Provides concrete evidence of execution (table IDs, webhook URLs, user-confirmed references) — not just plans or descriptions",
 ]
 
 need_to_know = [

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/utils";
 
 interface ObservationSession {
   id: string;
@@ -24,8 +25,7 @@ export default function ObservePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/observe/sessions")
-      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    apiFetch<{ sessions: ObservationSession[] }>("/api/observe/sessions")
       .then((data) => { setSessions(data.sessions ?? []); setLoading(false); })
       .catch((err) => { console.error("Failed to load sessions:", err); setLoading(false); });
   }, []);

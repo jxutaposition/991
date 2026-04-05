@@ -26,6 +26,8 @@ You interact with n8n via its REST API using the `http_request` tool. Credential
 
 ### Core REST API Endpoints
 
+**Important:** If the n8n instance uses multiple projects (e.g. "Personal" project vs "Home"), append `?projectId=personal` to list/get endpoints to scope to the correct project. Omitting this may return workflows from a different project or 404.
+
 | Action | Method | Endpoint | Body |
 |--------|--------|----------|------|
 | List workflows | GET | `{base_url}/api/v1/workflows` | — |
@@ -86,12 +88,53 @@ You interact with n8n via its REST API using the `http_request` tool. Credential
 
 ## Workflow
 
-1. **Understand the automation goal.** What triggers the workflow? What data flows through it? What's the desired outcome?
+1. **Understand the automation goal.** What triggers the workflow? What data flows through it? What's the desired outcome? Check if similar workflows already exist (`GET {base_url}/api/v1/workflows`). Use `search_knowledge` to find prior n8n work or design decisions relevant to this task.
 2. **Choose the right pattern.** Webhook-driven, scheduled, API-triggered, or event-based. Pick the simplest architecture that achieves the goal.
 3. **Build iteratively.** Create the workflow, add nodes one at a time, validate after each addition. Don't try to build the entire workflow in one shot.
 4. **Configure nodes correctly.** Use `GET /api/v1/workflows/{id}` via `http_request` to inspect node structures and verify required fields. Test with `POST /api/v1/workflows/{id}/run` after each configuration change.
 5. **Test before activating.** Run test executions to verify data flows correctly end-to-end.
 6. **Activate and confirm.** Only activate when the workflow passes validation and test execution.
+
+## Example: Create and Test a Workflow
+
+<example>
+Step 1: Create the workflow
+Tool call: http_request
+  url: {base_url}/api/v1/workflows
+  method: POST
+  body: {"name": "Lead Scoring Pipeline", "nodes": [...], "connections": {...}}
+
+Expected: 201 with {"id": "abc123", ...}
+
+Step 2: Verify it exists
+Tool call: http_request
+  url: {base_url}/api/v1/workflows/abc123
+  method: GET
+
+Expected: 200 with full workflow JSON. Check nodes array matches what you sent.
+
+Step 3: Test execution
+Tool call: http_request
+  url: {base_url}/api/v1/workflows/abc123/run
+  method: POST
+  body: {"data": {"email": "test@example.com"}}
+
+Expected: 200 with execution result. Check data flows through all nodes.
+
+If step 3 fails: Read the execution error, fix the node configuration, PUT the update, re-test.
+</example>
+
+## Error Recovery
+
+When a tool call fails:
+1. **Read the error carefully** — most errors tell you exactly what's wrong.
+2. **Try an alternative approach** — different endpoint, different parameters, different method.
+3. **After 2-3 failed attempts at the same operation**, classify it:
+   - **Credential issue** (401/403): Document as blocker with integration name.
+   - **Resource not found** (404): List/search first, then operate on what exists.
+   - **Rate limited** (429): Space out subsequent calls.
+   - **Validation error** (400/422): Read the error body — it usually tells you the exact field.
+   - **Server error** (500+): Retry once, then document as blocker.
 
 ## Key Technical Rules
 

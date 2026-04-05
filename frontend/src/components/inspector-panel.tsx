@@ -379,6 +379,88 @@ function NodeDetailContent({
         </CollapsibleSection>
       )}
 
+      {/* Rich Component Description (from rich planner) */}
+      {selectedNode.description && Object.keys(selectedNode.description).length > 0 && (
+        <CollapsibleSection title="Component Design" defaultOpen={true}>
+          <div className="space-y-3 text-xs">
+            {selectedNode.description.display_name && (
+              <div>
+                <span className="font-medium text-ink">{selectedNode.description.display_name}</span>
+              </div>
+            )}
+            {selectedNode.description.architecture?.purpose && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Purpose</div>
+                <p className="text-ink leading-relaxed">{selectedNode.description.architecture.purpose}</p>
+              </div>
+            )}
+            {selectedNode.description.architecture?.data_flow && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Data Flow</div>
+                <p className="text-ink leading-relaxed">{selectedNode.description.architecture.data_flow}</p>
+              </div>
+            )}
+            {selectedNode.description.technical_spec?.approach && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Technical Approach</div>
+                <p className="text-ink leading-relaxed">{selectedNode.description.technical_spec.approach}</p>
+              </div>
+            )}
+            {selectedNode.description.technical_spec?.configuration && Object.keys(selectedNode.description.technical_spec.configuration).length > 0 && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Configuration</div>
+                <pre className="text-[10px] text-ink bg-surface-2 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(selectedNode.description.technical_spec.configuration, null, 2)}
+                </pre>
+              </div>
+            )}
+            {selectedNode.description.io_contract && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">I/O Contract</div>
+                <div className="space-y-1">
+                  {selectedNode.description.io_contract.inputs?.map((inp, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                      <span className="text-green-600 font-mono">IN</span>
+                      <span className="text-ink">{inp.name}</span>
+                      {inp.source && <span className="text-ink-3">from {inp.source}</span>}
+                    </div>
+                  ))}
+                  {selectedNode.description.io_contract.outputs?.map((out, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                      <span className="text-blue-600 font-mono">OUT</span>
+                      <span className="text-ink">{out.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {selectedNode.description.optionality && selectedNode.description.optionality.length > 0 && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Design Decisions</div>
+                {selectedNode.description.optionality.map((opt, i) => (
+                  <div key={i} className="text-[10px] mb-1">
+                    <span className="font-medium text-ink">{opt.decision}</span>
+                    {opt.recommendation && <span className="text-ink-3"> — {opt.recommendation}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedNode.acceptance_criteria && selectedNode.acceptance_criteria.length > 0 && (
+              <div>
+                <div className="text-ink-3 font-medium mb-0.5">Acceptance Criteria</div>
+                <ul className="space-y-0.5">
+                  {selectedNode.acceptance_criteria.map((c, i) => (
+                    <li key={i} className="text-[10px] text-ink flex items-start gap-1">
+                      <span className="text-ink-3 mt-0.5">☐</span> {c}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
+
       {/* Model & Config — editable */}
       <CollapsibleSection title="Configuration" defaultOpen={isEditable}>
         <div className="space-y-1.5">

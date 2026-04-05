@@ -64,25 +64,18 @@ Orchestrator conversation (top-level)
 
 ## Part 2: Streaming Plan Generation Flow
 
-### Current Flow (being replaced)
-
-```
-User types prompt → clicks "Build Plan" → spinner "Planning…" (10-30s)
-→ POST /api/execute returns { session_id } AFTER plan is done
-→ router.push(/execute/:session_id) → session is already awaiting_approval
-→ SSE channel only created on Approve
-```
-
-### Target Flow
+### Flow (Implemented)
 
 ```
 User types prompt → clicks "Build Plan"
 → POST /api/execute inserts session with status "planning", returns { session_id } IMMEDIATELY
 → router.push(/execute/:session_id) → session status is "planning"
-→ SSE connects → orchestrator thinking streams in real-time
-→ Plan nodes appear on canvas/document as they're generated
+→ SSE connects → planner_progress events stream in real-time
+→ Plan nodes appear on canvas as they're generated
 → Status transitions to "awaiting_approval" → user reviews and approves
 ```
+
+> This streaming plan generation flow is fully implemented. The SSE channel is created in `execution_create`, not `execution_approve`.
 
 ### Implementation
 
@@ -117,12 +110,14 @@ The bottom panel is the primary conversation interface for the entire session.
 
 ### Queue Semantics
 
-When the user sends a message while the orchestrator is busy:
+> **Status: Not implemented.** Messages can be sent to the orchestrator via `POST /api/execute/:session_id/nodes/:node_id/reply`, but there is no queue mechanism, no break-point processing, and no `user_message_queued` SSE event. User messages are only processed when the agent is in `awaiting_reply` status.
+
+**Planned behavior:** When the user sends a message while the orchestrator is busy:
 
 1. Message is persisted to `node_messages` on the master node with role `user`.
 2. A `user_message_queued` event is emitted via SSE.
 3. Frontend shows the message in the conversation stream with a subtle "queued" indicator.
-4. The orchestrator checks for unprocessed user messages at each natural break point (between steps in its coordination loop).
+4. The orchestrator checks for unprocessed user messages at each natural break point.
 5. When the orchestrator processes a queued message, it acknowledges it and may adjust its plan/actions accordingly.
 
 ### Side Channel ("Quick Ask")
@@ -263,6 +258,9 @@ Table: `description_thread_messages`
 
 ### Section-Level Commenting
 
+> **Status: Backend implemented, frontend not implemented.** The `description_threads` and `description_thread_messages` tables exist (migration 025), and API endpoints for thread CRUD are registered. However, no `CommentSidebar` component exists in the frontend — threads are not exposed in the UI.
+
+**Planned behavior:**
 1. User clicks comment icon on a section header.
 2. Thread is created: `POST /api/execute/:session_id/threads` with `{ node_id, section_path }`.
 3. CommentSidebar opens showing the thread.

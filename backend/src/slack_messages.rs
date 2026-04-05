@@ -105,6 +105,7 @@ pub fn session_completed_blocks(
     nodes: &[Value],
     frontend_url: &str,
     session_id: &str,
+    orchestrator_output: Option<&str>,
 ) -> Vec<Value> {
     let total = nodes.len();
     let passed = nodes.iter().filter(|n| n.get("status").and_then(Value::as_str) == Some("passed")).count();
@@ -149,6 +150,18 @@ pub fn session_completed_blocks(
         "type": "section",
         "text": {"type": "mrkdwn", "text": detail}
     }));
+
+    // Master orchestrator output (if available)
+    if let Some(output) = orchestrator_output {
+        blocks.push(json!({"type": "divider"}));
+        // Slack blocks have a 3000 char limit per text field
+        let truncated: String = output.chars().take(2900).collect();
+        let suffix = if output.len() > 2900 { "\n_...truncated_" } else { "" };
+        blocks.push(json!({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": format!(":brain: *Orchestrator Summary:*\n{truncated}{suffix}")}
+        }));
+    }
 
     // View Results button
     blocks.push(json!({

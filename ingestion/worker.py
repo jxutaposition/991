@@ -29,7 +29,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import psycopg2
 import psycopg2.extras
 
+import anthropic
+
 from chunker import Chunk, chunk_markdown, chunk_transcript
+from converters import convert_to_markdown
 from embedder import embed_batch
 
 logging.basicConfig(
@@ -45,6 +48,13 @@ _oai_key = os.environ.get("OPENAI_API_KEY", "")
 if not _oai_key:
     raise SystemExit("OPENAI_API_KEY not set — cannot start worker")
 logging.getLogger("ingestion-worker").info("OPENAI_API_KEY loaded (%s...)", _oai_key[:12])
+
+_anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+if not _anthropic_key:
+    log.warning("ANTHROPIC_API_KEY not set — contextual retrieval prefixes will be skipped")
+CONTEXTUAL_RETRIEVAL_ENABLED = bool(_anthropic_key)
+CONTEXTUAL_MODEL = "claude-3-5-haiku-latest"
+CONTEXT_PREFIX_MAX_DOC_CHARS = 8000
 
 # File extensions supported by Docling
 DOCLING_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".doc", ".html", ".htm"}
@@ -302,6 +312,92 @@ def choose_chunker(doc: dict) -> str:
     return "markdown"
 
 
+def generate_context_prefixes(
+    doc: dict,
+    chunks: list[Chunk],
+    markdown: str,
+) -> list[str]:
+    """Use Claude to generate contextual retrieval prefixes for each chunk.
+
+    Sends the document context (filename, path, first N chars of markdown) plus
+    each chunk to Claude. Returns a context prefix per chunk that anchors it to
+    its source document. Uses prompt caching so the document context is only
+    billed once across all chunks.
+
+    Returns empty strings for all chunks if contextual retrieval is disabled
+    or if the Claude call fails.
+    """
+    if not CONTEXTUAL_RETRIEVAL_ENABLED:
+        return [""] * len(chunks)
+
+    doc_context = markdown[:CONTEXT_PREFIX_MAX_DOC_CHARS]
+    source_info = (
+        f"Filename: {doc.get('source_filename', 'unknown')}\n"
+        f"Path: {doc.get('source_path', 'unknown')}\n"
+        f"Scope: {doc.get('inferred_scope', 'unknown')}"
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=_anthropic_key)
+        prefixes: list[str] = []
+
+        # Build all chunk texts for a single batched prompt
+        chunk_list_text = ""
+        for i, chunk in enumerate(chunks):
+            preview = chunk.content[:600]
+            chunk_list_text += f"\n[CHUNK {i}]\n{preview}\n"
+
+        response = client.messages.create(
+            model=CONTEXTUAL_MODEL,
+            max_tokens=4096,
+            system=[{
+                "type": "text",
+                "text": (
+                    "You generate short context prefixes for document chunks to improve "
+                    "search retrieval. For each chunk, write a 1-2 sentence prefix that "
+                    "identifies the source document, its topic, and the specific section. "
+                    "The prefix should help a search engine understand what the chunk is "
+                    "about even in isolation.\n\n"
+                    "Output one prefix per line, in order, prefixed with the chunk number: "
+                    "0: <prefix>\n1: <prefix>\netc."
+                ),
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Document metadata:\n{source_info}\n\n"
+                    f"Document content (first {CONTEXT_PREFIX_MAX_DOC_CHARS} chars):\n"
+                    f"{doc_context}\n\n"
+                    f"Generate a context prefix for each of these {len(chunks)} chunks:"
+                    f"{chunk_list_text}"
+                ),
+            }],
+        )
+
+        # Parse the response: expect lines like "0: prefix text"
+        response_text = response.content[0].text
+        prefix_map: dict[int, str] = {}
+        for line in response_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line and line.split(":")[0].strip().isdigit():
+                idx_str, prefix = line.split(":", 1)
+                prefix_map[int(idx_str.strip())] = prefix.strip()
+
+        for i in range(len(chunks)):
+            prefixes.append(prefix_map.get(i, ""))
+
+        generated = sum(1 for p in prefixes if p)
+        log.info("  Generated %d/%d context prefixes", generated, len(chunks))
+        return prefixes
+
+    except Exception as e:
+        log.warning("Context prefix generation failed: %s — proceeding without prefixes", e)
+        return [""] * len(chunks)
+
+
 def process_document(conn, doc: dict) -> None:
     """Full pipeline: parse → chunk → embed → store.
 
@@ -332,6 +428,15 @@ def process_document(conn, doc: dict) -> None:
             mark_error(conn, doc_id, "Empty content after parsing")
             return
 
+        # Convert structured formats (JSON, CSV, YAML, etc.) to readable markdown
+        # before chunking. This ensures that ALL files — regardless of original
+        # format — produce semantically meaningful chunks.
+        filename = doc.get("source_filename", "")
+        original_len = len(markdown)
+        markdown = convert_to_markdown(markdown, filename)
+        if len(markdown) != original_len:
+            log.info("  Converted %s (%d → %d chars)", filename, original_len, len(markdown))
+
         strategy = choose_chunker(doc)
         if strategy == "transcript":
             chunks = chunk_transcript(markdown)
@@ -342,11 +447,23 @@ def process_document(conn, doc: dict) -> None:
             mark_error(conn, doc_id, "No chunks produced")
             return
 
-        log.info("  %d chunks produced, embedding...", len(chunks))
-        texts = [c.content for c in chunks]
-        embeddings = embed_batch(texts)
+        log.info("  %d chunks produced, generating context prefixes...", len(chunks))
+        context_prefixes = generate_context_prefixes(doc, chunks, markdown)
 
-        store_chunks_and_mark_ready(conn, doc, chunks, embeddings, markdown)
+        # Prepend context prefix to chunk content before embedding so the
+        # embedding vector carries document-level meaning (Anthropic's
+        # contextual retrieval technique).
+        texts_for_embedding = []
+        for chunk, prefix in zip(chunks, context_prefixes):
+            if prefix:
+                texts_for_embedding.append(f"{prefix} {chunk.content}")
+            else:
+                texts_for_embedding.append(chunk.content)
+
+        log.info("  Embedding %d chunks...", len(chunks))
+        embeddings = embed_batch(texts_for_embedding)
+
+        store_chunks_and_mark_ready(conn, doc, chunks, embeddings, markdown, context_prefixes)
         log.info("  Document %s ready (%d chunks)", doc_id, len(chunks))
 
     except Exception as e:
@@ -364,20 +481,29 @@ def store_chunks_and_mark_ready(
     chunks: list[Chunk],
     embeddings: list[list[float]],
     markdown: str,
+    context_prefixes: list[str] | None = None,
 ) -> None:
     """Write chunks + mark document ready in a single atomic transaction."""
+    if context_prefixes is None:
+        context_prefixes = [""] * len(chunks)
+
     with conn.cursor() as cur:
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk, embedding, prefix in zip(chunks, embeddings, context_prefixes):
             embedding_str = "[" + ",".join(str(f) for f in embedding) + "]"
             metadata = json.dumps({
                 "section_title": chunk.section_title,
                 "source_filename": doc["source_filename"],
             })
+            # Combine prefix + content for the tsvector so BM25 search
+            # benefits from the contextual prefix just like vector search does.
+            fts_text = f"{prefix} {chunk.content}" if prefix else chunk.content
             cur.execute(
                 """INSERT INTO knowledge_chunks
                    (document_id, tenant_id, project_id, content, section_title,
-                    chunk_index, token_count, embedding, metadata)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s::jsonb)""",
+                    chunk_index, token_count, embedding, metadata,
+                    context_prefix, search_vector)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s::jsonb,
+                           %s, to_tsvector('english', %s))""",
                 (
                     doc["id"],
                     doc["tenant_id"],
@@ -388,12 +514,14 @@ def store_chunks_and_mark_ready(
                     chunk.token_count,
                     embedding_str,
                     metadata,
+                    prefix or None,
+                    fts_text,
                 ),
             )
         cur.execute(
             """UPDATE knowledge_documents
                SET status = 'ready', chunk_count = %s,
-                   normalized_markdown = %s, raw_content = NULL, updated_at = NOW()
+                   normalized_markdown = %s, updated_at = NOW()
                WHERE id = %s""",
             (len(chunks), markdown, doc["id"]),
         )

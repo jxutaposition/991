@@ -176,6 +176,17 @@ async fn forward_stream_delta(
     event_bus.send(session_id, payload).await;
 }
 
+/// Public wrapper so routes.rs can stream deltas for pre-execution chat.
+pub async fn forward_stream_delta_pub(
+    event_bus: &EventBus,
+    session_id: &str,
+    node_id: &str,
+    iteration: usize,
+    event: &StreamEvent,
+) {
+    forward_stream_delta(event_bus, session_id, node_id, iteration, event).await;
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentResult {
     pub node_uid: String,
@@ -196,6 +207,7 @@ pub struct AgentRunner {
     skill_catalog: Arc<crate::skills::SkillCatalog>,
     tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
     event_bus: EventBus,
+    http_client: reqwest::Client,
 }
 
 impl AgentRunner {
@@ -207,7 +219,11 @@ impl AgentRunner {
         tool_catalog: Arc<crate::tool_catalog::ToolCatalog>,
         event_bus: EventBus,
     ) -> Self {
-        Self { settings, db, catalog, skill_catalog, tool_catalog, event_bus }
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self { settings, db, catalog, skill_catalog, tool_catalog, event_bus, http_client }
     }
 
     pub fn db(&self) -> &PgClient {
@@ -516,6 +532,20 @@ impl AgentRunner {
             system_prompt
         };
 
+        // Inject project-level architecture so agents understand the broader system they're building within
+        let system_prompt = {
+            let project_desc = load_project_description(&self.db, plan_node.session_id).await;
+            if !project_desc.is_empty() {
+                let mut p = system_prompt;
+                p.push_str("\n\n<project_context>\n## Project Architecture\n");
+                p.push_str(&project_desc);
+                p.push_str("\n</project_context>");
+                p
+            } else {
+                system_prompt
+            }
+        };
+
         // If this is a master_orchestrator, load preview plan children and inject into prompt
         let (system_prompt, orchestrator_plan) = if plan_node.agent_slug == MASTER_ORCHESTRATOR_SLUG {
             let preview_plan = load_preview_plan(&self.db, plan_node.uid).await;
@@ -582,10 +612,8 @@ impl AgentRunner {
         }
 
         // ── Stage 1: Executor ────────────────────────────────────────────────
-        let executor_question = format!(
-            "Task: {}\n\nSession context:\n{}",
-            plan_node.task_description, upstream_context
-        );
+        // Upstream context is already in the system prompt — don't duplicate in user message.
+        let executor_question = format!("Task: {}", plan_node.task_description);
 
         let model = &plan_node.model;
         let mut executor_output: Option<Value>;
@@ -604,16 +632,14 @@ impl AgentRunner {
                 })).await;
             }
 
-            let feedback_prefix = if judge_feedback_for_retry.is_empty() {
-                String::new()
+            let question_with_feedback = if judge_feedback_for_retry.is_empty() {
+                executor_question.clone()
             } else {
                 format!(
-                    "Previous attempt was rejected. Feedback from quality review:\n{}\n\nPlease revise your work to address this feedback.\n\n",
-                    judge_feedback_for_retry
+                    "<previous_attempt_feedback>\nYour previous attempt was rejected. Feedback from quality review:\n{}\nRevise your work to address this feedback.\n</previous_attempt_feedback>\n\n{}",
+                    judge_feedback_for_retry, executor_question
                 )
             };
-
-            let question_with_feedback = format!("{feedback_prefix}{executor_question}");
 
             info!(attempt = attempt, "running executor");
             let result = self
@@ -628,6 +654,7 @@ impl AgentRunner {
                     &credentials,
                     &nid,
                     plan_node.client_id,
+                    project_id,
                 )
                 .await;
 
@@ -884,6 +911,7 @@ impl AgentRunner {
         credentials: &crate::credentials::CredentialMap,
         node_id: &str,
         client_id: Option<uuid::Uuid>,
+        project_id: Option<uuid::Uuid>,
     ) -> Value {
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
@@ -1066,7 +1094,7 @@ impl AgentRunner {
                         .and_then(Value::as_array)
                         .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect());
                     let examples = tool_input.get("examples").and_then(Value::as_str);
-                    let _skill_slugs: Vec<String> = tool_input.get("skill_slugs")
+                    let skill_slugs: Vec<String> = tool_input.get("skill_slugs")
                         .and_then(Value::as_array)
                         .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
                         .unwrap_or_default();
@@ -1111,11 +1139,42 @@ impl AgentRunner {
                     let mut parent_node = parent_node;
                     parent_node.client_id = parent_client_id;
 
+                    // Resolve skill overlays and prepend to context
+                    let enriched_context = if !skill_slugs.is_empty() {
+                        let mut overlay_parts = Vec::new();
+                        for ss in &skill_slugs {
+                            if let Some(skill) = self.skill_catalog.get(ss) {
+                                let overlays = crate::skills::resolve_overlays(
+                                    &self.db,
+                                    skill.id,
+                                    None,
+                                    parent_node.client_id,
+                                    load_project_id(&self.db, parent_node.session_id).await,
+                                ).await;
+                                if !overlays.is_empty() {
+                                    overlay_parts.push(overlays);
+                                }
+                            }
+                        }
+                        if overlay_parts.is_empty() {
+                            context.map(|c| c.to_string())
+                        } else {
+                            let overlay_block = format!(
+                                "## Skill Overlays\n{}\n\n{}",
+                                overlay_parts.join("\n\n---\n\n"),
+                                context.unwrap_or("")
+                            );
+                            Some(overlay_block)
+                        }
+                    } else {
+                        context.map(|c| c.to_string())
+                    };
+
                     let spawn_result = self.run_child(
                         &parent_node,
                         agent_slug,
                         task_desc,
-                        context,
+                        enriched_context.as_deref().or(context),
                         criteria,
                         examples,
                     ).await;
@@ -1161,34 +1220,23 @@ impl AgentRunner {
                         .unwrap_or("")
                         .to_string();
 
-                    tool_results.push((
-                        tool_use_id.clone(),
-                        json!({"stored": true}).to_string(),
-                    ));
-
-                    messages.push(tool_results_message(&tool_results));
-                    // Get final response after write_output
-                    if let Ok(r) = client
-                        .messages(system_prompt, &messages, tool_defs, 1024, Some(model))
-                        .await
-                    {
-                        if !r.text().is_empty() {
-                            final_summary = r.text();
-                        }
-                    }
+                    // write_output summary is already captured above — no need for an extra LLM call.
                     break;
                 }
 
-                if tool_name == "search_knowledge" {
+                let tool_started_at = Instant::now();
+                let result = if tool_name == "search_knowledge" {
                     let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
                     let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
-                    let result = self.execute_search_knowledge(query_text, limit, client_id).await;
-                    tool_results.push((tool_use_id.clone(), result));
-                    continue;
-                }
-
-                let tool_started_at = Instant::now();
-                let result = actions::execute_action(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings).await;
+                    self.execute_search_knowledge(query_text, limit, client_id, project_id).await
+                } else if tool_name == "read_knowledge" {
+                    let doc_id = tool_input.get("document_id").and_then(Value::as_str).unwrap_or("");
+                    let chunk_idx = tool_input.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+                    let range = tool_input.get("range").and_then(Value::as_i64).unwrap_or(5).min(20);
+                    self.execute_read_knowledge(doc_id, chunk_idx, range, client_id).await
+                } else {
+                    actions::execute_action(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings, &self.http_client).await
+                };
                 let tool_duration_ms = tool_started_at.elapsed().as_millis() as u64;
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
@@ -1213,6 +1261,13 @@ impl AgentRunner {
 
             if !tool_results.is_empty() {
                 messages.push(tool_results_message(&tool_results));
+            }
+
+            // Truncate old messages to prevent context window overflow.
+            // Keep first message (task question) and last 8 messages in full;
+            // compress older tool_result contents to short previews.
+            if messages.len() > 20 {
+                truncate_old_messages(&mut messages, 8);
             }
         }
 
@@ -1271,7 +1326,7 @@ impl AgentRunner {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let system = "You are a quality checker reviewing an agent's output against a checklist.";
+        let system = "You are a quality checker reviewing an agent's output against a checklist.\n\nIMPORTANT: Verify the agent ACTUALLY EXECUTED the work, not just described what they would do. Look for evidence of real API calls, real resource IDs, and real verification results. Planning language (\"we should\", \"next steps would be\") without execution evidence should FAIL.\n\nExample of PASS: \"Created workflow abc123 via POST /api/v1/workflows, verified with GET returning 3 configured nodes\"\nExample of FAIL: \"The workflow should be created with 3 nodes to handle the data pipeline\" (described, not executed)";
         let prompt = format!(
             "Review this output against each checklist item. For each item, state PASS or FAIL and briefly explain why.\n\n## Checklist\n{rubric_list}\n\n## Output to Review\n{narrative}\n\nRespond with JSON: {{\"overall_pass\": bool, \"summary\": \"string\", \"items\": [{{\"item\": \"...\", \"pass\": bool, \"reason\": \"...\"}}]}}"
         );
@@ -1328,7 +1383,7 @@ impl AgentRunner {
             )
         };
 
-        let system = "You are a quality judge evaluating an AI agent's output.";
+        let system = "You are a quality judge evaluating an AI agent's output.\n\nScoring guide:\n- 9-10: All criteria met, verified with evidence of actual execution (resource IDs, API responses)\n- 7-8: Core deliverable exists and verified, minor gaps documented\n- 5-6: Deliverable partially exists, significant gaps or unverified claims\n- 3-4: Mostly planning/description, minimal actual execution\n- 1-2: No real work done, just described what could be done\n\nCRITICAL: An output that only DESCRIBES work without evidence of EXECUTION should score below 5 regardless of how detailed the description is. Look for concrete evidence: URLs, IDs, API response codes, verified test results.";
         let prompt = format!(
             "Score this agent output from 0-10 based on quality, completeness, and accuracy.\n\nThreshold to pass: {threshold:.1}\n{need_to_know}\n\n## Question / Task\n{question}\n\n## Agent Output\n{narrative}\n\nRespond with JSON: {{\"verdict\": \"pass\"|\"fail\"|\"reject\", \"score\": number, \"feedback\": \"string\"}}",
             threshold = judge_config.threshold,
@@ -1430,6 +1485,13 @@ impl AgentRunner {
                     .join("\n\n")
             };
 
+            let project_desc_for_enrichment = load_project_description(&self.db, plan_node.session_id).await;
+            let project_section = if project_desc_for_enrichment.is_empty() {
+                String::new()
+            } else {
+                format!("\n## Project Architecture\n{}\n", project_desc_for_enrichment)
+            };
+
             let enrichment_prompt = format!(
                 r#"Prepare execution context for step {step} of {total}.
 
@@ -1442,7 +1504,7 @@ impl AgentRunner {
 
 ## Plan
 {plan}
-
+{project_arch}
 ## Results from Prior Steps
 {upstream}
 
@@ -1459,6 +1521,7 @@ Respond with ONLY the JSON object:
                 task_desc = task_desc,
                 request = plan_node.task_description,
                 plan = plan_summary,
+                project_arch = project_section,
                 upstream = upstream_summary,
             );
 
@@ -1473,6 +1536,7 @@ Respond with ONLY the JSON object:
             persist_message(&self.db, &self.event_bus, &sid, &nid, "user", &enrichment_prompt, &json!({
                 "step": i + 1,
                 "phase": "enrichment_request",
+                "hidden": true,
             })).await;
 
             // LLM enrichment call — no tools, just context preparation
@@ -1502,6 +1566,7 @@ Respond with ONLY the JSON object:
             persist_message(&self.db, &self.event_bus, &sid, &nid, "assistant", &enrichment_text, &json!({
                 "step": i + 1,
                 "phase": "enrichment_response",
+                "hidden": true,
             })).await;
 
             let (context, criteria, examples) = parse_enrichment_json(&enrichment_text);
@@ -1514,6 +1579,7 @@ Respond with ONLY the JSON object:
                 "agent_slug": agent_slug,
             })).await;
 
+            let criteria_for_retry = criteria.clone();
             let mut result = self.run_child(
                 plan_node,
                 agent_slug,
@@ -1591,7 +1657,7 @@ Respond with ONLY the JSON object:
                     agent_slug,
                     task_desc,
                     Some(&retry_context),
-                    None,
+                    criteria_for_retry,
                     effective_examples,
                 ).await
             } else {
@@ -1634,10 +1700,24 @@ Respond with ONLY the JSON object:
             );
             messages.push(user_message(result_msg.clone()));
 
-            persist_message(&self.db, &self.event_bus, &sid, &nid, "user", &result_msg, &json!({
+            let child_summary = result.get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let human_readable = format!(
+                "Step {} ({}) completed with status: {}.{}",
+                i + 1,
+                agent_slug,
+                final_status,
+                if child_summary.is_empty() { String::new() } else { format!(" {}", child_summary) }
+            );
+
+            persist_message(&self.db, &self.event_bus, &sid, &nid, "user", &human_readable, &json!({
                 "step": i + 1,
                 "phase": "step_result",
                 "status": &final_status,
+                "agent_slug": agent_slug,
+                "raw_output": result,
             })).await;
 
             emit_event(&self.db, &self.event_bus, &sid, &nid, "plan_step_completed", &json!({
@@ -1676,8 +1756,13 @@ Respond with ONLY the JSON object:
         let (final_output, final_summary) = match synthesis_response {
             Ok(r) => {
                 let text = r.text();
-                persist_message(&self.db, &self.event_bus, &sid, &nid, "assistant", &text, &json!({"phase": "synthesis"})).await;
-                parse_synthesis_json(&text, &step_results)
+                let (parsed_output, parsed_summary) = parse_synthesis_json(&text, &step_results);
+                persist_message(&self.db, &self.event_bus, &sid, &nid, "assistant", &parsed_summary, &json!({
+                    "phase": "synthesis",
+                    "summary": &parsed_summary,
+                    "raw_output": &parsed_output,
+                })).await;
+                (parsed_output, parsed_summary)
             }
             Err(e) => {
                 warn!(error = %e, "synthesis LLM call failed, building output from step results");
@@ -1732,12 +1817,14 @@ Respond with ONLY the JSON object:
         }
     }
 
-    /// Execute a search_knowledge tool call with DB and embedding access.
+    /// Execute a search_knowledge tool call with hybrid search (vector + BM25),
+    /// neighbor chunk expansion, and Claude reranking.
     async fn execute_search_knowledge(
         &self,
         query: &str,
         limit: u64,
         client_id: Option<uuid::Uuid>,
+        project_id: Option<uuid::Uuid>,
     ) -> String {
         if query.is_empty() {
             return json!({"error": "query parameter is required"}).to_string();
@@ -1751,6 +1838,7 @@ Respond with ONLY the JSON object:
             None => return json!({"error": "No client_id on this execution node — cannot scope knowledge search"}).to_string(),
         };
 
+        // Step 1: Embed the query
         let embedding = match crate::embeddings::embed_text(&api_key, query).await {
             Ok(e) => e,
             Err(e) => return json!({"error": format!("Embedding failed: {e}")}).to_string(),
@@ -1761,25 +1849,325 @@ Respond with ONLY the JSON object:
             embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
         );
 
+        let project_clause = project_id
+            .map(|p| format!("AND (c.project_id IS NULL OR c.project_id = '{p}')"))
+            .unwrap_or_default();
+
+        // Step 2: Hybrid search — vector + BM25 merged via Reciprocal Rank Fusion
+        let query_escaped = query.replace('\'', "''");
         let sql = format!(
-            "SELECT c.content, c.section_title, c.metadata, c.chunk_index, \
-                    d.source_path, d.source_filename, \
-                    1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity \
+            "WITH vector_results AS ( \
+                SELECT c.id, c.content, c.context_prefix, c.section_title, \
+                       c.chunk_index, c.document_id, c.metadata, \
+                       d.source_path, d.source_filename, \
+                       1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity, \
+                       ROW_NUMBER() OVER (ORDER BY c.embedding <=> '{embedding_str}'::vector) AS rank_v \
+                FROM knowledge_chunks c \
+                JOIN knowledge_documents d ON c.document_id = d.id \
+                WHERE c.tenant_id = '{tenant_id}' \
+                  AND d.status = 'ready' \
+                  {project_clause} \
+                  AND 1 - (c.embedding <=> '{embedding_str}'::vector) > 0.25 \
+                ORDER BY c.embedding <=> '{embedding_str}'::vector \
+                LIMIT 20 \
+            ), \
+            bm25_results AS ( \
+                SELECT c.id, c.content, c.context_prefix, c.section_title, \
+                       c.chunk_index, c.document_id, c.metadata, \
+                       d.source_path, d.source_filename, \
+                       ts_rank_cd(c.search_vector, websearch_to_tsquery('english', '{query_escaped}')) AS bm25_score, \
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.search_vector, websearch_to_tsquery('english', '{query_escaped}')) DESC) AS rank_b \
+                FROM knowledge_chunks c \
+                JOIN knowledge_documents d ON c.document_id = d.id \
+                WHERE c.tenant_id = '{tenant_id}' \
+                  AND d.status = 'ready' \
+                  {project_clause} \
+                  AND c.search_vector @@ websearch_to_tsquery('english', '{query_escaped}') \
+                ORDER BY bm25_score DESC \
+                LIMIT 20 \
+            ) \
+            SELECT COALESCE(v.id, b.id) AS id, \
+                   COALESCE(v.content, b.content) AS content, \
+                   COALESCE(v.context_prefix, b.context_prefix) AS context_prefix, \
+                   COALESCE(v.section_title, b.section_title) AS section_title, \
+                   COALESCE(v.chunk_index, b.chunk_index) AS chunk_index, \
+                   COALESCE(v.document_id, b.document_id) AS document_id, \
+                   COALESCE(v.source_path, b.source_path) AS source_path, \
+                   COALESCE(v.source_filename, b.source_filename) AS source_filename, \
+                   COALESCE(v.similarity, 0) AS similarity, \
+                   (1.0 / (60 + COALESCE(v.rank_v, 1000)) + 1.0 / (60 + COALESCE(b.rank_b, 1000))) AS rrf_score \
+            FROM vector_results v \
+            FULL OUTER JOIN bm25_results b ON v.id = b.id \
+            ORDER BY rrf_score DESC \
+            LIMIT 20",
+        );
+
+        let candidates = match self.db.execute(&sql).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(error = %e, "search_knowledge hybrid query failed");
+                return json!({"error": format!("Knowledge search failed: {e}")}).to_string();
+            }
+        };
+
+        if candidates.is_empty() {
+            return json!({"results": [], "query": query, "note": "No relevant results found in the knowledge corpus."}).to_string();
+        }
+
+        // Step 3: Neighbor chunk expansion — fetch chunk_index +/- 1 for each match
+        let neighbor_conditions: Vec<String> = candidates.iter().filter_map(|row| {
+            let doc_id = row.get("document_id").and_then(Value::as_str)?;
+            let idx = row.get("chunk_index").and_then(Value::as_i64)?;
+            let id = row.get("id").and_then(Value::as_str)?;
+            Some(format!(
+                "(c.document_id = '{doc_id}' AND c.chunk_index IN ({}, {}) AND c.id != '{id}')",
+                idx - 1, idx + 1
+            ))
+        }).collect();
+
+        let mut neighbor_map: HashMap<String, Vec<Value>> = HashMap::new();
+        if !neighbor_conditions.is_empty() {
+            let neighbor_sql = format!(
+                "SELECT c.id, c.content, c.context_prefix, c.section_title, \
+                        c.chunk_index, c.document_id::text \
+                 FROM knowledge_chunks c \
+                 WHERE ({})",
+                neighbor_conditions.join(" OR ")
+            );
+            if let Ok(neighbor_rows) = self.db.execute(&neighbor_sql).await {
+                for nr in &neighbor_rows {
+                    let doc_id = nr.get("document_id").and_then(Value::as_str).unwrap_or("");
+                    neighbor_map.entry(doc_id.to_string()).or_default().push(nr.clone());
+                }
+            }
+        }
+
+        // Step 4: Claude reranking — send top candidates to Claude for relevance scoring
+        let final_results = self.rerank_with_claude(query, &candidates, limit).await;
+
+        // Step 5: Build compact results with location pointers (not full text).
+        // Agents use read_knowledge(document_id, chunk_index) for full context.
+        let compact: Vec<Value> = final_results.iter().map(|row| {
+            let content = row.get("content").and_then(Value::as_str).unwrap_or("");
+            let snippet: String = content.chars().take(200).collect();
+            let snippet = if content.len() > 200 {
+                format!("{snippet}...")
+            } else {
+                snippet
+            };
+
+            let doc_id = row.get("document_id").and_then(Value::as_str).unwrap_or("");
+            let chunk_idx = row.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+
+            // Include neighbor context_before/after as brief previews
+            let neighbors = neighbor_map.get(doc_id).cloned().unwrap_or_default();
+            let has_before = neighbors.iter()
+                .any(|n| n.get("chunk_index").and_then(Value::as_i64) == Some(chunk_idx - 1));
+            let has_after = neighbors.iter()
+                .any(|n| n.get("chunk_index").and_then(Value::as_i64) == Some(chunk_idx + 1));
+
+            json!({
+                "document_id": doc_id,
+                "source_filename": row.get("source_filename").and_then(Value::as_str).unwrap_or(""),
+                "source_path": row.get("source_path").and_then(Value::as_str).unwrap_or(""),
+                "section_title": row.get("section_title").and_then(Value::as_str).unwrap_or(""),
+                "chunk_index": chunk_idx,
+                "context_prefix": row.get("context_prefix").and_then(Value::as_str).unwrap_or(""),
+                "snippet": snippet,
+                "similarity": row.get("similarity"),
+                "rrf_score": row.get("rrf_score"),
+                "has_surrounding_chunks": has_before || has_after,
+            })
+        }).collect();
+
+        json!({
+            "results": compact,
+            "query": query,
+            "hint": "Use read_knowledge(document_id, chunk_index) to fetch full text around any result."
+        }).to_string()
+    }
+
+    /// Rerank search candidates using Claude for relevance scoring.
+    /// Returns the top `limit` results ordered by relevance.
+    async fn rerank_with_claude(
+        &self,
+        query: &str,
+        candidates: &[Value],
+        limit: u64,
+    ) -> Vec<Value> {
+        if candidates.len() <= limit as usize {
+            return candidates.to_vec();
+        }
+
+        let mut candidate_text = String::new();
+        for (i, row) in candidates.iter().enumerate() {
+            let prefix = row.get("context_prefix").and_then(Value::as_str).unwrap_or("");
+            let content = row.get("content").and_then(Value::as_str).unwrap_or("");
+            let source = row.get("source_path").and_then(Value::as_str).unwrap_or("");
+            let preview: String = content.chars().take(400).collect();
+            candidate_text.push_str(&format!(
+                "[{i}] {prefix} {preview} (source: {source})\n\n"
+            ));
+        }
+
+        let rerank_prompt = format!(
+            "Query: \"{query}\"\n\n\
+             Candidates:\n{candidate_text}\n\
+             Return the IDs of the {limit} most relevant candidates as a JSON array of integers, \
+             most relevant first. Example: [3, 0, 7, 1, 5]\n\n\
+             Output ONLY the JSON array, nothing else."
+        );
+
+        let rerank_client = AnthropicClient::new(
+            self.settings.anthropic_api_key.clone(),
+            self.settings.anthropic_model.clone(),
+        );
+
+        match rerank_client
+            .messages(
+                "You rank search results by relevance. Output only a JSON array of candidate IDs.",
+                &[crate::anthropic::user_message(rerank_prompt)],
+                &[],
+                256,
+                None,
+            )
+            .await
+        {
+            Ok(response) => {
+                let text = response.text();
+                let cleaned = text.trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+
+                if let Ok(indices) = serde_json::from_str::<Vec<usize>>(cleaned) {
+                    return indices.iter()
+                        .filter(|&&i| i < candidates.len())
+                        .take(limit as usize)
+                        .map(|&i| candidates[i].clone())
+                        .collect();
+                }
+                warn!("Claude reranking returned unparseable response: {cleaned}");
+                candidates.iter().take(limit as usize).cloned().collect()
+            }
+            Err(e) => {
+                warn!(error = %e, "Claude reranking failed — falling back to RRF ordering");
+                candidates.iter().take(limit as usize).cloned().collect()
+            }
+        }
+    }
+
+    /// Read a section of a knowledge document by chunk range.
+    /// Returns concatenated chunk content centered on the requested chunk_index.
+    async fn execute_read_knowledge(
+        &self,
+        document_id: &str,
+        chunk_index: i64,
+        range: i64,
+        client_id: Option<uuid::Uuid>,
+    ) -> String {
+        let tenant_id = match client_id {
+            Some(id) => id,
+            None => return json!({"error": "No client_id — cannot scope knowledge read"}).to_string(),
+        };
+
+        let doc_uuid = match uuid::Uuid::parse_str(document_id) {
+            Ok(u) => u,
+            Err(_) => return json!({"error": "Invalid document_id format"}).to_string(),
+        };
+
+        let half = range / 2;
+        let start = (chunk_index - half).max(0);
+        let end_idx = chunk_index + half;
+
+        let sql = format!(
+            "SELECT c.content, c.section_title, c.chunk_index, c.context_prefix, \
+                    d.source_filename, d.source_path \
              FROM knowledge_chunks c \
              JOIN knowledge_documents d ON c.document_id = d.id \
-             WHERE c.tenant_id = '{tenant_id}' \
-               AND d.status = 'ready' \
-             ORDER BY c.embedding <=> '{embedding_str}'::vector \
-             LIMIT {limit}",
+             WHERE c.document_id = '{doc_uuid}' \
+               AND c.tenant_id = '{tenant_id}' \
+               AND c.chunk_index >= {start} \
+               AND c.chunk_index <= {end_idx} \
+             ORDER BY c.chunk_index"
         );
 
         match self.db.execute(&sql).await {
-            Ok(rows) => json!({"results": rows, "query": query}).to_string(),
+            Ok(rows) if rows.is_empty() => {
+                json!({
+                    "error": "No chunks found for the given document_id and chunk range",
+                    "document_id": document_id,
+                    "chunk_index": chunk_index,
+                    "range": range,
+                }).to_string()
+            }
+            Ok(rows) => {
+                let source_filename = rows[0].get("source_filename")
+                    .and_then(Value::as_str).unwrap_or("");
+                let source_path = rows[0].get("source_path")
+                    .and_then(Value::as_str).unwrap_or("");
+
+                let mut full_text = String::new();
+                let mut first_chunk = i64::MAX;
+                let mut last_chunk: i64 = 0;
+
+                for row in &rows {
+                    let idx = row.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+                    let content = row.get("content").and_then(Value::as_str).unwrap_or("");
+                    let section = row.get("section_title").and_then(Value::as_str).unwrap_or("");
+
+                    if idx < first_chunk { first_chunk = idx; }
+                    if idx > last_chunk { last_chunk = idx; }
+
+                    if !section.is_empty() && !full_text.contains(&format!("## {section}")) {
+                        full_text.push_str(&format!("\n## {section}\n\n"));
+                    }
+                    full_text.push_str(content);
+                    full_text.push_str("\n\n");
+                }
+
+                // Check if there are more chunks available in this document
+                let count_sql = format!(
+                    "SELECT MAX(chunk_index) as max_idx FROM knowledge_chunks WHERE document_id = '{doc_uuid}'"
+                );
+                let max_chunk = self.db.execute(&count_sql).await.ok()
+                    .and_then(|r| r.first().cloned())
+                    .and_then(|r| r.get("max_idx").and_then(Value::as_i64))
+                    .unwrap_or(last_chunk);
+
+                json!({
+                    "document_id": document_id,
+                    "source_filename": source_filename,
+                    "source_path": source_path,
+                    "chunk_range": format!("{first_chunk}-{last_chunk}"),
+                    "total_chunks_in_document": max_chunk + 1,
+                    "content": full_text.trim(),
+                    "hint": if last_chunk < max_chunk {
+                        format!("More content available. Use read_knowledge with chunk_index={} to continue reading.", last_chunk + 1)
+                    } else {
+                        "End of document reached.".to_string()
+                    }
+                }).to_string()
+            }
             Err(e) => {
-                warn!(error = %e, "search_knowledge DB query failed");
-                json!({"error": format!("Knowledge search failed: {e}")}).to_string()
+                warn!(error = %e, "read_knowledge query failed");
+                json!({"error": format!("Knowledge read failed: {e}")}).to_string()
             }
         }
+    }
+
+    /// Public wrappers for knowledge tools — used by session chat route.
+    pub async fn execute_search_knowledge_pub(
+        &self, query: &str, limit: u64, client_id: Option<uuid::Uuid>, project_id: Option<uuid::Uuid>,
+    ) -> String {
+        self.execute_search_knowledge(query, limit, client_id, project_id).await
+    }
+
+    pub async fn execute_read_knowledge_pub(
+        &self, document_id: &str, chunk_index: i64, range: i64, client_id: Option<uuid::Uuid>,
+    ) -> String {
+        self.execute_read_knowledge(document_id, chunk_index, range, client_id).await
     }
 
     /// Run a child agent synchronously within the parent's executor loop.
@@ -2028,6 +2416,16 @@ Respond with ONLY the JSON object:
         }
         if let Some(score) = result.judge_score {
             response["judge_score"] = json!(score);
+        }
+
+        // Truncate the output field if it's very large to prevent parent context pollution.
+        // Keep status, summary, score, error, and judge_feedback in full — only compress the output payload.
+        if let Some(output) = response.get("output") {
+            let output_str = output.to_string();
+            if output_str.len() > 6000 {
+                response["output"] = json!(smart_truncate(&output_str, 5000));
+                response["output_truncated"] = json!(true);
+            }
         }
 
         response
@@ -2284,7 +2682,23 @@ Respond with ONLY the JSON object:
                     break;
                 }
 
-                let result = actions::execute_action(tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings).await;
+                let result = if tool_name == "search_knowledge" {
+                    let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
+                    let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
+                    let reply_project_id = if let Some(sid) = session_id_for_creds {
+                        load_project_id(&self.db, sid).await
+                    } else {
+                        None
+                    };
+                    self.execute_search_knowledge(query_text, limit, client_id, reply_project_id).await
+                } else if tool_name == "read_knowledge" {
+                    let doc_id = tool_input.get("document_id").and_then(Value::as_str).unwrap_or("");
+                    let chunk_idx = tool_input.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+                    let range = tool_input.get("range").and_then(Value::as_i64).unwrap_or(5).min(20);
+                    self.execute_read_knowledge(doc_id, chunk_idx, range, client_id).await
+                } else {
+                    actions::execute_action(tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings, &self.http_client).await
+                };
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
                     "tool": tool_name,
@@ -2371,11 +2785,12 @@ fn build_system_prompt(
     }
 
     if !agent.knowledge_docs.is_empty() {
-        prompt.push_str("\n\n## Reference Knowledge\n");
+        prompt.push_str("\n\n<reference_knowledge>\n## Reference Knowledge\n");
         for doc in &agent.knowledge_docs {
             prompt.push_str(doc);
             prompt.push('\n');
         }
+        prompt.push_str("</reference_knowledge>");
     }
 
     if !agent.examples.is_empty() {
@@ -2392,7 +2807,7 @@ fn build_system_prompt(
 
     // Inject the quality criteria so the agent knows its own evaluation bar
     if !agent.judge_config.rubric.is_empty() || !agent.judge_config.need_to_know.is_empty() {
-        prompt.push_str("\n\n## Quality Criteria (your work will be evaluated against these)\n");
+        prompt.push_str("\n\n<quality_criteria>\n## Quality Criteria (your work will be evaluated against these)\n");
 
         if !agent.judge_config.need_to_know.is_empty() {
             prompt.push_str("\n### Hard Requirements\nYour output will be REJECTED if these are not addressed:\n");
@@ -2407,11 +2822,14 @@ fn build_system_prompt(
                 prompt.push_str(&format!("- [ ] {item}\n"));
             }
         }
+
+        prompt.push_str("</quality_criteria>");
     }
 
     if !upstream_context.is_empty() {
-        prompt.push_str("\n\n");
+        prompt.push_str("\n\n<upstream_context>\n");
         prompt.push_str(upstream_context);
+        prompt.push_str("\n</upstream_context>");
     }
 
     prompt
@@ -2432,29 +2850,32 @@ fn build_system_prompt_with_spawn_context(
 
     if let Some(ctx) = spawn_context {
         if !ctx.is_empty() {
-            prompt.push_str("\n\n## Task Context\n");
+            prompt.push_str("\n\n<task_context>\n## Task Context\n");
             prompt.push_str(ctx);
+            prompt.push_str("\n</task_context>");
         }
     }
 
     if let Some(criteria) = acceptance_criteria {
         if let Some(arr) = criteria.as_array() {
             if !arr.is_empty() {
-                prompt.push_str("\n\n## Acceptance Criteria (ALL must be met before calling write_output)\n");
+                prompt.push_str("\n\n<acceptance_criteria>\n## Acceptance Criteria (ALL must be met before calling write_output)\n");
                 prompt.push_str("Do NOT call write_output until every criterion below is satisfied and verified:\n");
                 for (i, c) in arr.iter().enumerate() {
                     if let Some(s) = c.as_str() {
                         prompt.push_str(&format!("- [ ] {}. {}\n", i + 1, s));
                     }
                 }
+                prompt.push_str("</acceptance_criteria>");
             }
         }
     }
 
     if let Some(examples) = spawn_examples {
         if !examples.is_empty() {
-            prompt.push_str("\n\n## Examples & References\n");
+            prompt.push_str("\n\n<examples>\n## Examples & References\n");
             prompt.push_str(examples);
+            prompt.push_str("\n</examples>");
         }
     }
 
@@ -2523,6 +2944,37 @@ fn smart_truncate(text: &str, limit: usize) -> String {
     let mut out: String = selected.iter().map(|(_, l)| *l).collect::<Vec<_>>().join("\n");
     out.push_str("\n... (truncated)");
     out
+}
+
+/// Truncate old messages to prevent context window overflow.
+/// Keeps the first message (task question) and the last `keep_recent` messages intact.
+/// Middle messages with tool_result content are compressed to short previews.
+fn truncate_old_messages(messages: &mut Vec<Value>, keep_recent: usize) {
+    if messages.len() <= keep_recent + 1 {
+        return;
+    }
+    let cutoff = messages.len() - keep_recent;
+    for msg in messages[1..cutoff].iter_mut() {
+        if let Some(content) = msg.get_mut("content") {
+            if let Some(arr) = content.as_array_mut() {
+                for block in arr.iter_mut() {
+                    if block.get("type").and_then(Value::as_str) == Some("tool_result") {
+                        if let Some(c) = block.get("content").and_then(Value::as_str) {
+                            if c.len() > 500 {
+                                let preview: String = c.chars().take(400).collect();
+                                block["content"] = Value::String(format!("{preview}... [truncated]"));
+                            }
+                        }
+                    }
+                }
+            } else if let Some(text) = content.as_str() {
+                if text.len() > 2000 {
+                    let preview: String = text.chars().take(1500).collect();
+                    *content = Value::String(format!("{preview}... [truncated]"));
+                }
+            }
+        }
+    }
 }
 
 /// Recursively extract all string values that look like URLs from a JSON Value.
@@ -2629,6 +3081,76 @@ async fn load_project_id(
             .and_then(|r| r.get("project_id").and_then(Value::as_str))
             .and_then(|s| s.parse::<uuid::Uuid>().ok()),
         Err(_) => None,
+    }
+}
+
+/// Load the project-level description (architecture, data flows, integration map)
+/// from the session's linked project_description_id.
+async fn load_project_description(
+    db: &crate::pg::PgClient,
+    session_id: uuid::Uuid,
+) -> String {
+    // Get the project_description_id from the session
+    let desc_id = match db.execute_with(
+        "SELECT project_description_id FROM execution_sessions WHERE id = $1",
+        pg_args!(session_id),
+    ).await {
+        Ok(rows) => rows.first()
+            .and_then(|r| r.get("project_description_id").and_then(Value::as_str))
+            .and_then(|s| s.parse::<uuid::Uuid>().ok()),
+        Err(_) => None,
+    };
+
+    let desc_id = match desc_id {
+        Some(id) => id,
+        None => return String::new(),
+    };
+
+    // Load the project description
+    let rows = match db.execute_with(
+        "SELECT title, summary, architecture, data_flows, integration_map FROM project_descriptions WHERE id = $1",
+        pg_args!(desc_id),
+    ).await {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+
+    let row = match rows.first() {
+        Some(r) => r,
+        None => return String::new(),
+    };
+
+    let mut parts = Vec::new();
+
+    if let Some(title) = row.get("title").and_then(Value::as_str) {
+        parts.push(format!("**Project**: {}", title));
+    }
+    if let Some(summary) = row.get("summary").and_then(Value::as_str) {
+        parts.push(summary.to_string());
+    }
+    if let Some(arch) = row.get("architecture").and_then(Value::as_str) {
+        if !arch.is_empty() {
+            parts.push(format!("**Architecture**: {}", arch));
+        }
+    }
+    if let Some(flows) = row.get("data_flows").and_then(Value::as_array) {
+        if !flows.is_empty() {
+            let flow_strs: Vec<String> = flows.iter()
+                .filter_map(|f| {
+                    let from = f.get("from").and_then(Value::as_str).unwrap_or("?");
+                    let to = f.get("to").and_then(Value::as_str).unwrap_or("?");
+                    let desc = f.get("description").and_then(Value::as_str).unwrap_or("");
+                    Some(format!("- {} → {}: {}", from, to, desc))
+                })
+                .collect();
+            parts.push(format!("**Data Flows**:\n{}", flow_strs.join("\n")));
+        }
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        parts.join("\n\n")
     }
 }
 

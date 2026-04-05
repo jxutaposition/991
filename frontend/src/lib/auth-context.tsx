@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 interface User {
   id: string;
@@ -108,18 +108,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("lele_active_client", slug);
   }, []);
 
+  // Use a ref for the token so apiFetch has a stable identity and doesn't
+  // cause cascading re-renders / EventSource reconnects when the token changes.
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
   const apiFetch = useCallback(
     (url: string, init?: RequestInit): Promise<Response> => {
       const headers = new Headers(init?.headers);
-      if (token && !headers.has("Authorization")) {
-        headers.set("Authorization", `Bearer ${token}`);
+      if (tokenRef.current && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${tokenRef.current}`);
       }
       if (!headers.has("Content-Type") && init?.body && typeof init.body === "string") {
         headers.set("Content-Type", "application/json");
       }
       return fetch(url, { ...init, headers });
     },
-    [token]
+    []
   );
 
   const value = useMemo(

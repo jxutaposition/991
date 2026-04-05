@@ -434,7 +434,7 @@ pub async fn execution_create(
 
         info!(session_id = %session_id, mode = "orchestrated", "session created with 'planning' status — spawning async planner");
 
-        // Spawn background task to generate the preview plan
+        // Spawn background task to generate the RICH preview plan
         let bg_state = state.clone();
         let bg_session_id = session_id;
         let bg_request_text = body.request_text.clone();
@@ -442,6 +442,7 @@ pub async fn execution_create(
         let bg_master_uid = master_uid;
         let bg_node_model = node_model.clone();
         let bg_client_id = client_id;
+        let bg_project_id = project_id;
 
         tokio::spawn(async move {
             bg_state.event_bus.send(
@@ -453,18 +454,20 @@ pub async fn execution_create(
 
             bg_state.event_bus.send(
                 &bg_session_id.to_string(),
-                json!({"type": "planner_progress", "message": "Generating execution plan..."}),
+                json!({"type": "planner_progress", "message": "Designing system architecture and component specifications..."}),
             ).await;
 
-            let preview_nodes = match planner::plan_execution(
+            // Use the RICH planner to generate detailed component descriptions,
+            // architecture, data flows, acceptance criteria — not just agent slugs.
+            let rich_plan = match planner::plan_rich_description(
                 &bg_request_text,
                 &catalog_summary,
                 &bg_state.settings.anthropic_api_key,
                 &bg_model,
             ).await {
-                Ok(nodes) => nodes,
+                Ok(plan) => plan,
                 Err(e) => {
-                    error!(error = %e, session_id = %bg_session_id, "async planner failed");
+                    error!(error = %e, session_id = %bg_session_id, "async rich planner failed");
                     let _ = bg_state.db.execute_with(
                         "UPDATE execution_sessions SET status = 'failed' WHERE id = $1",
                         pg_args!(bg_session_id),
@@ -477,7 +480,35 @@ pub async fn execution_create(
                 }
             };
 
-            // Persist preview child nodes
+            // Create project description from the rich plan output
+            let desc_id = if let Some(pid) = bg_project_id {
+                match crate::system_description::create_project_description(
+                    &bg_state.db,
+                    pid,
+                    &rich_plan.title,
+                    Some(&rich_plan.summary),
+                    &rich_plan.architecture,
+                    &rich_plan.data_flows,
+                    &json!({}),
+                ).await {
+                    Ok(id) => {
+                        // Link description to session
+                        let _ = bg_state.db.execute_with(
+                            "UPDATE execution_sessions SET project_description_id = $1 WHERE id = $2",
+                            pg_args!(id, bg_session_id),
+                        ).await;
+                        Some(id)
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to create project description, continuing without");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // Persist preview child nodes WITH rich descriptions
             let empty_uuids: Vec<Uuid> = vec![];
             let mut plan_entries = vec![json!({
                 "uid": bg_master_uid.to_string(),
@@ -486,34 +517,49 @@ pub async fn execution_create(
                 "requires": [],
             })];
 
-            for pn in &preview_nodes {
+            for (i, component) in rich_plan.components.iter().enumerate() {
                 let child_uid = Uuid::new_v4();
-                let child_jc_val = bg_state.catalog.get(&pn.agent_slug)
+                let child_jc_val = bg_state.catalog.get(&component.agent_slug)
                     .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
                     .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+
+                let description_json = &component.description;
+                let acceptance_criteria = description_json
+                    .get("acceptance_criteria")
+                    .cloned()
+                    .unwrap_or(json!([]));
 
                 let _ = bg_state.db.execute_with(
                     r#"INSERT INTO execution_nodes
                         (id, session_id, agent_slug, agent_git_sha, task_description, status,
                          requires, attempt_count, parent_uid, judge_config, max_iterations,
-                         model, skip_judge, client_id, depth)
-                       VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, $10, 1)"#,
+                         model, skip_judge, client_id, depth, description, step_index,
+                         acceptance_criteria)
+                       VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, $10, 1,
+                               $11, $12, $13)"#,
                     pg_args!(
-                        child_uid, bg_session_id, pn.agent_slug.clone(), "preview".to_string(),
-                        pn.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uid,
-                        child_jc_val, bg_node_model.clone(), bg_client_id
+                        child_uid, bg_session_id, component.agent_slug.clone(), "preview".to_string(),
+                        component.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uid,
+                        child_jc_val, bg_node_model.clone(), bg_client_id,
+                        description_json.clone(), (i as i32) + 1, acceptance_criteria
                     ),
                 ).await;
 
                 plan_entries.push(json!({
                     "uid": child_uid.to_string(),
-                    "agent_slug": &pn.agent_slug,
-                    "task_description": &pn.task_description,
+                    "agent_slug": &component.agent_slug,
+                    "task_description": &component.task_description,
                     "requires": [],
                     "parent_uid": bg_master_uid.to_string(),
                     "preview": true,
+                    "description": description_json,
                 }));
             }
+
+            // Collect node UIDs before consuming plan_entries
+            let node_uids: Vec<Uuid> = plan_entries[1..].iter()
+                .filter_map(|e| e.get("uid").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()))
+                .collect();
 
             let plan_json: Value = plan_entries.into();
 
@@ -523,19 +569,33 @@ pub async fn execution_create(
                 pg_args!(plan_json.clone(), bg_session_id),
             ).await;
 
+            // Run blocker identification on the rich plan
+            if desc_id.is_some() {
+                planner::identify_blockers(
+                    &bg_state.db,
+                    &rich_plan.components,
+                    &node_uids,
+                    bg_session_id,
+                    bg_client_id,
+                ).await;
+            }
+
             bg_state.event_bus.send(
                 &bg_session_id.to_string(),
                 json!({
                     "type": "plan_ready",
                     "plan": plan_json,
-                    "node_count": 1 + preview_nodes.len(),
+                    "node_count": 1 + rich_plan.components.len(),
+                    "title": rich_plan.title,
+                    "summary": rich_plan.summary,
                 }),
             ).await;
 
             info!(
                 session_id = %bg_session_id,
-                preview_children = preview_nodes.len(),
-                "async planner completed — session moved to awaiting_approval"
+                preview_children = rich_plan.components.len(),
+                title = %rich_plan.title,
+                "async rich planner completed — session moved to awaiting_approval"
             );
         });
 
@@ -720,9 +780,101 @@ pub async fn execution_approve(
     // Create SSE channel so clients can subscribe to live execution events
     state.event_bus.create_channel(&session_id).await;
 
+    // --- Start Slack notifier if project or client has a slack_channel_id ---
+    #[cfg(feature = "slack")]
+    {
+        if let Some(ref slack) = state.slack {
+            // Resolve slack_channel_id: project overrides client
+            let slack_channel = resolve_slack_channel(&state.db, project_id, client_id).await;
+
+            if let Some(channel_id) = slack_channel {
+                // Fetch request_text for the initial message
+                let req_text = state.db.execute_with(
+                    "SELECT request_text FROM execution_sessions WHERE id = $1",
+                    pg_args!(session_uuid),
+                ).await.ok()
+                    .and_then(|rows| rows.first().cloned())
+                    .and_then(|r| r.get("request_text").and_then(Value::as_str).map(String::from))
+                    .unwrap_or_else(|| "New execution".to_string());
+
+                let frontend_url = std::env::var("FRONTEND_URL")
+                    .unwrap_or_else(|_| "http://localhost:3000".to_string());
+
+                let text = format!(
+                    ":rocket: *Execution started*\n*Request:* {}\n<{}/execute/{}|View in dashboard>",
+                    req_text, frontend_url, session_id
+                );
+
+                match slack.post_message(&channel_id, &[], &text, None).await {
+                    Ok(resp) => {
+                        // Start notifier to post updates as threaded replies
+                        crate::slack_notifier::subscribe_to_session(
+                            session_id.clone(),
+                            state.event_bus.clone(),
+                            slack.clone(),
+                            state.db.clone(),
+                            channel_id.clone(),
+                            resp.ts.clone(),
+                        );
+
+                        // Insert mapping so clarification thread replies route back
+                        let _ = state.db.execute(&format!(
+                            "INSERT INTO slack_channel_mappings (slack_team_id, slack_channel_id, session_id, thread_ts) \
+                             VALUES ('auto', '{}', '{}', '{}')",
+                            channel_id.replace('\'', "''"),
+                            session_id,
+                            resp.ts.replace('\'', "''"),
+                        )).await;
+
+                        info!(session = %session_id, channel = %channel_id, "Slack notifier started for project/client channel");
+                    }
+                    Err(e) => {
+                        warn!(session = %session_id, error = %e, "failed to post Slack notification for project channel");
+                    }
+                }
+            }
+        }
+    }
+
     info!(session = %session_id, "execution approved — work queue will pick up ready nodes");
 
     Ok(Json(json!({"status": "executing", "session_id": session_id})))
+}
+
+/// Resolve Slack channel ID: project-level overrides client-level.
+#[cfg(feature = "slack")]
+async fn resolve_slack_channel(
+    db: &crate::pg::PgClient,
+    project_id: Option<Uuid>,
+    client_id: Option<Uuid>,
+) -> Option<String> {
+    // Check project first
+    if let Some(pid) = project_id {
+        let rows = db.execute(&format!(
+            "SELECT slack_channel_id FROM projects WHERE id = '{pid}'"
+        )).await.ok()?;
+        if let Some(ch) = rows.first()
+            .and_then(|r| r.get("slack_channel_id"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(ch.to_string());
+        }
+    }
+    // Fall back to client
+    if let Some(cid) = client_id {
+        let rows = db.execute(&format!(
+            "SELECT slack_channel_id FROM clients WHERE id = '{cid}'"
+        )).await.ok()?;
+        if let Some(ch) = rows.first()
+            .and_then(|r| r.get("slack_channel_id"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(ch.to_string());
+        }
+    }
+    None
 }
 
 /// POST /api/execute/:session_id/stop — cancel a running orchestration.
@@ -761,33 +913,28 @@ pub async fn execution_get(
 ) -> Result<Json<Value>, StatusCode> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, status, request_text, plan, plan_approved_at, created_at, completed_at
-        FROM execution_sessions WHERE id = '{session_uuid}'
-        "#
-    );
-
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT id, status, request_text, plan, plan_approved_at, created_at, completed_at, \
+                project_id, project_description_id \
+         FROM execution_sessions WHERE id = $1",
+        pg_args!(session_uuid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = rows.first().ok_or(StatusCode::NOT_FOUND)?.clone();
 
-    let nodes_sql = format!(
-        r#"
-        SELECT id, agent_slug, task_description, status, requires,
-               judge_score, judge_feedback, judge_config, output, input,
-               attempt_count, max_iterations, model, skip_judge,
-               parent_uid, variant_group, variant_label, variant_selected,
-               computed_tier, tier_override, breakpoint,
-               workflow_id, workflow_step_id, client_id,
-               depth, spawn_context, acceptance_criteria,
-               artifacts, step_index, error_category,
-               started_at, completed_at
-        FROM execution_nodes WHERE session_id = '{session_id}'
-        ORDER BY created_at
-        "#
-    );
-
-    let nodes = state.db.execute(&nodes_sql).await.unwrap_or_default();
+    let nodes = state.db.execute_with(
+        "SELECT id, agent_slug, task_description, status, requires, \
+               judge_score, judge_feedback, judge_config, output, input, \
+               attempt_count, max_iterations, model, skip_judge, \
+               parent_uid, variant_group, variant_label, variant_selected, \
+               computed_tier, tier_override, breakpoint, \
+               workflow_id, workflow_step_id, client_id, \
+               depth, spawn_context, acceptance_criteria, \
+               artifacts, step_index, error_category, description, \
+               started_at, completed_at \
+         FROM execution_nodes WHERE session_id = $1 \
+         ORDER BY created_at",
+        pg_args!(session_uuid),
+    ).await.unwrap_or_default();
 
     Ok(Json(json!({
         "session": session,
@@ -802,17 +949,16 @@ pub async fn execution_failures(
 ) -> Result<Json<Value>, StatusCode> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"SELECT id, agent_slug, task_description, status,
-                  error_category, judge_score, judge_feedback, output,
-                  attempt_count, started_at, completed_at
-           FROM execution_nodes
-           WHERE session_id = '{session_uuid}'
-             AND (status = 'failed' OR status = 'skipped' OR attempt_count > 1)
-           ORDER BY completed_at DESC NULLS LAST"#
-    );
-
-    let nodes = state.db.execute(&sql).await.unwrap_or_default();
+    let nodes = state.db.execute_with(
+        "SELECT id, agent_slug, task_description, status, \
+                error_category, judge_score, judge_feedback, output, \
+                attempt_count, started_at, completed_at \
+         FROM execution_nodes \
+         WHERE session_id = $1 \
+           AND (status = 'failed' OR status = 'skipped' OR attempt_count > 1) \
+         ORDER BY completed_at DESC NULLS LAST",
+        pg_args!(session_uuid),
+    ).await.unwrap_or_default();
     Ok(Json(json!({ "failures": nodes })))
 }
 
@@ -824,16 +970,13 @@ pub async fn execution_node_events(
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, node_id, event_type, payload, created_at
-        FROM execution_events
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-        ORDER BY created_at ASC
-        "#
-    );
-
-    let events = state.db.execute(&sql).await.unwrap_or_default();
+    let events = state.db.execute_with(
+        "SELECT id, node_id, event_type, payload, created_at \
+         FROM execution_events \
+         WHERE session_id = $1 AND node_id = $2 \
+         ORDER BY created_at ASC",
+        pg_args!(session_uuid, node_uuid),
+    ).await.unwrap_or_default();
     Ok(Json(json!({ "events": events })))
 }
 
@@ -845,16 +988,13 @@ pub async fn execution_node_thinking(
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, node_id, iteration, thinking_text, token_count, created_at
-        FROM thinking_blocks
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-        ORDER BY iteration ASC, created_at ASC
-        "#
-    );
-
-    let blocks = state.db.execute(&sql).await.unwrap_or_default();
+    let blocks = state.db.execute_with(
+        "SELECT id, node_id, iteration, thinking_text, token_count, created_at \
+         FROM thinking_blocks \
+         WHERE session_id = $1 AND node_id = $2 \
+         ORDER BY iteration ASC, created_at ASC",
+        pg_args!(session_uuid, node_uuid),
+    ).await.unwrap_or_default();
     Ok(Json(json!({ "thinking_blocks": blocks })))
 }
 
@@ -867,41 +1007,33 @@ pub async fn execution_node_stream(
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, node_id, 'event' AS stream_type, event_type AS sub_type,
-               payload::text AS content, NULL::text AS thinking_text,
-               NULL::int AS iteration, NULL::int AS token_count,
-               NULL::text AS role, NULL::jsonb AS metadata,
-               created_at
-        FROM execution_events
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-
-        UNION ALL
-
-        SELECT id, node_id, 'thinking' AS stream_type, 'thinking_block' AS sub_type,
-               NULL AS content, thinking_text,
-               iteration, token_count,
-               NULL AS role, NULL AS metadata,
-               created_at
-        FROM thinking_blocks
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-
-        UNION ALL
-
-        SELECT id, node_id, 'message' AS stream_type, role AS sub_type,
-               content, NULL AS thinking_text,
-               NULL AS iteration, NULL AS token_count,
-               role, metadata,
-               created_at
-        FROM node_messages
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-
-        ORDER BY created_at ASC
-        "#
-    );
-
-    let stream = state.db.execute(&sql).await.unwrap_or_default();
+    let stream = state.db.execute_with(
+        "SELECT id, node_id, 'event' AS stream_type, event_type AS sub_type, \
+               payload::text AS content, NULL::text AS thinking_text, \
+               NULL::int AS iteration, NULL::int AS token_count, \
+               NULL::text AS role, NULL::jsonb AS metadata, \
+               created_at \
+         FROM execution_events \
+         WHERE session_id = $1 AND node_id = $2 \
+         UNION ALL \
+         SELECT id, node_id, 'thinking' AS stream_type, 'thinking_block' AS sub_type, \
+               NULL AS content, thinking_text, \
+               iteration, token_count, \
+               NULL AS role, NULL AS metadata, \
+               created_at \
+         FROM thinking_blocks \
+         WHERE session_id = $1 AND node_id = $2 \
+         UNION ALL \
+         SELECT id, node_id, 'message' AS stream_type, role AS sub_type, \
+               content, NULL AS thinking_text, \
+               NULL AS iteration, NULL AS token_count, \
+               role, metadata, \
+               created_at \
+         FROM node_messages \
+         WHERE session_id = $1 AND node_id = $2 \
+         ORDER BY created_at ASC",
+        pg_args!(session_uuid, node_uuid),
+    ).await.unwrap_or_default();
     Ok(Json(json!({ "stream": stream })))
 }
 
@@ -914,18 +1046,24 @@ pub async fn execution_events_sse(
 
     match rx {
         Some(mut receiver) => {
+            let mut shutdown_rx = state.shutdown_rx.clone();
             let stream = async_stream::stream! {
                 loop {
-                    match receiver.recv().await {
-                        Ok(event) => {
-                            yield Ok::<Event, std::convert::Infallible>(
-                                Event::default().data(event.to_string())
-                            );
+                    tokio::select! {
+                        result = receiver.recv() => {
+                            match result {
+                                Ok(event) => {
+                                    yield Ok::<Event, std::convert::Infallible>(
+                                        Event::default().data(event.to_string())
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                    tracing::warn!(lagged = n, "SSE receiver lagged");
+                                }
+                            }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(lagged = n, "SSE receiver lagged");
-                        }
+                        _ = shutdown_rx.changed() => break,
                     }
                 }
             };
@@ -1002,16 +1140,12 @@ pub async fn observe_session_start(
     Json(body): Json<StartSessionRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let session_id = Uuid::new_v4();
-    let expert_id = body.expert_id.replace('\'', "''");
 
-    let sql = format!(
-        r#"
-        INSERT INTO observation_sessions (id, expert_id, started_at, status)
-        VALUES ('{session_id}', '{expert_id}', NOW(), 'recording')
-        "#
-    );
-
-    state.db.execute(&sql).await.map_err(|e| {
+    state.db.execute_with(
+        "INSERT INTO observation_sessions (id, expert_id, started_at, status) \
+         VALUES ($1, $2, NOW(), 'recording')",
+        pg_args!(session_id, body.expert_id.clone()),
+    ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -1045,12 +1179,16 @@ pub async fn observe_session_events(
         return Ok(Json(json!({"received": 0, "screenshots_stored": 0, "gaps_detected": []})));
     }
 
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
     let received = body.events.len();
     let screenshots_received = body.screenshots.as_ref().map_or(0, |s| s.len());
 
     // Persist events to DB
     for event in &body.events {
-        let url = event.url.as_deref().unwrap_or("").replace('\'', "''");
+        let url = event.url.as_deref().unwrap_or("").to_string();
         let domain = event
             .url
             .as_deref()
@@ -1059,39 +1197,39 @@ pub async fn observe_session_events(
             .unwrap_or_default();
         let dom_ctx = event
             .dom_context
-            .as_ref()
-            .map(|v| v.to_string().replace('\'', "''"))
-            .unwrap_or_else(|| "null".to_string());
-        let event_type = event.event_type.replace('\'', "''");
+            .clone()
+            .unwrap_or(json!(null));
 
-        let sql = format!(
-            r#"
-            INSERT INTO action_events
-              (session_id, sequence_number, event_type, url, domain, dom_context, created_at)
-            VALUES
-              ('{session_id}', {seq}, '{event_type}', '{url}', '{domain}', '{dom_ctx}'::jsonb, NOW())
-            ON CONFLICT (session_id, sequence_number) DO NOTHING
-            "#,
-            seq = event.sequence_number,
-        );
-        let _ = state.db.execute(&sql).await;
+        let _ = state.db.execute_with(
+            "INSERT INTO action_events \
+              (session_id, sequence_number, event_type, url, domain, dom_context, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, NOW()) \
+             ON CONFLICT (session_id, sequence_number) DO NOTHING",
+            pg_args!(session_uuid, event.sequence_number as i64, event.event_type.clone(), url, domain, dom_ctx),
+        ).await;
     }
 
     // Update event count
-    let _ = state.db.execute(&format!(
-        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = '{session_id}') WHERE id = '{session_id}'"
-    )).await;
+    let _ = state.db.execute_with(
+        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = $1) WHERE id = $1",
+        pg_args!(session_uuid),
+    ).await;
 
     // Persist screenshots to DB and grab the latest for vision narrator
     let latest_screenshot_b64: Option<String> = if let Some(screenshots) = &body.screenshots {
         let mut latest: Option<String> = None;
         for (i, ss) in screenshots.iter().enumerate() {
-            // Store screenshot as BYTEA using Postgres decode()
-            let _ = state.db.execute(&format!(
-                "INSERT INTO observation_screenshots (session_id, sequence_number, image_jpeg, captured_at) VALUES ('{session_id}', {ts}, decode('{b64}', 'base64'), NOW()) ON CONFLICT DO NOTHING",
-                ts = ss.timestamp,
-                b64 = ss.base64.replace('\'', ""),
-            )).await;
+            // Decode base64 to raw bytes and store as BYTEA
+            if let Ok(image_bytes) = {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.decode(&ss.base64)
+            } {
+                let _ = state.db.execute_with(
+                    "INSERT INTO observation_screenshots (session_id, sequence_number, image_jpeg, captured_at) \
+                     VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING",
+                    pg_args!(session_uuid, ss.timestamp, image_bytes),
+                ).await;
+            }
             // Keep the latest screenshot for the narrator
             if i == screenshots.len() - 1 {
                 latest = Some(ss.base64.clone());
@@ -1174,16 +1312,22 @@ pub async fn observe_narration_sse(
 
     match rx {
         Some(mut receiver) => {
+            let mut shutdown_rx = state.shutdown_rx.clone();
             let stream = async_stream::stream! {
                 loop {
-                    match receiver.recv().await {
-                        Ok(event) => {
-                            yield Ok::<Event, std::convert::Infallible>(
-                                Event::default().event("narration_chunk").data(event.to_string())
-                            );
+                    tokio::select! {
+                        result = receiver.recv() => {
+                            match result {
+                                Ok(event) => {
+                                    yield Ok::<Event, std::convert::Infallible>(
+                                        Event::default().event("narration_chunk").data(event.to_string())
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        _ = shutdown_rx.changed() => break,
                     }
                 }
             };
@@ -1193,10 +1337,16 @@ pub async fn observe_narration_sse(
         }
         None => {
             // Poll DB for latest narrations
-            let sql = format!(
-                "SELECT id, sequence_ref, narrator_text, expert_correction, created_at FROM distillations WHERE session_id = '{session_id}' ORDER BY sequence_ref DESC LIMIT 20"
-            );
-            let rows = state.db.execute(&sql).await.unwrap_or_default();
+            let session_uuid = session_id.parse::<Uuid>().ok();
+            let rows = if let Some(sid) = session_uuid {
+                state.db.execute_with(
+                    "SELECT id, sequence_ref, narrator_text, expert_correction, created_at \
+                     FROM distillations WHERE session_id = $1 ORDER BY sequence_ref DESC LIMIT 20",
+                    pg_args!(sid),
+                ).await.unwrap_or_default()
+            } else {
+                vec![]
+            };
             let stream = stream::once(async move {
                 let event = Event::default()
                     .event("history")
@@ -1220,20 +1370,16 @@ pub async fn observe_correction(
     Path(session_id): Path<String>,
     Json(body): Json<CorrectionRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let correction_escaped = body.correction.replace('\'', "''");
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
 
-    let sql = format!(
-        r#"
-        UPDATE distillations
-        SET expert_correction = '{correction_escaped}'
-        WHERE session_id = '{session_id}'
-          AND sequence_ref = {seq}
-        RETURNING narrator_text
-        "#,
-        seq = body.sequence_ref,
-    );
-
-    let rows = state.db.execute(&sql).await.map_err(|e| {
+    let rows = state.db.execute_with(
+        "UPDATE distillations SET expert_correction = $1 \
+         WHERE session_id = $2 AND sequence_ref = $3 \
+         RETURNING narrator_text",
+        pg_args!(body.correction.clone(), session_uuid, body.sequence_ref),
+    ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -1244,10 +1390,10 @@ pub async fn observe_correction(
 
     // Record as ground_truth feedback signal (weight 5.0)
     // Try to find matching agent from prior abstracted_tasks for this session
-    let agent_sql = format!(
-        "SELECT matched_agent_slug FROM abstracted_tasks WHERE session_id = '{session_id}' AND matched_agent_slug IS NOT NULL LIMIT 1"
-    );
-    let agent_slug = state.db.execute(&agent_sql).await.ok()
+    let agent_slug = state.db.execute_with(
+        "SELECT matched_agent_slug FROM abstracted_tasks WHERE session_id = $1 AND matched_agent_slug IS NOT NULL LIMIT 1",
+        pg_args!(session_uuid),
+    ).await.ok()
         .and_then(|rows| rows.first().and_then(|r| r.get("matched_agent_slug").and_then(Value::as_str).map(String::from)))
         .unwrap_or_else(|| "unknown".to_string());
 
@@ -1270,13 +1416,16 @@ pub async fn observe_session_end(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
     let coverage = narrator::compute_coverage_score(&state.db, &session_id).await;
 
-    let sql = format!(
-        "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = {coverage} WHERE id = '{session_id}'"
-    );
-
-    state.db.execute(&sql).await.map_err(|e| {
+    state.db.execute_with(
+        "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = $1 WHERE id = $2",
+        pg_args!(coverage, session_uuid),
+    ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -1778,7 +1927,10 @@ pub async fn demo_run(
 
 /// Ingest demo events into action_events table.
 async fn ingest_demo_events(db: &crate::pg::PgClient, session_id: &str, events: &Value) {
-    let events_arr = events.as_array().unwrap();
+    let events_arr = match events.as_array() {
+        Some(arr) => arr,
+        None => return,
+    };
     for event in events_arr {
         let url = event.get("url").and_then(Value::as_str).unwrap_or("").replace('\'', "''");
         let domain = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
@@ -1807,7 +1959,7 @@ async fn run_narrator(
 ) {
     use crate::narrator::{self, CapturedEvent};
 
-    let captured: Vec<CapturedEvent> = events.as_array().unwrap().iter().filter_map(|e| {
+    let captured: Vec<CapturedEvent> = events.as_array().unwrap_or(&vec![]).iter().filter_map(|e| {
         serde_json::from_value(e.clone()).ok()
     }).collect();
 
@@ -2021,6 +2173,62 @@ pub async fn client_get(
         "contacts": contacts,
         "state": state_items,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateClientRequest {
+    pub name: Option<String>,
+    pub brief: Option<String>,
+    pub industry: Option<String>,
+    pub slack_channel_id: Option<String>,
+}
+
+/// PATCH /api/clients/:slug — update a client.
+pub async fn client_update(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Json(body): Json<UpdateClientRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+
+    let client_id = client.get("id").and_then(Value::as_str)
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Missing client id"}))))?;
+
+    let mut sets = Vec::new();
+    if let Some(ref name) = body.name {
+        sets.push(format!("name = '{}'", name.replace('\'', "''")));
+    }
+    if let Some(ref brief) = body.brief {
+        sets.push(format!("brief = '{}'", brief.replace('\'', "''")));
+    }
+    if let Some(ref industry) = body.industry {
+        sets.push(format!("industry = '{}'", industry.replace('\'', "''")));
+    }
+    if body.slack_channel_id.is_some() {
+        let val = body.slack_channel_id.as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("'{}'", s.replace('\'', "''")))
+            .unwrap_or_else(|| "NULL".to_string());
+        sets.push(format!("slack_channel_id = {val}"));
+    }
+
+    if sets.is_empty() {
+        return Ok(Json(json!({"updated": false})));
+    }
+
+    sets.push("updated_at = NOW()".to_string());
+
+    let sql = format!(
+        "UPDATE clients SET {} WHERE id = '{client_id}'",
+        sets.join(", ")
+    );
+    state.db.execute(&sql).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"updated": true})))
 }
 
 #[derive(Deserialize)]
@@ -2573,6 +2781,24 @@ pub async fn execution_node_reply(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
+    // Verify node has a conversation state before allowing a reply
+    let check_rows = state.db.execute_with(
+        "SELECT status, conversation_state IS NOT NULL AS has_conv FROM execution_nodes WHERE id = $1 AND session_id = $2",
+        pg_args!(node_uuid, session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+    let check_row = check_rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Node not found"})))
+    })?;
+    let node_status = check_row.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let has_conv = check_row.get("has_conv").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !has_conv && (node_status == "pending" || node_status == "ready" || node_status == "preview") {
+        return Err((StatusCode::CONFLICT, Json(json!({
+            "error": "Cannot send a message to a node that has not started executing yet. Use the session chat instead."
+        }))));
+    }
+
     // Mark node as running
     state.db.execute_with(
         "UPDATE execution_nodes SET status = 'running' WHERE id = $1 AND session_id = $2",
@@ -2639,6 +2865,472 @@ pub async fn execution_node_reply(
         "ok": true,
         "status": "running",
         "message": "Reply sent, agent is processing...",
+    })))
+}
+
+// ── Session Chat (pre-execution) ─────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SessionChatRequest {
+    pub message: String,
+}
+
+/// POST /api/execute/:session_id/chat — pre-execution chat for asking questions,
+/// giving specs, or requesting plan modifications while the session is awaiting approval.
+pub async fn execution_session_chat(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+    Json(body): Json<SessionChatRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    // Load session
+    let session_rows = state.db.execute_with(
+        "SELECT status, request_text, client_id, project_id FROM execution_sessions WHERE id = $1",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+    let session_row = session_rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
+    })?;
+    let session_status = session_row.get("status").and_then(Value::as_str).unwrap_or("");
+    let request_text = session_row.get("request_text").and_then(Value::as_str).unwrap_or("").to_string();
+    let client_id = session_row.get("client_id").and_then(Value::as_str)
+        .and_then(|s| s.parse::<Uuid>().ok());
+    let project_id = session_row.get("project_id").and_then(Value::as_str)
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    if session_status != "awaiting_approval" && session_status != "planning" {
+        return Err((StatusCode::CONFLICT, Json(json!({
+            "error": "Chat is only available before execution starts"
+        }))));
+    }
+
+    // Find master node (no parent_uid)
+    let master_rows = state.db.execute_with(
+        "SELECT id FROM execution_nodes WHERE session_id = $1 AND parent_uid IS NULL LIMIT 1",
+        pg_args!(session_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+    let master_row = master_rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Master node not found"})))
+    })?;
+    let master_node_id = master_row.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+    let master_uuid = master_node_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Invalid master node ID"})))
+    })?;
+
+    // Load current preview children for plan context
+    let child_rows = state.db.execute_with(
+        "SELECT agent_slug, task_description FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2 ORDER BY created_at ASC",
+        pg_args!(session_uuid, master_uuid),
+    ).await.unwrap_or_default();
+    let plan_summary: Vec<String> = child_rows.iter().map(|r| {
+        let slug = r.get("agent_slug").and_then(Value::as_str).unwrap_or("?");
+        let desc = r.get("task_description").and_then(Value::as_str).unwrap_or("?");
+        format!("- {slug}: {desc}")
+    }).collect();
+
+    // Persist user message on the master node's stream
+    let user_meta = json!({"source": "human_reply", "phase": "pre_execution"});
+    state.db.execute_with(
+        "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'user', $3, $4)",
+        pg_args!(session_uuid, master_uuid, body.message.clone(), user_meta.clone()),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    // Broadcast user message via SSE
+    state.event_bus.send(
+        &session_id,
+        json!({
+            "type": "stream_entry",
+            "node_uid": master_node_id,
+            "stream_entry": {
+                "stream_type": "message",
+                "sub_type": "user",
+                "content": body.message,
+                "role": "user",
+                "metadata": user_meta,
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }
+        }),
+    ).await;
+
+    // Load full conversation history for this node
+    let history_rows = state.db.execute_with(
+        "SELECT role, content FROM node_messages WHERE session_id = $1 AND node_id = $2 ORDER BY created_at ASC",
+        pg_args!(session_uuid, master_uuid),
+    ).await.unwrap_or_default();
+
+    let mut messages: Vec<Value> = history_rows.iter().map(|r| {
+        let role = r.get("role").and_then(Value::as_str).unwrap_or("user");
+        let content = r.get("content").and_then(Value::as_str).unwrap_or("");
+        json!({"role": role, "content": content})
+    }).collect();
+
+    // Merge consecutive same-role messages (Anthropic requires alternation)
+    let mut deduped: Vec<Value> = Vec::new();
+    for msg in messages.drain(..) {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+        if let Some(last) = deduped.last_mut() {
+            let last_role = last.get("role").and_then(Value::as_str).unwrap_or("");
+            if last_role == role {
+                let prev = last.get("content").and_then(Value::as_str).unwrap_or("").to_string();
+                let curr = msg.get("content").and_then(Value::as_str).unwrap_or("");
+                last["content"] = json!(format!("{prev}\n\n{curr}"));
+                continue;
+            }
+        }
+        deduped.push(msg);
+    }
+    messages = deduped;
+
+    let catalog_summary = state.catalog.catalog_summary();
+    let plan_text = if plan_summary.is_empty() {
+        "No plan generated yet.".to_string()
+    } else {
+        plan_summary.join("\n")
+    };
+
+    // Build knowledge tool definitions for the LLM
+    let knowledge_tools: Vec<crate::anthropic::ToolDef> = crate::actions::all_action_defs()
+        .into_iter()
+        .filter(|t| t.name == "search_knowledge" || t.name == "read_knowledge")
+        .collect();
+
+    // Query available knowledge scope so the LLM knows what's indexed
+    let mut knowledge_scope_desc = String::new();
+    if let Some(cid) = client_id {
+        let scope_sql = format!(
+            "SELECT source_folder, COUNT(*) AS doc_count, \
+                    SUM(chunk_count) AS total_chunks, \
+                    ARRAY_AGG(DISTINCT source_filename) FILTER (WHERE source_filename IS NOT NULL) AS filenames \
+             FROM knowledge_documents \
+             WHERE tenant_id = '{cid}' AND status = 'ready' {} \
+             GROUP BY source_folder \
+             ORDER BY doc_count DESC",
+            project_id.map(|p| format!("AND (project_id IS NULL OR project_id = '{p}')")).unwrap_or_default()
+        );
+        if let Ok(rows) = state.db.execute(&scope_sql).await {
+            if !rows.is_empty() {
+                knowledge_scope_desc.push_str("\n\n## Indexed Knowledge Corpus\n\
+Your search_knowledge and read_knowledge tools search this client's indexed data. \
+The following sources are available:\n");
+                for row in &rows {
+                    let folder = row.get("source_folder").and_then(Value::as_str).unwrap_or("(root)");
+                    let folder_label = if folder.is_empty() { "(root)" } else { folder };
+                    let doc_count = row.get("doc_count").and_then(Value::as_i64).unwrap_or(0);
+                    let total_chunks = row.get("total_chunks").and_then(Value::as_i64).unwrap_or(0);
+                    let filenames = row.get("filenames").and_then(Value::as_array)
+                        .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    let preview: Vec<&str> = filenames.iter().take(5).copied().collect();
+                    let more = if filenames.len() > 5 { format!(", +{} more", filenames.len() - 5) } else { String::new() };
+
+                    knowledge_scope_desc.push_str(&format!(
+                        "- **{folder_label}**: {doc_count} docs, ~{total_chunks} chunks [{}{more}]\n",
+                        preview.join(", ")
+                    ));
+                }
+                knowledge_scope_desc.push_str("\nUse search_knowledge(query) to find relevant information. \
+Results are automatically scoped to this client's data.\n");
+            }
+        }
+    }
+
+    let system_prompt = format!(
+        "You are a helpful GTM workflow planning assistant. The user is reviewing an execution plan \
+before approving it. Help them understand, refine, or modify the plan.\n\n\
+## Original Request\n{request_text}\n\n\
+## Current Plan\n{plan_text}\n\n\
+## Available Agents\n{catalog_summary}{knowledge_scope_desc}\n\n\
+## Guidelines\n\
+- Answer questions about the plan, agents, and what each step does.\n\
+- You have access to search_knowledge and read_knowledge tools. Use them to look up historical \
+project data, prior work, user logs, bugs, and configurations when the user asks about existing \
+data or project history — or when you need context to give a better answer.\n\
+- If the user wants to change the plan (add/remove agents, modify tasks), include a JSON block \
+tagged with ```replan in your response containing the updated plan as an array of objects with \
+agent_slug, task_description, and depends_on fields. The system will detect this and update the plan.\n\
+- Keep answers concise and actionable.\n\
+- Be encouraging and help the user feel confident about approving the plan or guide them to the changes they need."
+    );
+
+    // Spawn background task with tool loop
+    let bg_state = state.clone();
+    let bg_session_id = session_id.clone();
+    let bg_master_node_id = master_node_id.clone();
+    let bg_master_uuid = master_uuid;
+    let bg_session_uuid = session_uuid;
+    let bg_request_text = request_text.clone();
+
+    tokio::spawn(async move {
+        let runner = crate::agent_runner::AgentRunner::new(
+            bg_state.settings.clone(),
+            bg_state.db.clone(),
+            bg_state.catalog.clone(),
+            bg_state.skill_catalog.clone(),
+            bg_state.tool_catalog.clone(),
+            bg_state.event_bus.clone(),
+        );
+
+        let client = crate::anthropic::AnthropicClient::new(
+            bg_state.settings.anthropic_api_key.clone(),
+            bg_state.settings.anthropic_model.clone(),
+        );
+
+        let max_tool_rounds = 3;
+        let mut response_text = String::new();
+
+        for round in 0..=max_tool_rounds {
+            let (mut delta_rx, response_handle) = client.messages_stream(
+                &system_prompt,
+                &messages,
+                &knowledge_tools,
+                4096,
+                Some(&bg_state.settings.anthropic_model),
+                None,
+            );
+
+            while let Some(event) = delta_rx.recv().await {
+                // Skip MessageStop from the Anthropic stream — we send our own
+                // message_stop AFTER persisting the assistant message to the DB.
+                // Forwarding the Anthropic one causes a race: the frontend clears
+                // live text and fetches from DB before the message is persisted.
+                if matches!(event, crate::anthropic::StreamEvent::MessageStop) {
+                    continue;
+                }
+                crate::agent_runner::forward_stream_delta_pub(
+                    &bg_state.event_bus,
+                    &bg_session_id,
+                    &bg_master_node_id,
+                    round,
+                    &event,
+                ).await;
+            }
+
+            let response = match response_handle.await {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
+                    warn!(error = %e, "session chat LLM call failed");
+                    let error_msg = format!("Sorry, I encountered an error: {e}");
+                    let _ = bg_state.db.execute_with(
+                        "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
+                        pg_args!(bg_session_uuid, bg_master_uuid, error_msg.clone(), json!({"phase": "pre_execution"})),
+                    ).await;
+                    bg_state.event_bus.send(&bg_session_id, json!({
+                        "type": "stream_entry",
+                        "node_uid": bg_master_node_id,
+                        "stream_entry": {
+                            "stream_type": "message",
+                            "sub_type": "assistant",
+                            "content": error_msg,
+                            "role": "assistant",
+                            "created_at": chrono::Utc::now().to_rfc3339(),
+                        }
+                    })).await;
+                    bg_state.event_bus.send(&bg_session_id, json!({
+                        "type": "stream_entry",
+                        "node_uid": bg_master_node_id,
+                        "stream_entry": {
+                            "stream_type": "message_stop",
+                            "sub_type": "message_stop",
+                            "created_at": chrono::Utc::now().to_rfc3339(),
+                        }
+                    })).await;
+                    return;
+                }
+                Err(e) => {
+                    warn!(error = %e, "session chat task join failed");
+                    bg_state.event_bus.send(&bg_session_id, json!({
+                        "type": "stream_entry",
+                        "node_uid": bg_master_node_id,
+                        "stream_entry": {
+                            "stream_type": "message",
+                            "sub_type": "assistant",
+                            "content": "Sorry, something went wrong while processing your message.",
+                            "role": "assistant",
+                            "created_at": chrono::Utc::now().to_rfc3339(),
+                        }
+                    })).await;
+                    bg_state.event_bus.send(&bg_session_id, json!({
+                        "type": "stream_entry",
+                        "node_uid": bg_master_node_id,
+                        "stream_entry": {
+                            "stream_type": "message_stop",
+                            "sub_type": "message_stop",
+                            "created_at": chrono::Utc::now().to_rfc3339(),
+                        }
+                    })).await;
+                    return;
+                }
+            };
+
+            response_text = response.text();
+
+            // Check if the LLM wants to use tools
+            let tool_uses: Vec<(String, String, Value)> = response.content.iter().filter_map(|block| {
+                if block.get("type")?.as_str()? == "tool_use" {
+                    Some((
+                        block.get("id")?.as_str()?.to_string(),
+                        block.get("name")?.as_str()?.to_string(),
+                        block.get("input").cloned().unwrap_or(json!({})),
+                    ))
+                } else {
+                    None
+                }
+            }).collect();
+
+            if tool_uses.is_empty() || round == max_tool_rounds {
+                break;
+            }
+
+            // Append assistant message (with tool_use blocks) to conversation
+            messages.push(crate::anthropic::assistant_message_from_response(&response.content));
+
+            // Execute each tool and collect results
+            let mut tool_results: Vec<(String, String)> = Vec::new();
+            for (tool_use_id, tool_name, tool_input) in &tool_uses {
+                let result = if tool_name == "search_knowledge" {
+                    let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
+                    let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
+                    runner.execute_search_knowledge_pub(query_text, limit, client_id, project_id).await
+                } else if tool_name == "read_knowledge" {
+                    let doc_id = tool_input.get("document_id").and_then(Value::as_str).unwrap_or("");
+                    let chunk_idx = tool_input.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+                    let range = tool_input.get("range").and_then(Value::as_i64).unwrap_or(5).min(20);
+                    runner.execute_read_knowledge_pub(doc_id, chunk_idx, range, client_id).await
+                } else {
+                    json!({"error": "Unknown tool"}).to_string()
+                };
+                info!(tool = %tool_name, "session chat tool call executed");
+                tool_results.push((tool_use_id.clone(), result));
+            }
+
+            // Append tool results to conversation and loop
+            messages.push(crate::anthropic::tool_results_message(&tool_results));
+        }
+
+        // response_text now has the final text (after any tool rounds)
+        info!(
+            session_id = %bg_session_id,
+            text_len = response_text.len(),
+            "session chat completed — persisting assistant response"
+        );
+
+        // Persist assistant message
+        let _ = bg_state.db.execute_with(
+            "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
+            pg_args!(bg_session_uuid, bg_master_uuid, response_text.clone(), json!({"phase": "pre_execution"})),
+        ).await;
+
+        // Broadcast the finalized assistant message so it appears immediately
+        // (the streaming text_deltas may have been shown live, but this ensures
+        // the complete message is present even if SSE was briefly interrupted)
+        bg_state.event_bus.send(&bg_session_id, json!({
+            "type": "stream_entry",
+            "node_uid": bg_master_node_id,
+            "stream_entry": {
+                "stream_type": "message",
+                "sub_type": "assistant",
+                "content": response_text,
+                "role": "assistant",
+                "metadata": {"phase": "pre_execution"},
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }
+        })).await;
+
+        // Broadcast message_stop so frontend finalizes the streamed message
+        let delivered = bg_state.event_bus.send(&bg_session_id, json!({
+            "type": "stream_entry",
+            "node_uid": bg_master_node_id,
+            "stream_entry": {
+                "stream_type": "message_stop",
+                "sub_type": "message_stop",
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }
+        })).await;
+        info!(
+            session_id = %bg_session_id,
+            delivered,
+            "session chat message_stop sent"
+        );
+
+        // Detect ```replan block and apply plan changes
+        if let Some(replan_start) = response_text.find("```replan") {
+            let json_start = replan_start + "```replan".len();
+            if let Some(json_end) = response_text[json_start..].find("```") {
+                let replan_json = response_text[json_start..json_start + json_end].trim();
+                if let Ok(new_plan) = serde_json::from_str::<Vec<planner::PlannedNode>>(replan_json) {
+                    info!(session_id = %bg_session_id, nodes = new_plan.len(), "replanning from chat");
+
+                    let _ = bg_state.db.execute_with(
+                        "DELETE FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2",
+                        pg_args!(bg_session_uuid, bg_master_uuid),
+                    ).await;
+
+                    let empty_uuids: Vec<Uuid> = vec![];
+                    let model = bg_state.settings.anthropic_model.clone();
+                    let mut plan_entries = vec![json!({
+                        "uid": bg_master_node_id,
+                        "agent_slug": MASTER_ORCHESTRATOR_SLUG,
+                        "task_description": bg_request_text,
+                        "requires": [],
+                    })];
+
+                    for pn in &new_plan {
+                        let child_uid = Uuid::new_v4();
+                        let child_jc_val = bg_state.catalog.get(&pn.agent_slug)
+                            .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
+                            .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+
+                        let _ = bg_state.db.execute_with(
+                            r#"INSERT INTO execution_nodes
+                                (id, session_id, agent_slug, agent_git_sha, task_description, status,
+                                 requires, attempt_count, parent_uid, judge_config, max_iterations,
+                                 model, skip_judge, depth)
+                               VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, 1)"#,
+                            pg_args!(
+                                child_uid, bg_session_uuid, pn.agent_slug.clone(), "preview".to_string(),
+                                pn.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uuid,
+                                child_jc_val, model.clone()
+                            ),
+                        ).await;
+
+                        plan_entries.push(json!({
+                            "uid": child_uid.to_string(),
+                            "agent_slug": &pn.agent_slug,
+                            "task_description": &pn.task_description,
+                            "requires": [],
+                            "parent_uid": bg_master_node_id,
+                            "preview": true,
+                        }));
+                    }
+
+                    let plan_json: Value = plan_entries.into();
+                    let _ = bg_state.db.execute_with(
+                        "UPDATE execution_sessions SET plan = $1 WHERE id = $2",
+                        pg_args!(plan_json.clone(), bg_session_uuid),
+                    ).await;
+
+                    bg_state.event_bus.send(&bg_session_id, json!({
+                        "type": "plan_ready",
+                        "plan": plan_json,
+                        "node_count": 1 + new_plan.len(),
+                    })).await;
+                }
+            }
+        }
+    });
+
+    Ok(Json(json!({
+        "ok": true,
+        "message": "Processing your message...",
     })))
 }
 
@@ -2994,7 +3686,7 @@ pub async fn integrations_list(
         if item.get("auth_type").and_then(Value::as_str) == Some("oauth2") {
             let slug = item.get("slug").and_then(Value::as_str).unwrap_or("");
             let configured = crate::oauth::get_provider_config(&state.settings, slug).is_some();
-            item.as_object_mut().unwrap().insert("oauth_configured".to_string(), json!(configured));
+            item.as_object_mut().expect("DB row is always a JSON object").insert("oauth_configured".to_string(), json!(configured));
         }
     }
     Json(json!({"integrations": list}))
@@ -3102,7 +3794,7 @@ pub async fn client_credential_check(
                 "status": if is_missing { "missing" } else { "connected" },
             });
             if let Some(steps) = integration_setup_steps(slug) {
-                detail.as_object_mut().unwrap().insert("setup_steps".to_string(), steps);
+                detail.as_object_mut().expect("DB row is always a JSON object").insert("setup_steps".to_string(), steps);
             }
             detail
         }).collect();
@@ -3372,6 +4064,7 @@ pub struct CreateProjectRequest {
     pub client_slug: String,
     pub expert_slug: Option<String>,
     pub description: Option<String>,
+    pub slack_channel_id: Option<String>,
 }
 
 /// POST /api/projects — create a project.
@@ -3406,14 +4099,67 @@ pub async fn project_create(
     let desc_val = body.description.as_deref()
         .map(|d| format!("'{}'", d.replace('\'', "''")))
         .unwrap_or_else(|| "NULL".to_string());
+    let slack_val = body.slack_channel_id.as_deref()
+        .map(|s| format!("'{}'", s.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
 
     let sql = format!(
-        "INSERT INTO projects (id, slug, name, client_id, expert_id, description)          VALUES ('{id}', '{slug_escaped}', '{name_escaped}', '{client_id}', {expert_id_val}, {desc_val})"
+        "INSERT INTO projects (id, slug, name, client_id, expert_id, description, slack_channel_id) \
+         VALUES ('{id}', '{slug_escaped}', '{name_escaped}', '{client_id}', {expert_id_val}, {desc_val}, {slack_val})"
     );
     state.db.execute(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"project_id": id.to_string()})))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateProjectRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub slack_channel_id: Option<String>,
+}
+
+/// PATCH /api/projects/:project_id — update a project.
+pub async fn project_update(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+    Json(body): Json<UpdateProjectRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let pid: Uuid = project_id.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
+    })?;
+
+    let mut sets = Vec::new();
+    if let Some(ref name) = body.name {
+        sets.push(format!("name = '{}'", name.replace('\'', "''")));
+    }
+    if let Some(ref desc) = body.description {
+        sets.push(format!("description = '{}'", desc.replace('\'', "''")));
+    }
+    // Allow explicit null to clear slack_channel_id
+    if body.slack_channel_id.is_some() {
+        let val = body.slack_channel_id.as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("'{}'", s.replace('\'', "''")))
+            .unwrap_or_else(|| "NULL".to_string());
+        sets.push(format!("slack_channel_id = {val}"));
+    }
+
+    if sets.is_empty() {
+        return Ok(Json(json!({"updated": false})));
+    }
+
+    sets.push("updated_at = NOW()".to_string());
+
+    let sql = format!(
+        "UPDATE projects SET {} WHERE id = '{pid}'",
+        sets.join(", ")
+    );
+    state.db.execute(&sql).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"updated": true})))
 }
 
 // ── Project Credentials Routes ──────────────────────────────────────────────
@@ -3446,7 +4192,7 @@ pub async fn project_credentials_list(
     // Merge: project overrides shown as "project", client-level as "inherited"
     let mut merged: Vec<Value> = project_creds.iter().map(|c| {
         let mut entry = c.clone();
-        entry.as_object_mut().unwrap().insert("scope".into(), json!("project"));
+        entry.as_object_mut().expect("DB row is always a JSON object").insert("scope".into(), json!("project"));
         entry
     }).collect();
 
@@ -3454,7 +4200,7 @@ pub async fn project_credentials_list(
         let slug = c.get("integration_slug").and_then(Value::as_str).unwrap_or("");
         if !project_slugs.contains(&slug.to_string()) {
             let mut entry = c.clone();
-            entry.as_object_mut().unwrap().insert("scope".into(), json!("inherited"));
+            entry.as_object_mut().expect("DB row is always a JSON object").insert("scope".into(), json!("inherited"));
             merged.push(entry);
         }
     }
@@ -3607,7 +4353,7 @@ pub async fn project_members_list(
 
     let mut members: Vec<Value> = rows.iter().map(|r| {
         let mut m = r.clone();
-        m.as_object_mut().unwrap().insert("scope".into(), json!("project"));
+        m.as_object_mut().expect("DB row is always a JSON object").insert("scope".into(), json!("project"));
         m
     }).collect();
 
@@ -3615,7 +4361,7 @@ pub async fn project_members_list(
         let uid = r.get("user_id").and_then(Value::as_str).unwrap_or("");
         if !project_user_ids.contains(&uid.to_string()) {
             let mut m = r.clone();
-            m.as_object_mut().unwrap().insert("scope".into(), json!("inherited"));
+            m.as_object_mut().expect("DB row is always a JSON object").insert("scope".into(), json!("inherited"));
             members.push(m);
         }
     }
@@ -3753,9 +4499,10 @@ async fn resolve_tenant_id(raw: &str, db: &crate::pg::PgClient) -> Result<Uuid, 
     if let Ok(u) = raw.parse::<Uuid>() {
         return Ok(u);
     }
-    let escaped = raw.replace('\'', "''");
-    let sql = format!("SELECT id FROM clients WHERE slug = '{escaped}'");
-    match db.execute(&sql).await {
+    match db.execute_with(
+        "SELECT id FROM clients WHERE slug = $1",
+        pg_args!(raw.to_string()),
+    ).await {
         Ok(rows) if !rows.is_empty() => {
             let id_str = rows[0].get("id").and_then(|v| v.as_str()).unwrap_or("");
             id_str.parse::<Uuid>().map_err(|_| {
@@ -3821,6 +4568,7 @@ pub async fn knowledge_document_get(
         "SELECT id, tenant_id, project_id, expert_id, source_filename, \
          source_path, source_folder, mime_type, file_hash, normalized_markdown, \
          status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
+         file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
          created_at, updated_at \
          FROM knowledge_documents WHERE id = '{doc_uuid}'"
     );
@@ -3850,6 +4598,34 @@ pub async fn knowledge_document_chunks(
     match state.db.execute(&sql).await {
         Ok(rows) => Json(json!({"chunks": rows})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
+    }
+}
+
+pub async fn knowledge_document_raw(
+    State(state): State<Arc<AppState>>,
+    Path(doc_id): Path<String>,
+) -> impl IntoResponse {
+    let doc_uuid = match doc_id.parse::<Uuid>() {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
+    };
+    let sql = format!(
+        "SELECT raw_content, source_filename, mime_type \
+         FROM knowledge_documents WHERE id = '{doc_uuid}'"
+    );
+    match state.db.execute(&sql).await {
+        Ok(rows) if !rows.is_empty() => {
+            let raw = rows[0].get("raw_content").and_then(|v| v.as_str());
+            match raw {
+                Some(b64) => Json(json!({
+                    "raw_content": b64,
+                    "source_filename": rows[0].get("source_filename"),
+                    "mime_type": rows[0].get("mime_type"),
+                })).into_response(),
+                None => (StatusCode::NOT_FOUND, Json(json!({"error": "no raw content available"}))).into_response(),
+            }
+        }
+        _ => (StatusCode::NOT_FOUND, Json(json!({"error": "document not found"}))).into_response(),
     }
 }
 
@@ -4175,16 +4951,130 @@ pub async fn knowledge_document_delete(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let mut sql = format!("DELETE FROM knowledge_documents WHERE id = '{doc_uuid}'");
-    if let Some(ref tid) = query.tenant_id {
+    let result = if let Some(ref tid) = query.tenant_id {
         if let Ok(t) = resolve_tenant_id(tid, &state.db).await {
-            sql.push_str(&format!(" AND tenant_id = '{t}'"));
+            state.db.execute_with(
+                "DELETE FROM knowledge_documents WHERE id = $1 AND tenant_id = $2 RETURNING id",
+                pg_args!(doc_uuid, t),
+            ).await
+        } else {
+            state.db.execute_with(
+                "DELETE FROM knowledge_documents WHERE id = $1 RETURNING id",
+                pg_args!(doc_uuid),
+            ).await
         }
-    }
-    sql.push_str(" RETURNING id");
-    match state.db.execute(&sql).await {
+    } else {
+        state.db.execute_with(
+            "DELETE FROM knowledge_documents WHERE id = $1 RETURNING id",
+            pg_args!(doc_uuid),
+        ).await
+    };
+    match result {
         Ok(rows) if !rows.is_empty() => (StatusCode::OK, Json(json!({"deleted": doc_id}))).into_response(),
         Ok(_) => (StatusCode::NOT_FOUND, Json(json!({"error": "document not found"}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
+    }
+}
+
+/// POST /api/knowledge/documents/:doc_id/reprocess — reset a document to pending
+/// so the ingestion worker re-processes it with current converters and embeddings.
+pub async fn knowledge_document_reprocess(
+    State(state): State<Arc<AppState>>,
+    Path(doc_id): Path<String>,
+) -> impl IntoResponse {
+    let doc_uuid = match doc_id.parse::<Uuid>() {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
+    };
+
+    // Delete existing chunks so they get regenerated
+    let delete_chunks_sql = format!(
+        "DELETE FROM knowledge_chunks WHERE document_id = '{doc_uuid}'"
+    );
+    if let Err(e) = state.db.execute(&delete_chunks_sql).await {
+        error!(error = %e, "failed to delete chunks for reprocess");
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response();
+    }
+
+    // Reset status to pending so the worker picks it up
+    let reset_sql = format!(
+        "UPDATE knowledge_documents SET status = 'pending', chunk_count = 0, \
+         error_message = NULL, analyzed_at = NULL, updated_at = NOW() \
+         WHERE id = '{doc_uuid}' AND status IN ('ready', 'error') \
+         RETURNING id, source_filename, status"
+    );
+    match state.db.execute(&reset_sql).await {
+        Ok(rows) if !rows.is_empty() => {
+            info!(id = %doc_uuid, "knowledge document queued for reprocessing");
+            (StatusCode::OK, Json(json!({
+                "id": doc_id,
+                "status": "pending",
+                "message": "Document queued for reprocessing. Existing chunks have been deleted."
+            }))).into_response()
+        }
+        Ok(_) => (StatusCode::NOT_FOUND, Json(json!({
+            "error": "Document not found or not in a reprocessable state (must be 'ready' or 'error')"
+        }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct KnowledgeReprocessBulkBody {
+    pub extensions: Option<Vec<String>>,
+    pub tenant_id: Option<String>,
+}
+
+/// POST /api/knowledge/reprocess-bulk — reprocess all documents matching criteria.
+/// If extensions is provided, only reprocesses documents with those file extensions.
+pub async fn knowledge_reprocess_bulk(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<KnowledgeReprocessBulkBody>,
+) -> impl IntoResponse {
+    let mut where_clauses = vec!["status IN ('ready', 'error')".to_string()];
+
+    if let Some(ref tid) = body.tenant_id {
+        match resolve_tenant_id(tid, &state.db).await {
+            Ok(t) => where_clauses.push(format!("tenant_id = '{t}'")),
+            Err(e) => return e.into_response(),
+        }
+    }
+
+    if let Some(ref exts) = body.extensions {
+        let ext_conditions: Vec<String> = exts.iter()
+            .map(|e| {
+                let ext = e.replace('\'', "''");
+                format!("source_filename ILIKE '%.{ext}'")
+            })
+            .collect();
+        if !ext_conditions.is_empty() {
+            where_clauses.push(format!("({})", ext_conditions.join(" OR ")));
+        }
+    }
+
+    let where_str = where_clauses.join(" AND ");
+
+    // Delete chunks for all matching documents
+    let delete_sql = format!(
+        "DELETE FROM knowledge_chunks WHERE document_id IN \
+         (SELECT id FROM knowledge_documents WHERE {where_str})"
+    );
+    let _ = state.db.execute(&delete_sql).await;
+
+    // Reset all matching documents to pending
+    let reset_sql = format!(
+        "UPDATE knowledge_documents SET status = 'pending', chunk_count = 0, \
+         error_message = NULL, analyzed_at = NULL, updated_at = NOW() \
+         WHERE {where_str} RETURNING id"
+    );
+    match state.db.execute(&reset_sql).await {
+        Ok(rows) => {
+            info!(count = rows.len(), "knowledge documents queued for bulk reprocessing");
+            (StatusCode::OK, Json(json!({
+                "queued": rows.len(),
+                "message": format!("{} documents queued for reprocessing", rows.len())
+            }))).into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
     }
 }
@@ -4519,8 +5409,13 @@ pub async fn project_execute_rich(
     // Build plan JSON
     let plan_json = planner::plan_to_json(&exec_nodes);
 
-    // Persist session with project_description_id
-    state.db.execute_with(
+    // Persist session + execution nodes in a single transaction to prevent partial plans
+    let mut tx = state.db.begin().await.map_err(|e| {
+        error!(error = %e, "failed to begin transaction");
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create session"})))
+    })?;
+
+    tx.execute_with(
         r#"INSERT INTO execution_sessions
             (id, client_id, project_id, project_description_id, request_text, plan, status, mode)
            VALUES ($1, $2, $3, $4, $5, $6, 'awaiting_approval', 'planned')"#,
@@ -4541,7 +5436,7 @@ pub async fn project_execute_rich(
             .cloned()
             .unwrap_or(json!([]));
 
-        state.db.execute_with(
+        tx.execute_with(
             r#"INSERT INTO execution_nodes
                 (id, session_id, agent_slug, agent_git_sha, task_description, status,
                  requires, attempt_count, judge_config, max_iterations, model, skip_judge,
@@ -4559,6 +5454,11 @@ pub async fn project_execute_rich(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create node"})))
         })?;
     }
+
+    tx.commit().await.map_err(|e| {
+        error!(error = %e, "failed to commit session transaction");
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create session"})))
+    })?;
 
     let node_count = exec_nodes.len();
 
@@ -4865,146 +5765,3 @@ pub async fn thread_update(
     Ok(Json(json!({ "ok": true })))
 }
 
-// ── Session Chat (Quick Ask) ─────────────────────────────────────────────────
-
-/// POST /api/execute/:session_id/chat — send a message scoped to a session
-pub async fn session_chat(
-    State(state): State<Arc<AppState>>,
-    Path(session_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
-
-    let message = body.get("message").and_then(|v| v.as_str())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "message is required"}))))?;
-
-    // Load session metadata
-    let session_row = state.db.execute_with(
-        "SELECT request_text, project_id FROM execution_sessions WHERE id = $1",
-        pg_args!(session_uuid),
-    ).await.map_err(|e| {
-        error!(error = %e, "session_chat: failed to load session");
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to load session"})))
-    })?;
-    let session_row = session_row.first().ok_or_else(|| {
-        (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
-    })?;
-
-    let request_text = session_row.get("request_text")
-        .and_then(Value::as_str)
-        .unwrap_or("(no request text)");
-
-    // If session has a project_id, load project description for richer context
-    let project_context = if let Some(pid) = session_row.get("project_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
-        crate::system_description::get_for_project(&state.db, pid)
-            .await
-            .ok()
-            .flatten()
-            .map(|v| v.to_string())
-    } else {
-        None
-    };
-
-    // Load recent nodes for this session
-    let node_rows = state.db.execute_with(
-        "SELECT agent_slug, task_description, status, description, artifacts \
-         FROM execution_nodes WHERE session_id = $1 \
-         ORDER BY created_at DESC LIMIT 20",
-        pg_args!(session_uuid),
-    ).await.unwrap_or_default();
-
-    let system_prompt = format!(
-        "You are the assistant for this execution session. \
-         You have full context about the session and can answer questions, \
-         explain what happened, help debug issues, and describe artifacts.\n\n\
-         Original request: {}\n\n\
-         {}\
-         Execution nodes: {}\n\n\
-         Respond helpfully and concisely.",
-        request_text,
-        project_context.as_ref().map(|d| format!("Project description: {d}\n\n")).unwrap_or_default(),
-        serde_json::to_string(&node_rows).unwrap_or_default(),
-    );
-
-    let client = crate::anthropic::AnthropicClient::new(
-        state.settings.anthropic_api_key.clone(),
-        state.settings.anthropic_model.clone(),
-    );
-    let llm_messages = vec![crate::anthropic::user_message(message.to_string())];
-
-    let response = client
-        .messages(&system_prompt, &llm_messages, &[], 4096, None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "session chat agent call failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Agent call failed: {e}")})))
-        })?;
-
-    Ok(Json(json!({
-        "response": response.text(),
-    })))
-}
-
-// ── Project Chat (Agent Buddy) ───────────────────────────────────────────────
-
-/// POST /api/projects/:project_id/chat — send a message to the project chat agent
-pub async fn project_chat(
-    State(state): State<Arc<AppState>>,
-    Path(project_id): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let project_uuid = project_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
-    })?;
-
-    let message = body.get("message").and_then(|v| v.as_str())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "message is required"}))))?;
-
-    // Load project description for context
-    let project_desc = system_description::get_for_project(&state.db, project_uuid)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-
-    // Load recent execution nodes for context
-    let node_rows = state.db.execute_with(
-        "SELECT agent_slug, task_description, status, description, artifacts \
-         FROM execution_nodes en \
-         JOIN execution_sessions es ON es.id = en.session_id \
-         WHERE es.project_id = $1 \
-         ORDER BY en.created_at DESC LIMIT 20",
-        pg_args!(project_uuid),
-    ).await.unwrap_or_default();
-
-    let system_prompt = format!(
-        "You are the system architect assistant for this project. \
-         You have full context about the system and can answer questions, \
-         suggest changes, help debug issues, and explain any part of the architecture.\n\n\
-         Project description: {}\n\n\
-         Recent execution nodes: {}\n\n\
-         Respond helpfully and concisely. Reference specific components by name.",
-        project_desc.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "No description yet".to_string()),
-        serde_json::to_string(&node_rows).unwrap_or_default(),
-    );
-
-    let client = crate::anthropic::AnthropicClient::new(
-        state.settings.anthropic_api_key.clone(),
-        state.settings.anthropic_model.clone(),
-    );
-    let llm_messages = vec![crate::anthropic::user_message(message.to_string())];
-
-    let response = client
-        .messages(&system_prompt, &llm_messages, &[], 4096, None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "project chat agent call failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Agent call failed: {e}")})))
-        })?;
-
-    let assistant_text = response.text();
-
-    Ok(Json(json!({
-        "response": assistant_text,
-    })))
-}

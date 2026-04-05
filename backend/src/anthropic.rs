@@ -205,32 +205,63 @@ impl AnthropicClient {
             body["tools"] = Value::Array(tools_json);
         }
 
-        let resp = self
-            .http
-            .post(ANTHROPIC_API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("anthropic-beta", "prompt-caching-2024-07-31")
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+        let max_retries = 3u32;
+        let mut last_error = String::new();
 
-        let status = resp.status();
-        let text = resp.text().await?;
+        for attempt in 0..=max_retries {
+            let resp = self
+                .http
+                .post(ANTHROPIC_API_URL)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", "prompt-caching-2024-07-31")
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?;
 
-        if !status.is_success() {
-            anyhow::bail!("Anthropic API error {status}: {}", &text[..text.len().min(500)]);
+            let status = resp.status();
+            let text = resp.text().await?;
+
+            if status.is_success() {
+                let parsed: MessagesResponse = serde_json::from_str(&text).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Anthropic parse error: {e}. Body: {}",
+                        &text[..text.len().min(500)]
+                    )
+                })?;
+                return Ok(parsed);
+            }
+
+            let code = status.as_u16();
+            let is_retryable = code == 429 || code == 529 || code >= 500;
+
+            if !is_retryable || attempt == max_retries {
+                anyhow::bail!("Anthropic API error {status}: {}", &text[..text.len().min(500)]);
+            }
+
+            // Parse retry-after header if present, otherwise use exponential backoff
+            let delay_secs = if code == 429 {
+                // Rate limited — back off more aggressively
+                2u64.pow(attempt + 1)
+            } else {
+                // Server error / overloaded — shorter backoff
+                2u64.pow(attempt)
+            };
+
+            last_error = format!("{status}: {}", &text[..text.len().min(200)]);
+            tracing::warn!(
+                attempt = attempt + 1,
+                max_retries,
+                delay_secs,
+                error = %last_error,
+                "Anthropic API transient error, retrying"
+            );
+
+            tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
         }
 
-        let parsed: MessagesResponse = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Anthropic parse error: {e}. Body: {}",
-                &text[..text.len().min(500)]
-            )
-        })?;
-
-        Ok(parsed)
+        anyhow::bail!("Anthropic API failed after retries: {}", last_error)
     }
 }
 

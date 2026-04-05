@@ -328,11 +328,11 @@ _* Currently not behind auth middleware — migration planned._
 - [x] OAuth fallback to manual token paste when env vars not configured
 - [x] Global Tavily key fallback via `TAVILY_API_KEY` env var
 
-### Planned
+### Deferred
 
-- [ ] `owner` column on `client_credentials` (agency vs client)
-- [ ] Handoff readiness endpoint and UI banner
-- [ ] Role-based access control on credential routes
-- [ ] Global env-var fallback for Clay and Apollo
-- [ ] `extra_fields` UI inputs (project_url for Supabase, base_url for n8n)
-- [ ] Client self-serve credential management (member-role access)
+- [ ] `owner` column on `client_credentials` (agency vs client) — deferred, no timeline
+- [ ] Handoff readiness endpoint (`GET /api/clients/:slug/handoff-status`) and UI banner — deferred
+- [ ] Role-based access control on credential routes — **security gap**: credential CRUD routes are still not behind auth middleware (see note in Route protection section)
+- [ ] Global env-var fallback for Clay (`CLAY_API_KEY`) and Apollo (`APOLLO_API_KEY`) — deferred, only Tavily has this
+- [ ] `extra_fields` UI inputs (project_url for Supabase, base_url for n8n) — deferred
+- [ ] Client self-serve credential management (member-role access) — deferred

@@ -35,6 +35,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Only http/https URLs are supported" }, { status: 400 });
   }
 
+  // Block requests to private/internal networks (SSRF protection)
+  const hostname = parsed.hostname.toLowerCase();
+  const blockedPatterns = [
+    /^localhost$/,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,        // AWS metadata endpoint
+    /^0\./,
+    /^\[::1?\]$/,         // IPv6 loopback
+    /^metadata\./,
+    /\.internal$/,
+    /\.local$/,
+  ];
+  if (blockedPatterns.some((p) => p.test(hostname))) {
+    return NextResponse.json({ error: "Access to internal networks is not allowed" }, { status: 403 });
+  }
+
   try {
     // Forward the request, filtering out problematic headers
     const headers = new Headers();

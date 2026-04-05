@@ -90,6 +90,8 @@ These should be visually distinct in the plan UI -- not buried in prose.
 
 ## WORKSTREAM 2: Knowledge Corpus Ingestion and RAG Pipeline
 
+> **Superseded by [SD-006: Knowledge and Data Architecture](SD-006_knowledge_and_data_architecture.md).** The design below has been implemented and extended with hybrid search (vector + BM25), contextual retrieval (Anthropic technique), Claude reranking, and neighbor chunk expansion. See SD-006 for the canonical architecture. The original prompt is preserved below for historical reference.
+
 ### Context
 
 The thesis states: "These best GTM engineers are now building extensive knowledge banks in markdowns of meetings, designs, contracts, decision points, claude conversation summaries. We can push this further by collecting browser data." And: "Expert/team uploads full knowledge bank always... direct access to the file system, or a connector to always consume the new info."

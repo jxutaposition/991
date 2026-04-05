@@ -8,6 +8,7 @@ rubric = [
   "Dashboard structure follows program logic (tiers, scoring vectors, progression paths)",
   "Defines audiences and what decisions each makes from the dashboard",
   "Maps each displayed metric to its data source and pipeline status",
+  "Provides concrete evidence of execution (table creation, RLS setup, deployment URLs, verified data display) — not just plans or descriptions",
 ]
 
 need_to_know = [

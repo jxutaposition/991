@@ -7,6 +7,26 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use crate::anthropic::ToolDef;
+use crate::credentials::DecryptedCredential;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Extract a usable bearer token from an OAuth2 or API key credential.
+fn extract_bearer_token(cred: &DecryptedCredential) -> String {
+    if cred.credential_type == "oauth2" {
+        serde_json::from_str::<Value>(&cred.value).ok()
+            .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
+            .unwrap_or_else(|| cred.value.clone())
+    } else {
+        cred.value.clone()
+    }
+}
+
+/// Truncate an HTTP response body and wrap it as a JSON result string.
+fn http_result_json(status: u16, body: &str, max_chars: usize) -> String {
+    let preview: String = body.chars().take(max_chars).collect();
+    json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+}
 
 // ── Tool library ──────────────────────────────────────────────────────────────
 
@@ -252,17 +272,31 @@ pub fn all_action_defs() -> Vec<ToolDef> {
             required_credential: None, // Generic — credential depends on agent context
         },
 
-        // Knowledge retrieval (RAG)
+        // Knowledge retrieval (RAG) — two-step: search finds locations, read fetches full context
         ToolDef {
             name: "search_knowledge".to_string(),
-            description: "Search the expert knowledge corpus for relevant reference material. Returns the most semantically similar chunks from uploaded playbooks, ICP docs, battle cards, transcripts, and other documents. Use when you need factual reference data, client-specific context, or expert methodology that isn't in your system prompt.".to_string(),
+            description: "Search the expert knowledge corpus for relevant reference material. Returns compact results with document IDs and locations. After finding relevant results, use read_knowledge to fetch full sections for detailed context.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Natural language search query describing what information you need"},
-                    "limit": {"type": "integer", "description": "Max chunks to return (default 5, max 10)"}
+                    "limit": {"type": "integer", "description": "Max results to return (default 5, max 10)"}
                 },
                 "required": ["query"]
+            }),
+            required_credential: None,
+        },
+        ToolDef {
+            name: "read_knowledge".to_string(),
+            description: "Read a section of a knowledge document by chunk range. Use after search_knowledge returns results — pass the document_id and chunk_index from the search results to fetch full continuous text around that location. Returns concatenated chunk content for the requested range.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "The document UUID from search_knowledge results"},
+                    "chunk_index": {"type": "integer", "description": "Center chunk index to read around (from search results)"},
+                    "range": {"type": "integer", "description": "Number of chunks to return centered on chunk_index (default 5, max 20). E.g. range=5 returns chunk_index-2 through chunk_index+2."}
+                },
+                "required": ["document_id", "chunk_index"]
             }),
             required_credential: None,
         },
@@ -288,7 +322,45 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                 "properties": {
                     "result": {"type": "object", "description": "The structured output matching this agent's output_schema"},
                     "summary": {"type": "string", "description": "Human-readable summary of what was produced"},
-                    "verification": {"type": "string", "description": "How you verified the work is correct (e.g. 'fetched the created workflow via GET and confirmed 3 nodes configured', 'loaded the dashboard URL and confirmed data displays')"}
+                    "artifacts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string", "description": "Type of artifact (e.g. 'workflow', 'page', 'table', 'dashboard', 'function')"},
+                                "url": {"type": "string", "description": "URL or identifier of the created artifact"},
+                                "title": {"type": "string", "description": "Human-readable name"}
+                            }
+                        },
+                        "description": "Artifacts created or modified during this task"
+                    },
+                    "verification": {
+                        "type": "object",
+                        "properties": {
+                            "criteria_results": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "criterion": {"type": "string"},
+                                        "status": {"type": "string", "enum": ["PASS", "PARTIAL", "FAIL"]},
+                                        "evidence": {"type": "string"}
+                                    }
+                                },
+                                "description": "How each acceptance criterion was verified"
+                            },
+                            "blockers": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Items that could not be completed, with reasons"
+                            },
+                            "self_score": {
+                                "type": "integer",
+                                "description": "Self-assessment score 1-10"
+                            }
+                        },
+                        "description": "Verification results showing how the work was validated"
+                    }
                 },
                 "required": ["result", "summary"]
             }),
@@ -296,7 +368,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_user_action".to_string(),
-            description: "Pause execution and present the user with a manual action they need to complete in an external tool (e.g. Clay UI, Lovable editor). Provide detailed, step-by-step instructions with all necessary specs. Execution will resume when the user replies with the result.".to_string(),
+            description: "Pause execution and present the user with a manual action to complete in an external tool. Provide a short summary and structured sections so the UI can render progressive disclosure (collapsed overview -> expandable details). Execution resumes when the user replies.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -304,9 +376,63 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                         "type": "string",
                         "description": "Short title for the manual step, e.g. 'Create Clay social listening table'"
                     },
-                    "instructions": {
+                    "summary": {
                         "type": "string",
-                        "description": "Detailed step-by-step instructions in markdown. Include column specs, formulas, URLs, settings — everything the user needs."
+                        "description": "One-sentence overview of what the user needs to do, shown prominently in the UI"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "Typed content blocks rendered with progressive disclosure. Each section has a 'type' discriminator.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["overview", "table_spec", "steps", "warnings", "reference"],
+                                    "description": "Section type: 'overview' (always-visible prose), 'table_spec' (column grid with expandable detail), 'steps' (numbered checklist with expandable detail), 'warnings' (always-visible bullet list), 'reference' (collapsible key-value pairs)"
+                                },
+                                "title": {"type": "string", "description": "Section heading"},
+                                "content": {"type": "string", "description": "For 'overview': the prose text"},
+                                "summary": {"type": "string", "description": "For 'table_spec'/'steps': one-line summary shown in collapsed header"},
+                                "columns": {
+                                    "type": "array",
+                                    "description": "For 'table_spec': column definitions",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {"type": "string"},
+                                            "type": {"type": "string", "description": "Column type (Text, Enrichment, Formula, Action, Lookup, etc.)"},
+                                            "purpose": {"type": "string", "description": "Short description shown in the grid row"},
+                                            "detail": {"type": "string", "description": "Full configuration detail shown on expand/click (provider settings, formula text, webhook config, etc.)"}
+                                        },
+                                        "required": ["name", "type", "purpose"]
+                                    }
+                                },
+                                "steps": {
+                                    "type": "array",
+                                    "description": "For 'steps': ordered step list",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "step": {"type": "integer"},
+                                            "label": {"type": "string", "description": "Short label shown in the checklist"},
+                                            "detail": {"type": "string", "description": "Full instructions shown on expand"}
+                                        },
+                                        "required": ["step", "label"]
+                                    }
+                                },
+                                "items": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "For 'warnings': list of warning strings"
+                                },
+                                "entries": {
+                                    "type": "object",
+                                    "description": "For 'reference': key-value pairs (URLs, IDs, config values)"
+                                }
+                            },
+                            "required": ["type", "title"]
+                        }
                     },
                     "context": {
                         "type": "object",
@@ -317,7 +443,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                         "description": "What the user should provide when done, e.g. 'Reply with the Clay table ID and the webhook URL from the action column'"
                     }
                 },
-                "required": ["action_title", "instructions", "resume_hint"]
+                "required": ["action_title", "summary", "sections", "resume_hint"]
             }),
             required_credential: None,
         },
@@ -354,7 +480,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
 pub fn actions_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
     let all = all_action_defs();
 
-    let always_available = ["read_upstream_output", "write_output", "request_user_action"];
+    let always_available = ["read_upstream_output", "write_output", "request_user_action", "search_knowledge", "read_knowledge"];
 
     all.into_iter()
         .filter(|t| {
@@ -372,11 +498,17 @@ pub fn actions_for_orchestrator(agent_tools: &[String]) -> Vec<ToolDef> {
 }
 
 /// Look up the required_credential for a tool by name.
+/// Uses a static mapping instead of allocating all tool definitions.
 pub fn action_credential(tool_name: &str) -> Option<String> {
-    all_action_defs()
-        .into_iter()
-        .find(|t| t.name == tool_name)
-        .and_then(|t| t.required_credential)
+    let cred = match tool_name {
+        "search_linkedin_profile" | "search_company_data" | "find_contacts" => Some("apollo"),
+        "fetch_company_news" | "web_search" => Some("tavily"),
+        "read_crm_contact" | "write_crm_contact" | "read_crm_pipeline" | "fetch_email_analytics" => Some("hubspot"),
+        "meta_ads_api" => Some("meta"),
+        "google_ads_api" => Some("google_ads"),
+        _ => None,
+    };
+    cred.map(String::from)
 }
 
 // ── Tool execution (Phase 0: mock responses) ──────────────────────────────────
@@ -391,6 +523,7 @@ pub async fn execute_action(
     node_outputs: &std::collections::HashMap<String, Value>,
     credentials: &crate::credentials::CredentialMap,
     settings: &crate::config::Settings,
+    http_client: &reqwest::Client,
 ) -> String {
     info!(tool = %name, "executing tool");
 
@@ -399,7 +532,7 @@ pub async fn execute_action(
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
             // Try Apollo people/match API first, fall back to mock
             if let Some(cred) = credentials.get("apollo") {
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let body = if query.contains("linkedin.com") {
                     json!({"linkedin_url": query})
                 } else {
@@ -415,8 +548,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
                 }
@@ -441,7 +573,7 @@ pub async fn execute_action(
                 .or_else(|| settings.tavily_api_key.clone());
 
             if let Some(key) = api_key {
-                let client = reqwest::Client::new();
+                let client = http_client;
                 match client.post("https://api.tavily.com/search")
                     .json(&json!({
                         "api_key": key,
@@ -468,7 +600,7 @@ pub async fn execute_action(
             let domain = input.get("domain").and_then(Value::as_str).unwrap_or("");
             // Try Apollo organization enrichment
             if let Some(cred) = credentials.get("apollo") {
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let body = if !domain.is_empty() {
                     json!({"domain": domain})
                 } else {
@@ -483,8 +615,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
                 }
@@ -507,7 +638,7 @@ pub async fn execute_action(
                 .unwrap_or_default();
             // Try Apollo people search
             if let Some(cred) = credentials.get("apollo") {
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let mut body = json!({
                     "organization_name": company,
                     "per_page": 10
@@ -527,8 +658,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("Apollo request failed: {}", e)}).to_string(),
                 }
@@ -548,13 +678,9 @@ pub async fn execute_action(
         "read_crm_contact" => {
             let identifier = input.get("identifier").and_then(Value::as_str).unwrap_or("");
             if let Some(cred) = credentials.get("hubspot") {
-                let token = if cred.credential_type == "oauth2" {
-                    serde_json::from_str::<Value>(&cred.value).ok()
-                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                        .unwrap_or_else(|| cred.value.clone())
-                } else { cred.value.clone() };
+                let token = extract_bearer_token(cred);
 
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let result = if identifier.contains('@') {
                     // Search by email
                     client.post("https://api.hubapi.com/crm/v3/objects/contacts/search")
@@ -593,8 +719,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
                 }
@@ -607,13 +732,9 @@ pub async fn execute_action(
             let properties = input.get("properties").cloned().unwrap_or(json!({}));
             let contact_id = input.get("contact_id").and_then(Value::as_str);
             if let Some(cred) = credentials.get("hubspot") {
-                let token = if cred.credential_type == "oauth2" {
-                    serde_json::from_str::<Value>(&cred.value).ok()
-                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                        .unwrap_or_else(|| cred.value.clone())
-                } else { cred.value.clone() };
+                let token = extract_bearer_token(cred);
 
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let result = if let Some(id) = contact_id {
                     // Update existing contact
                     client.patch(format!("https://api.hubapi.com/crm/v3/objects/contacts/{}", id))
@@ -632,8 +753,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
                 }
@@ -645,13 +765,9 @@ pub async fn execute_action(
         "read_crm_pipeline" => {
             let pipeline_id = input.get("pipeline_id").and_then(Value::as_str);
             if let Some(cred) = credentials.get("hubspot") {
-                let token = if cred.credential_type == "oauth2" {
-                    serde_json::from_str::<Value>(&cred.value).ok()
-                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                        .unwrap_or_else(|| cred.value.clone())
-                } else { cred.value.clone() };
+                let token = extract_bearer_token(cred);
 
-                let client = reqwest::Client::new();
+                let client = http_client;
                 let url = if let Some(pid) = pipeline_id {
                     format!("https://api.hubapi.com/crm/v3/pipelines/deals/{}", pid)
                 } else {
@@ -664,8 +780,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("HubSpot request failed: {}", e)}).to_string(),
                 }
@@ -676,13 +791,9 @@ pub async fn execute_action(
 
         "fetch_email_analytics" => {
             if let Some(cred) = credentials.get("hubspot") {
-                let token = if cred.credential_type == "oauth2" {
-                    serde_json::from_str::<Value>(&cred.value).ok()
-                        .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                        .unwrap_or_else(|| cred.value.clone())
-                } else { cred.value.clone() };
+                let token = extract_bearer_token(cred);
 
-                let client = reqwest::Client::new();
+                let client = http_client;
                 match client.get("https://api.hubapi.com/marketing-emails/v1/emails/with-statistics")
                     .header("Authorization", format!("Bearer {token}"))
                     .query(&[("limit", "10")])
@@ -691,8 +802,7 @@ pub async fn execute_action(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let body = resp.text().await.unwrap_or_default();
-                        let preview: String = body.chars().take(settings.http_response_max_chars).collect();
-                        json!({"status": status, "data": serde_json::from_str::<Value>(&preview).unwrap_or(json!(preview))}).to_string()
+                        http_result_json(status, &body, settings.http_response_max_chars)
                     }
                     Err(e) => json!({"error": format!("HubSpot email analytics failed: {}", e)}).to_string(),
                 }
@@ -777,8 +887,8 @@ pub async fn execute_action(
             json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string()
         }
 
-        "search_knowledge" => {
-            json!({"error": "search_knowledge is handled by agent_runner, not execute_action"}).to_string()
+        "search_knowledge" | "read_knowledge" => {
+            json!({"error": format!("{} is handled by agent_runner, not execute_action", name)}).to_string()
         }
 
         "web_search" => {
@@ -789,7 +899,7 @@ pub async fn execute_action(
                 .or_else(|| settings.tavily_api_key.clone());
 
             if let Some(key) = api_key {
-                let client = reqwest::Client::new();
+                let client = http_client;
                 match client.post("https://api.tavily.com/search")
                     .json(&json!({
                         "api_key": key,
@@ -877,21 +987,11 @@ pub async fn execute_action(
             if !has_auth {
                 if url.contains("api.hubapi.com") {
                     if let Some(cred) = credentials.get("hubspot") {
-                        let token = if cred.credential_type == "oauth2" {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        } else { cred.value.clone() };
-                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Authorization", format!("Bearer {}", extract_bearer_token(cred)));
                     }
                 } else if url.contains("api.notion.com") {
                     if let Some(cred) = credentials.get("notion") {
-                        let token = if cred.credential_type == "oauth2" {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        } else { cred.value.clone() };
-                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Authorization", format!("Bearer {}", extract_bearer_token(cred)));
                         if !has_notion_version {
                             request = request.header("Notion-Version", "2022-06-28");
                         }
@@ -907,41 +1007,22 @@ pub async fn execute_action(
                     }
                 } else if url.contains(".n8n.cloud") || url.contains("n8n.") || url.contains("/api/v1/workflows") || url.contains("/api/v1/executions") || url.contains("/api/v1/credentials") || settings.n8n_base_url.as_deref().map_or(false, |base| url.starts_with(base)) {
                     let api_key = credentials.get("n8n")
-                        .map(|cred| {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("api_key").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        })
+                        .map(|cred| extract_bearer_token(cred))
                         .or_else(|| settings.n8n_api_key.clone());
                     if let Some(key) = api_key {
                         request = request.header("X-N8N-API-KEY", &key);
                     }
                 } else if url.contains("graph.facebook.com") {
                     if let Some(cred) = credentials.get("meta") {
-                        let token = if cred.credential_type == "oauth2" {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        } else { cred.value.clone() };
-                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Authorization", format!("Bearer {}", extract_bearer_token(cred)));
                     }
                 } else if url.contains("googleapis.com") {
                     if let Some(cred) = credentials.get("google") {
-                        let token = if cred.credential_type == "oauth2" {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        } else { cred.value.clone() };
-                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Authorization", format!("Bearer {}", extract_bearer_token(cred)));
                     }
                 } else if url.contains("slack.com/api") {
                     if let Some(cred) = credentials.get("slack") {
-                        let token = if cred.credential_type == "oauth2" {
-                            serde_json::from_str::<Value>(&cred.value).ok()
-                                .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
-                                .unwrap_or_else(|| cred.value.clone())
-                        } else { cred.value.clone() };
-                        request = request.header("Authorization", format!("Bearer {token}"));
+                        request = request.header("Authorization", format!("Bearer {}", extract_bearer_token(cred)));
                     }
                 } else if url.contains("api.apollo.io") {
                     if let Some(cred) = credentials.get("apollo") {
@@ -968,15 +1049,27 @@ pub async fn execute_action(
                     let body_preview: String = body_text.chars().take(settings.http_response_max_chars).collect();
                     if status >= 400 {
                         tracing::warn!(%method, %url, %status, body = %body_preview.chars().take(500).collect::<String>(), "http_request error response");
+                        let (error_type, suggestion) = classify_http_error(status);
+                        json!({
+                            "status": status,
+                            "body": body_preview,
+                            "error_type": error_type,
+                            "suggestion": suggestion,
+                        }).to_string()
+                    } else {
+                        json!({
+                            "status": status,
+                            "body": body_preview,
+                        }).to_string()
                     }
-                    json!({
-                        "status": status,
-                        "body": body_preview,
-                    }).to_string()
                 }
                 Err(e) => {
                     tracing::error!(%method, %url, error = %e, "http_request failed");
-                    json!({"error": format!("HTTP request failed: {}", e)}).to_string()
+                    json!({
+                        "error": format!("HTTP request failed: {}", e),
+                        "error_type": "network_error",
+                        "suggestion": "Check the URL and try again. If the service is down, document as a blocker.",
+                    }).to_string()
                 }
             }
         }
@@ -984,5 +1077,18 @@ pub async fn execute_action(
         _ => {
             json!({"error": format!("Unknown tool: {}", name), "note": "This tool may not be implemented yet in Phase 0"}).to_string()
         }
+    }
+}
+
+/// Classify HTTP error codes into actionable error types with recovery suggestions.
+fn classify_http_error(status: u16) -> (&'static str, &'static str) {
+    match status {
+        401 | 403 => ("credential_error", "Credential may be expired or misconfigured. Document as a blocker with the integration name."),
+        404 => ("not_found", "Resource not found. List/search available resources first, then operate on what exists."),
+        429 => ("rate_limited", "Rate limited. Wait before retrying — don't hammer the endpoint."),
+        400 | 422 => ("validation_error", "Validation error. Read the error body carefully — it usually tells you the exact field that's wrong."),
+        409 => ("conflict", "Resource conflict. The resource may already exist or be in an incompatible state. Read current state first."),
+        500..=599 => ("server_error", "Server error. Retry once. If it persists, document as a blocker."),
+        _ => ("unknown_error", "Unexpected error. Read the response body for details."),
     }
 }

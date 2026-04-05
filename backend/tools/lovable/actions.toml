@@ -1,1 +1,1 @@
-actions = ["http_request", "git_repo_write", "request_user_action"]
+actions = ["http_request", "request_user_action"]

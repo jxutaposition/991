@@ -96,6 +96,11 @@ pub async fn start_authorize(
     let config = get_provider_config(settings, provider)
         .ok_or_else(|| anyhow::anyhow!("Unknown or unconfigured OAuth provider: {provider}"))?;
 
+    // Validate frontend_redirect is a safe relative path (prevent open redirect)
+    if !frontend_redirect.starts_with('/') || frontend_redirect.starts_with("//") {
+        anyhow::bail!("frontend_redirect must be a relative path starting with /");
+    }
+
     let state_token = Uuid::new_v4().to_string();
     let base = settings
         .oauth_redirect_base_url
@@ -146,11 +151,17 @@ pub async fn handle_callback(
         .and_then(Value::as_str)
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("Invalid client_id in state"))?;
-    let frontend_redirect = row
+    let raw_redirect = row
         .get("redirect_uri")
         .and_then(Value::as_str)
-        .unwrap_or("/")
-        .to_string();
+        .unwrap_or("/");
+    // Validate redirect is a relative path to prevent open redirect attacks
+    let frontend_redirect = if raw_redirect.starts_with('/') && !raw_redirect.starts_with("//") {
+        raw_redirect.to_string()
+    } else {
+        tracing::warn!(redirect = %raw_redirect, "blocked potentially malicious OAuth redirect");
+        "/settings/integrations".to_string()
+    };
 
     let config = get_provider_config(settings, provider)
         .ok_or_else(|| anyhow::anyhow!("Provider not configured: {provider}"))?;

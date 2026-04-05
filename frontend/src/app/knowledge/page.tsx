@@ -14,8 +14,12 @@ import {
   Clock,
   Trash2,
   X,
+  Download,
+  Eye,
+  List,
 } from "lucide-react";
 import { clsx } from "clsx";
+import ReactMarkdown from "react-markdown";
 
 interface Toast {
   id: number;
@@ -89,6 +93,9 @@ interface KnowledgeDoc {
   chunk_count: number;
   inferred_scope: string | null;
   created_at: string;
+  normalized_markdown?: string | null;
+  has_raw_content?: boolean;
+  file_size_bytes?: number | null;
 }
 
 interface FolderInfo {
@@ -411,6 +418,26 @@ export default function KnowledgePage() {
     loadFolders();
   }, [loadDocuments, loadFolders]);
 
+  const [showChunks, setShowChunks] = useState(false);
+  const [docDetail, setDocDetail] = useState<KnowledgeDoc | null>(null);
+  const [detailTab, setDetailTab] = useState<"markdown" | "chunks">("markdown");
+
+  const loadDocDetail = useCallback(
+    async (docId: string) => {
+      try {
+        const res = await apiFetch(
+          `/api/knowledge/documents/${docId}?tenant_id=${activeClient}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setDocDetail(data);
+      } catch {
+        setDocDetail(null);
+      }
+    },
+    [apiFetch, activeClient]
+  );
+
   const loadChunks = useCallback(
     async (docId: string) => {
       try {
@@ -429,8 +456,40 @@ export default function KnowledgePage() {
 
   const handleSelectDoc = (doc: KnowledgeDoc) => {
     setSelectedDoc(doc);
+    setDocDetail(null);
+    setDetailTab("markdown");
+    setShowChunks(false);
+    loadDocDetail(doc.id);
     loadChunks(doc.id);
   };
+
+  const handleDownloadOriginal = useCallback(
+    async (docId: string, filename: string) => {
+      try {
+        const res = await apiFetch(`/api/knowledge/documents/${docId}/raw`);
+        if (!res.ok) {
+          addToast("error", "Download failed", "Original file not available");
+          return;
+        }
+        const data = await res.json();
+        const byteChars = atob(data.raw_content);
+        const byteArray = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteArray[i] = byteChars.charCodeAt(i);
+        }
+        const blob = new Blob([byteArray], { type: data.mime_type || "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        addToast("error", "Download failed");
+      }
+    },
+    [apiFetch, addToast]
+  );
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -826,16 +885,17 @@ export default function KnowledgePage() {
                 </button>
               </div>
             ) : selectedDoc ? (
-              <div>
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold">
+              <div className="flex flex-col h-full">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-3 shrink-0">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-lg font-semibold truncate">
                       {selectedDoc.source_filename}
                     </h3>
-                    <p className="text-sm text-ink-2 mt-0.5">
+                    <p className="text-sm text-ink-2 mt-0.5 truncate">
                       {selectedDoc.source_path}
                     </p>
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <StatusBadge status={selectedDoc.status} />
                       <ScopeBadge scope={selectedDoc.inferred_scope} />
                       <span className="text-xs text-ink-3">
@@ -851,49 +911,105 @@ export default function KnowledgePage() {
                       </p>
                     )}
                   </div>
+                  <div className="flex items-center gap-1.5 ml-3 shrink-0">
+                    {docDetail?.has_raw_content && (
+                      <button
+                        onClick={() => handleDownloadOriginal(selectedDoc.id, selectedDoc.source_filename)}
+                        className="p-1.5 rounded border border-rim text-ink-3 hover:text-blue-600 hover:border-blue-300 transition-colors"
+                        title="Download original file"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(selectedDoc.id)}
+                      className="p-1.5 rounded border border-rim text-ink-3 hover:text-red-600 hover:border-red-300 transition-colors"
+                      title="Delete document"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tab bar */}
+                <div className="flex items-center gap-1 mb-3 border-b border-rim shrink-0">
                   <button
-                    onClick={() => handleDelete(selectedDoc.id)}
-                    className="p-1.5 rounded border border-rim text-ink-3 hover:text-red-600 hover:border-red-300 transition-colors"
-                    title="Delete document"
+                    onClick={() => setDetailTab("markdown")}
+                    className={clsx(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors",
+                      detailTab === "markdown"
+                        ? "border-brand text-brand"
+                        : "border-transparent text-ink-3 hover:text-ink-2"
+                    )}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Eye className="w-3.5 h-3.5" />
+                    Markdown
+                  </button>
+                  <button
+                    onClick={() => setDetailTab("chunks")}
+                    className={clsx(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors",
+                      detailTab === "chunks"
+                        ? "border-brand text-brand"
+                        : "border-transparent text-ink-3 hover:text-ink-2"
+                    )}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    Chunks ({chunks.length})
                   </button>
                 </div>
 
-                {chunks.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2">
-                      Chunks ({chunks.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {chunks.map((chunk) => (
-                        <div
-                          key={chunk.id}
-                          className="p-3 border border-rim rounded bg-surface"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] text-ink-3 font-mono">
-                              #{chunk.chunk_index}
-                            </span>
-                            {chunk.section_title && (
-                              <span className="text-xs text-ink-2 font-medium">
-                                {chunk.section_title}
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto min-h-0">
+                  {detailTab === "markdown" ? (
+                    docDetail?.normalized_markdown ? (
+                      <article className="prose prose-sm max-w-none text-ink prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink prose-code:text-ink-2 prose-code:bg-surface prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-pre:bg-surface prose-pre:border prose-pre:border-rim">
+                        <ReactMarkdown>{docDetail.normalized_markdown}</ReactMarkdown>
+                      </article>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 text-ink-3">
+                        <FileText className="w-8 h-8 mb-2 opacity-30" />
+                        <p className="text-sm">
+                          {selectedDoc.status === "pending" || selectedDoc.status === "processing"
+                            ? "Document is still being processed..."
+                            : "No markdown content available"}
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    chunks.length > 0 ? (
+                      <div className="space-y-2">
+                        {chunks.map((chunk) => (
+                          <div
+                            key={chunk.id}
+                            className="p-3 border border-rim rounded bg-surface"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[10px] text-ink-3 font-mono">
+                                #{chunk.chunk_index}
                               </span>
-                            )}
-                            {chunk.token_count && (
-                              <span className="text-[10px] text-ink-3 ml-auto">
-                                ~{chunk.token_count} tokens
-                              </span>
-                            )}
+                              {chunk.section_title && (
+                                <span className="text-xs text-ink-2 font-medium">
+                                  {chunk.section_title}
+                                </span>
+                              )}
+                              {chunk.token_count && (
+                                <span className="text-[10px] text-ink-3 ml-auto">
+                                  ~{chunk.token_count} tokens
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-ink whitespace-pre-wrap line-clamp-4">
+                              {chunk.content}
+                            </p>
                           </div>
-                          <p className="text-sm text-ink whitespace-pre-wrap line-clamp-4">
-                            {chunk.content}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-ink-3 text-center py-8">No chunks</p>
+                    )
+                  )}
+                </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-ink-3">

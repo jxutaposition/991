@@ -7,6 +7,7 @@ rubric = [
   "Leads with the conclusion or recommendation in documentation, not background",
   "Makes pages scannable with toggles for detail and links to related pages instead of duplication",
   "Marks data gaps explicitly with callout blocks rather than omitting them",
+  "Provides concrete evidence of execution (page IDs, API responses, verified content) — not just plans or descriptions",
 ]
 
 need_to_know = [
