@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Eye, Radio, Clock } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 interface SessionSummary {
   id: string;
@@ -20,12 +21,15 @@ export function ShadowSessionPanel({
   onSessionSelect: (id: string) => void;
   selectedSessionId: string | null;
 }) {
+  const { apiFetch, token } = useAuth();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!token) { setLoading(false); return; }
+
     const fetchSessions = () => {
-      fetch("/api/observe/sessions")
+      apiFetch("/api/observe/sessions")
         .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
         .then((data) => {
           setSessions(data.sessions ?? []);
@@ -35,9 +39,9 @@ export function ShadowSessionPanel({
     };
 
     fetchSessions();
-    const interval = setInterval(fetchSessions, 5000); // Refresh session list every 5s
+    const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
 
   const recording = sessions.filter((s) => s.status === "recording");
   const completed = sessions.filter((s) => s.status === "completed").slice(0, 10);

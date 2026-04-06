@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import {
   ArrowLeft, Wrench, FileText, BookOpen, FlaskConical,
@@ -191,6 +192,7 @@ function relativeTime(dateStr: string | null): string {
 
 export default function AgentDetailPage() {
   const { slug } = useParams();
+  const { apiFetch } = useAuth();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [versions, setVersions] = useState<{ version: number; change_summary: string; change_source: string; created_at: string }[]>([]);
@@ -199,16 +201,16 @@ export default function AgentDetailPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`/api/catalog/${slug}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/catalog/${slug}/stats`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/catalog/${slug}/versions`).then((r) => r.ok ? r.json() : null),
+      apiFetch(`/api/catalog/${slug}`).then((r) => r.ok ? r.json() : null),
+      apiFetch(`/api/catalog/${slug}/stats`).then((r) => r.ok ? r.json() : null),
+      apiFetch(`/api/catalog/${slug}/versions`).then((r) => r.ok ? r.json() : null),
     ]).then(([agentData, statsData, versionsData]) => {
       setAgent(agentData);
       setAgentStats(statsData);
       setVersions(versionsData?.versions ?? []);
       setLoading(false);
     }).catch((err) => { console.error("Failed to load agent:", err); setLoading(false); });
-  }, [slug]);
+  }, [slug, apiFetch]);
 
   const tabCounts = useMemo(() => {
     if (!agent) return {};

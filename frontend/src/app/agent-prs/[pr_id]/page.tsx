@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import {
   ChevronDown,
@@ -509,13 +510,14 @@ function extractTitle(markdown: string): string | null {
 export default function PRDetailPage() {
   const { pr_id } = useParams();
   const router = useRouter();
+  const { apiFetch } = useAuth();
   const [pr, setPR] = useState<AgentPRDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [actioning, setActioning] = useState(false);
   const [tab, setTab] = useState<Tab>("changes");
 
   useEffect(() => {
-    fetch(`/api/agent-prs/${pr_id}`)
+    apiFetch(`/api/agent-prs/${pr_id}`)
       .then((r) => {
         if (!r.ok) throw new Error(r.statusText);
         return r.json();
@@ -525,12 +527,12 @@ export default function PRDetailPage() {
         setLoading(false);
       })
       .catch((err) => { console.error("Failed to load PR:", err); setLoading(false); });
-  }, [pr_id]);
+  }, [pr_id, apiFetch]);
 
   const action = async (act: "approve" | "reject") => {
     setActioning(true);
     try {
-      const res = await fetch(`/api/agent-prs/${pr_id}/${act}`, { method: "POST" });
+      const res = await apiFetch(`/api/agent-prs/${pr_id}/${act}`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
       router.push("/agent-prs");
     } catch (e) {

@@ -301,7 +301,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "clay_read_rows".to_string(),
-            description: "Read rows from a Clay table via the v1 API. Returns row data with column values. Uses Clay API key (auto-injected).".to_string(),
+            description: "Read rows from a Clay table via the v3 API. Uses clay_get_table_schema to fetch the full table including row data. Requires session cookie.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -315,7 +315,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "clay_write_rows".to_string(),
-            description: "Write rows to a Clay table via the v1 API. Rows are objects with column names as keys. Uses Clay API key (auto-injected).".to_string(),
+            description: "Write rows to a Clay table via the v3 API. Each row must use field IDs (f_xxx) as keys in a 'cells' object. Use clay_get_table_schema first to get field IDs. Requires session cookie.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -323,7 +323,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                     "rows": {
                         "type": "array",
                         "items": {"type": "object"},
-                        "description": "Array of row objects, each with column names as keys and values"
+                        "description": "Array of row objects. Each object should have field IDs as keys (e.g. {\"f_abc123\": \"value\"}). Use clay_get_table_schema to get field IDs first."
                     }
                 },
                 "required": ["table_id", "rows"]
@@ -332,13 +332,16 @@ pub fn all_action_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "clay_trigger_enrichment".to_string(),
-            description: "Trigger enrichment runs on a Clay table via the v1 API. Re-runs enrichment columns for all rows (or rows matching criteria). Uses Clay API key (auto-injected).".to_string(),
+            description: "Trigger enrichment runs on specific fields and rows of a Clay table via the v3 API. Requires session cookie and field IDs. Use clay_get_table_schema to get field IDs first.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"}
+                    "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"},
+                    "field_ids": {"type": "array", "items": {"type": "string"}, "description": "Field IDs to trigger enrichment on (e.g. [\"f_abc123\"])"},
+                    "record_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional: specific record IDs to run on. If empty, may run on no records."},
+                    "force_run": {"type": "boolean", "description": "Force re-run even if already completed (default false)"}
                 },
-                "required": ["table_id"]
+                "required": ["table_id", "field_ids"]
             }),
             required_credential: Some("clay".to_string()),
         },
@@ -1161,7 +1164,7 @@ async fn execute_action_inner(
                     "error": "No Clay credential configured. Add your Clay API key (and optionally session cookie) in Settings → Integrations."
                 }).to_string(),
             };
-            let (api_key, session_cookie, stored_workspace_id) = parse_clay_cred(cred);
+            let (_api_key, session_cookie, stored_workspace_id) = parse_clay_cred(cred);
 
             // Stored credential workspace_id always wins over LLM-provided value
             // to prevent hallucinated IDs from overriding the user's setting.
@@ -1462,34 +1465,43 @@ async fn execute_action_inner(
             }
         }
 
+        // ── Row operations via v3 /records endpoint (v1 is deprecated) ──
+
         "clay_read_rows" => {
             let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
-            let limit = input.get("limit").and_then(Value::as_u64).unwrap_or(50);
-            let offset = input.get("offset").and_then(Value::as_u64).unwrap_or(0);
 
             if table_id.is_empty() {
                 return json!({"error": "table_id is required"}).to_string();
             }
-            let url = format!(
-                "https://api.clay.com/api/v1/tables/{}/rows?limit={}&offset={}",
-                table_id, limit, offset
-            );
-            match http_client.get(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Accept", "application/json")
-                .send().await
-            {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let body = resp.text().await.unwrap_or_default();
-                    if status >= 400 {
-                        let (error_type, suggestion) = classify_http_error(status);
-                        json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
-                    } else {
-                        http_result_json(status, &body, settings.http_response_max_chars)
+
+            // v3 has no GET /records endpoint. Read the full table schema which
+            // includes field definitions. Agents use this to understand table
+            // structure and then write/trigger enrichments.
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/tables/{}", table_id);
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
                     }
+                    Err(e) => json!({"error": format!("Clay v3 read table failed: {}", e)}).to_string(),
                 }
-                Err(e) => json!({"error": format!("Clay v1 read rows failed: {}", e)}).to_string(),
+            } else {
+                json!({
+                    "error": "Session cookie not configured — cannot read rows via API.",
+                    "no_session": true,
+                    "action": "Add a session cookie in Settings → Integrations → Clay."
+                }).to_string()
             }
         }
 
@@ -1500,53 +1512,88 @@ async fn execute_action_inner(
             if table_id.is_empty() {
                 return json!({"error": "table_id is required"}).to_string();
             }
-            let url = format!("https://api.clay.com/api/v1/tables/{}/rows", table_id);
-            let body = json!({"rows": rows});
-            match http_client.post(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .json(&body)
-                .send().await
-            {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let resp_body = resp.text().await.unwrap_or_default();
-                    if status >= 400 {
-                        let (error_type, suggestion) = classify_http_error(status);
-                        json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": resp_body.chars().take(1000).collect::<String>()}).to_string()
-                    } else {
-                        http_result_json(status, &resp_body, settings.http_response_max_chars)
+
+            if let Some(cookie) = &session_cookie {
+                // Convert rows to v3 records format: [{cells: {fieldId: value}}]
+                let records: Vec<Value> = if let Some(arr) = rows.as_array() {
+                    arr.iter().map(|row| json!({"cells": row})).collect()
+                } else {
+                    vec![json!({"cells": rows})]
+                };
+
+                let url = format!("https://api.clay.com/v3/tables/{}/records", table_id);
+                let body = json!({"records": records});
+                match http_client.post(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let resp_body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": resp_body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &resp_body, settings.http_response_max_chars)
+                        }
                     }
+                    Err(e) => json!({"error": format!("Clay v3 write rows failed: {}", e)}).to_string(),
                 }
-                Err(e) => json!({"error": format!("Clay v1 write rows failed: {}", e)}).to_string(),
+            } else {
+                json!({
+                    "error": "Session cookie not configured — cannot write rows via API.",
+                    "no_session": true,
+                    "action": "Add a session cookie in Settings → Integrations → Clay."
+                }).to_string()
             }
         }
 
         "clay_trigger_enrichment" => {
             let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let field_ids = input.get("field_ids").cloned().unwrap_or(json!([]));
+            let record_ids = input.get("record_ids").cloned().unwrap_or(json!([]));
+            let force_run = input.get("force_run").and_then(Value::as_bool).unwrap_or(false);
 
             if table_id.is_empty() {
                 return json!({"error": "table_id is required"}).to_string();
             }
-            let url = format!("https://api.clay.com/api/v1/tables/{}/trigger", table_id);
-            match http_client.post(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .send().await
-            {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let body = resp.text().await.unwrap_or_default();
-                    if status >= 400 {
-                        let (error_type, suggestion) = classify_http_error(status);
-                        json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
-                    } else {
-                        http_result_json(status, &body, settings.http_response_max_chars)
+
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/tables/{}/run", table_id);
+                let body = json!({
+                    "fieldIds": field_ids,
+                    "runRecords": { "recordIds": record_ids },
+                    "forceRun": force_run,
+                    "callerName": "lele-agent"
+                });
+                match http_client.patch(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
                     }
+                    Err(e) => json!({"error": format!("Clay v3 trigger enrichment failed: {}", e)}).to_string(),
                 }
-                Err(e) => json!({"error": format!("Clay v1 trigger enrichment failed: {}", e)}).to_string(),
+            } else {
+                json!({
+                    "error": "Session cookie not configured — cannot trigger enrichment via API.",
+                    "no_session": true,
+                    "action": "Add a session cookie in Settings → Integrations → Clay."
+                }).to_string()
             }
         }
 

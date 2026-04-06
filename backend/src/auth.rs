@@ -120,8 +120,8 @@ pub async fn auth_middleware(
     let jwt_secret = match state.settings.jwt_secret.as_deref() {
         Some(s) => s,
         None => {
-            debug!("auth middleware bypassed — no JWT_SECRET configured");
-            return Ok(next.run(request).await);
+            tracing::error!("JWT_SECRET not configured — rejecting request");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
     };
 

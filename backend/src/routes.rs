@@ -4852,7 +4852,11 @@ pub async fn knowledge_document_upload_multipart(
         None => return (StatusCode::BAD_REQUEST, Json(json!({"error": "file field is required"}))).into_response(),
     };
 
+    // Sanitize path: remove leading slashes, block path traversal sequences
     let source_path_str = raw_path.trim_start_matches('/');
+    if source_path_str.contains("..") {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid path: directory traversal not allowed"}))).into_response();
+    }
     let source_folder = source_path_str.rsplit_once('/').map(|(f, _)| f).unwrap_or("");
     let source_filename = source_path_str.rsplit_once('/').map(|(_, n)| n).unwrap_or(source_path_str);
 

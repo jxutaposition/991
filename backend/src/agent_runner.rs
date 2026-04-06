@@ -691,13 +691,13 @@ impl AgentRunner {
                 .unwrap_or("")
                 .to_string();
 
-            // When executor exhausted max_iterations without write_output, build a
-            // fallback narrative from tool calls so the critic has real context.
+            // Always extract the tool_log so critic/judge can see what was executed.
+            let tool_log = result.get("tool_log")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default();
+
             if executor_summary.is_empty() {
-                let tool_log = result.get("tool_log")
-                    .and_then(Value::as_array)
-                    .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
-                    .unwrap_or_default();
                 let last_text = result.get("last_llm_text")
                     .and_then(Value::as_str)
                     .unwrap_or("");
@@ -709,6 +709,11 @@ impl AgentRunner {
                         last_preview,
                     );
                 }
+            } else if !tool_log.is_empty() {
+                executor_summary = format!(
+                    "{}\n\n---\n[Platform-verified tool calls: {}]",
+                    executor_summary, tool_log
+                );
             }
 
             let paused_for_user = result
@@ -1364,7 +1369,7 @@ impl AgentRunner {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let system = "You are a quality checker reviewing an agent's output against a checklist.\n\nIMPORTANT: Verify the agent ACTUALLY EXECUTED the work, not just described what they would do. Look for evidence of real API calls, real resource IDs, and real verification results. Planning language (\"we should\", \"next steps would be\") without execution evidence should FAIL.\n\nExample of PASS: \"Created workflow abc123 via POST /api/v1/workflows, verified with GET returning 3 configured nodes\"\nExample of FAIL: \"The workflow should be created with 3 nodes to handle the data pipeline\" (described, not executed)";
+        let system = "You are a quality checker reviewing an agent's output against a checklist.\n\nIMPORTANT: The agent's tool calls (API requests, table creation, row writes, etc.) are executed by the platform and their results are verified automatically. When the output references resource IDs, table names, or operation results, treat those as evidence of real execution — the agent cannot fabricate tool call results.\n\nFAIL only when: (a) a checklist item's requirement is genuinely unmet (e.g. wrong column name, missing table), or (b) the output is purely aspirational planning with no tool calls made at all.\n\nDo NOT fail items just because the output summarizes results instead of pasting raw API responses.";
         let prompt = format!(
             "Review this output against each checklist item. For each item, state PASS or FAIL and briefly explain why.\n\n## Checklist\n{rubric_list}\n\n## Output to Review\n{narrative}\n\nRespond with JSON: {{\"overall_pass\": bool, \"summary\": \"string\", \"items\": [{{\"item\": \"...\", \"pass\": bool, \"reason\": \"...\"}}]}}"
         );
@@ -1426,7 +1431,7 @@ impl AgentRunner {
             )
         };
 
-        let system = "You are a quality judge evaluating an AI agent's output.\n\nScoring guide:\n- 9-10: All criteria met, verified with evidence of actual execution (resource IDs, API responses)\n- 7-8: Core deliverable exists and verified, minor gaps documented\n- 5-6: Deliverable partially exists, significant gaps or unverified claims\n- 3-4: Mostly planning/description, minimal actual execution\n- 1-2: No real work done, just described what could be done\n\nCRITICAL: An output that only DESCRIBES work without evidence of EXECUTION should score below 5 regardless of how detailed the description is. Look for concrete evidence: URLs, IDs, API response codes, verified test results.";
+        let system = "You are a quality judge evaluating an AI agent's output.\n\nScoring guide:\n- 9-10: All criteria met, work completed with referenced resource IDs or confirmed results\n- 7-8: Core deliverable exists, minor gaps or cosmetic issues\n- 5-6: Deliverable partially exists, significant items missing or wrong\n- 3-4: Mostly planning or aspirational — no tool calls were actually made\n- 1-2: No real work done\n\nIMPORTANT: The agent's tool calls are executed by the platform and results are system-verified. When the output references resource IDs (e.g. table IDs, workflow IDs) or states that operations succeeded, treat this as real execution evidence. Do NOT penalize for summarizing results instead of including raw API response bodies.";
         let prompt = format!(
             "Score this agent output from 0-10 based on quality, completeness, and accuracy.\n\nThreshold to pass: {threshold:.1}\n{need_to_know}\n\n## Question / Task\n{question}\n\n## Agent Output\n{narrative}\n\nRespond with JSON: {{\"verdict\": \"pass\"|\"fail\"|\"reject\", \"score\": number, \"feedback\": \"string\"}}",
             threshold = judge_config.threshold,

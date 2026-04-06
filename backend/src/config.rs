@@ -119,9 +119,9 @@ impl Settings {
             storage_endpoint: env::var("STORAGE_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:9000".to_string()),
             storage_access_key: env::var("STORAGE_ACCESS_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
+                .unwrap_or_default(),
             storage_secret_key: env::var("STORAGE_SECRET_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
+                .unwrap_or_default(),
             storage_bucket: env::var("STORAGE_BUCKET")
                 .unwrap_or_else(|_| "lele-screenshots".to_string()),
             openai_api_key: env::var("OPENAI_API_KEY").ok().filter(|s| !s.is_empty()),

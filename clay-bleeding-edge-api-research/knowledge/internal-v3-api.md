@@ -1,15 +1,15 @@
 # Clay Internal v3 API Reference
 
-Last updated: 2026-04-05 (post INV-006 + INV-007)
+Last updated: 2026-04-06 (post INV-006 + INV-007 + INV-011 + INV-012)
 Source: Originally reverse-engineered from Claymate Lite. Expanded via unauthenticated enumeration (INV-006) and authenticated validation (INV-007).
 
-**Canonical endpoint registry**: `registry/endpoints.jsonl` (38 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
+**Canonical endpoint registry**: `registry/endpoints.jsonl` (49 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
 
 ## Overview
 
 Clay's React frontend communicates with its backend via an internal REST API at `https://api.clay.com/v3`. This API is not publicly documented but is stable enough for the Claymate Lite Chrome extension (22+ stars, MIT licensed) to ship against.
 
-The v3 API supports **full table lifecycle CRUD** including table creation/deletion, column creation/update/deletion, source management, enrichment triggering, table listing, actions catalog, and import/export — none of which the official v1 API provides.
+The v3 API supports **full table lifecycle CRUD** including table creation/deletion, column creation/update/deletion, row creation/reading/update/deletion (via `/records`), source management, enrichment triggering, table listing, actions catalog, and import/export. With the v1 API now fully deprecated, v3 is the **only** functional API layer. **Row CRUD is 100% complete** as of INV-012.
 
 ## Authentication
 
@@ -412,6 +412,125 @@ Cookie: [SESSION_COOKIE]
 **Also accessible via**: `GET /v3/workspaces/{id}/app-accounts` (returns same results).
 
 111 accounts returned for test workspace (all Clay-managed shared accounts).
+
+### POST /v3/tables/{tableId}/records — Row Creation (INV-011)
+
+Creates rows in a table. Replaces the deprecated v1 `POST /api/v1/tables/{id}/rows`.
+
+**Request**:
+```
+POST /v3/tables/{tableId}/records
+Cookie: claysession=...
+
+{
+  "records": [
+    {
+      "cells": {
+        "f_fieldId1": "plain string value",
+        "f_fieldId2": "another value"
+      }
+    }
+  ]
+}
+```
+
+**Key rules**:
+- `cells` keys MUST be field IDs (f_xxx), not field names
+- Values are plain strings/numbers — NOT nested {value: "..."} objects
+- Multiple records per call supported
+- Empty cells ({}) creates a row with only system fields
+
+**Response** (200):
+```json
+{
+  "records": [{
+    "id": "r_xxx",
+    "tableId": "t_xxx",
+    "cells": {"f_fieldId1": {"value": "plain string value"}, "f_created_at": {...}, "f_updated_at": {...}},
+    "recordMetadata": {},
+    "createdAt": "...",
+    "updatedAt": "..."
+  }]
+}
+```
+
+### PATCH /v3/tables/{tableId}/records — Row Update (INV-011)
+Updates are async. Response: `{"records":[],"extraData":{"message":"Record updates enqueued"}}`
+
+### DELETE /v3/tables/{tableId}/records — Row Deletion (INV-011)
+Request: `{"recordIds": ["r_xxx", "r_yyy"]}`
+Response: `{}`
+
+### GET /v3/tables/{tableId}/views/{viewId}/records — Row Reading (INV-012, BREAKTHROUGH)
+
+**The missing piece.** Reading rows requires a view ID -- there is no view-less GET for records.
+
+**Request**:
+```
+GET /v3/tables/{tableId}/views/{viewId}/records?limit=50
+Cookie: claysession=...
+```
+
+**Response** (200):
+```json
+{
+  "results": [
+    {
+      "id": "r_xxx",
+      "tableId": "t_xxx",
+      "cells": {
+        "f_fieldId1": {"value": "Mateo Fois"},
+        "f_fieldId2": {"value": "https://linkedin.com/in/...", "metadata": {"status": "SUCCESS"}},
+        "f_created_at": {"value": "2026-04-04T21:12:43.917Z", "metadata": {"isCoerced": true}},
+        "f_updated_at": {"value": "2026-04-05T02:53:33.731Z", "metadata": {"isCoerced": true}}
+      },
+      "recordMetadata": {"runHistory": {...}, "preprocessingMarkerMax": {...}},
+      "createdAt": "2026-04-04T21:12:43.947Z",
+      "updatedAt": "2026-04-05T02:53:33.788Z",
+      "deletedBy": null,
+      "dedupeValue": null
+    }
+  ]
+}
+```
+
+**Query parameters**:
+- `limit=N` — works, limits number of records returned
+- `offset=N` — accepted but **silently ignored** (always returns from start)
+- No pagination metadata in response (no hasMore, total, nextCursor)
+- `sort`, `fields`, `filter` query params are accepted but ignored — filtering/sorting is controlled by the view definition
+
+**View selection**:
+- View IDs come from `GET /v3/tables/{tableId}` → `table.views[]`
+- Each table has multiple views: "Default view", "All rows", "Fully enriched rows", "Errored rows", etc.
+- Views apply server-side filtering — "Fully enriched rows" may return 0 records while "All rows" returns all
+- For full table reads, use "All rows" or "Default view"
+- View ID format: `gv_xxx` (grid view)
+
+**How to get view IDs**:
+```bash
+curl -s -H "Cookie: claysession=..." "https://api.clay.com/v3/tables/t_xxx" | \
+  python3 -c "import json,sys; [print(f'{v[\"id\"]}: {v[\"name\"]}') for v in json.loads(sys.stdin.read())['table']['views']]"
+```
+
+### GET /v3/tables/{tableId}/records/{recordId} — Single Record Read (INV-012)
+
+Fetches a single record by ID.
+
+**Request**:
+```
+GET /v3/tables/{tableId}/records/{recordId}
+Cookie: claysession=...
+```
+
+**Response**: Same record shape as items in the view-based list endpoint (id, tableId, cells, recordMetadata, createdAt, updatedAt, deletedBy, dedupeValue).
+
+**Important caveat**: The route pattern `/v3/tables/{id}/records/{recordId}` means ANY sub-path is treated as a record ID lookup. For example, `/v3/tables/{id}/records/count` does NOT return a count — it returns 404 "Record count was not found".
+
+### GET/POST /v3/api-keys — API Key Management (INV-011)
+- `GET /v3/api-keys?resourceType=user&resourceId={userId}` — list user's API keys
+- `POST /v3/api-keys` with `{resourceType: "user", resourceId: "userId", name: "key-name", keyData: {scopes: []}}` — creates a UUID API key
+- Note: These keys do NOT work with the deprecated v1 API. Their purpose is unclear but they may be used for webhook auth or future API versions.
 
 ## Confirmed Non-Existent Endpoints
 

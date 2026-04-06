@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Activity, Brain, GitPullRequest, Layers, RefreshCw } from "lucide-react";
 import { LIVE_STATUS } from "@/lib/tokens";
+import { useAuth } from "@/lib/auth-context";
 
 interface LiveEvent {
   event_type: string;
@@ -37,6 +38,7 @@ interface SessionInfo {
 }
 
 export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
+  const { apiFetch, token } = useAuth();
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [narrations, setNarrations] = useState<Distillation[]>([]);
   const [tasks, setTasks] = useState<AbstractedTask[]>([]);
@@ -53,7 +55,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
     if (!sid) return;
 
     try {
-      const res = await fetch(`/api/observe/session/${sid}`);
+      const res = await apiFetch(`/api/observe/session/${sid}`);
       if (!res.ok) return;
       const data = await res.json();
       if (data.session) setSession(data.session);
@@ -64,15 +66,14 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
     } catch { /* ignore — session may not exist yet */ }
   }, []);
 
-  // Poll every 2 seconds
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !token) return;
     fetchAll();
     const interval = setInterval(() => {
       if (pollingRef.current) fetchAll();
     }, 2000);
     return () => clearInterval(interval);
-  }, [sessionId, fetchAll]);
+  }, [sessionId, token, fetchAll]);
 
   if (!sessionId) {
     return (

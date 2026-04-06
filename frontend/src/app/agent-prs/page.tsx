@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PR_TYPE_BADGE } from "@/lib/tokens";
 
@@ -18,16 +18,19 @@ interface AgentPR {
 }
 
 export default function AgentPRsPage() {
+  const { apiFetch, token } = useAuth();
   const [prs, setPrs] = useState<AgentPR[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("open");
 
   useEffect(() => {
+    if (!token) { setLoading(false); return; }
     setLoading(true);
-    apiFetch<{ prs: AgentPR[] }>(`/api/agent-prs?status=${filter}`)
-      .then((data) => { setPrs(data.prs ?? []); setLoading(false); })
+    apiFetch(`/api/agent-prs?status=${filter}`)
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((data: { prs: AgentPR[] }) => { setPrs(data.prs ?? []); setLoading(false); })
       .catch((err) => { console.error("Failed to load PRs:", err); setLoading(false); });
-  }, [filter]);
+  }, [filter, token, apiFetch]);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">

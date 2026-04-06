@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 
 interface AgentSummary {
   slug: string;
@@ -17,19 +17,22 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function CatalogPage() {
+  const { apiFetch, token } = useAuth();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch<{ agents: AgentSummary[] }>("/api/catalog")
-      .then((data) => {
+    if (!token) { setLoading(false); return; }
+    apiFetch("/api/catalog")
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((data: { agents: AgentSummary[] }) => {
         setAgents(data.agents ?? []);
         setLoading(false);
       })
       .catch((err) => { console.error("Failed to load catalog:", err); setLoading(false); });
-  }, []);
+  }, [token, apiFetch]);
 
   const categories = Array.from(new Set(agents.map((a) => a.category)));
   const filtered = agents.filter((a) => {

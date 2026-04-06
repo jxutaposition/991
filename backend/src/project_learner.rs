@@ -25,11 +25,11 @@ pub async fn record_lesson(
     project_id: Option<Uuid>,
 ) -> anyhow::Result<Vec<Uuid>> {
     // Look up which skills/agents the node used
-    let node_sql = format!(
+    let node_rows = db.execute_with(
         "SELECT agent_slug, skill_slugs, task_description, output \
-         FROM execution_nodes WHERE id = '{node_id}'"
-    );
-    let node_rows = db.execute(&node_sql).await?;
+         FROM execution_nodes WHERE id = $1",
+        crate::pg_args!(node_id),
+    ).await?;
     let node_row = node_rows
         .first()
         .ok_or_else(|| anyhow::anyhow!("node not found: {node_id}"))?;
@@ -76,13 +76,8 @@ pub async fn record_lesson(
         };
 
         let overlay_id = Uuid::new_v4();
-        let lesson_escaped = lesson.replace('\'', "''");
 
-        let (scope, scope_id_val) = if let Some(pid) = project_id {
-            ("project", format!("'{pid}'"))
-        } else {
-            ("base", "NULL".to_string())
-        };
+        let scope = if project_id.is_some() { "project" } else { "base" };
 
         let meta = json!({
             "session_id": session_id.to_string(),
@@ -90,17 +85,13 @@ pub async fn record_lesson(
             "feedback": feedback_text,
             "agent_slug": agent_slug,
         });
-        let meta_escaped = meta.to_string().replace('\'', "''");
 
-        let sql = format!(
-            r#"INSERT INTO overlays
-                (id, primitive_type, primitive_id, scope, scope_id, content, source, metadata)
-               VALUES
-                ('{overlay_id}', 'skill', '{skill_id}', '{scope}', {scope_id_val},
-                 '{lesson_escaped}', 'feedback', '{meta_escaped}'::jsonb)"#,
-        );
-
-        match db.execute(&sql).await {
+        match db.execute_with(
+            "INSERT INTO overlays \
+                (id, primitive_type, primitive_id, scope, scope_id, content, source, metadata) \
+             VALUES ($1, 'skill', $2, $3, $4, $5, 'feedback', $6)",
+            crate::pg_args!(overlay_id, skill_id, scope.to_string(), project_id, lesson.clone(), meta),
+        ).await {
             Ok(_) => {
                 info!(
                     overlay = %overlay_id,

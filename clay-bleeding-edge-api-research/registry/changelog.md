@@ -2,6 +2,84 @@
 
 Timestamped log of significant discoveries and registry updates.
 
+## 2026-04-06: INV-012 — v3 Row READING Endpoint DISCOVERED
+
+**Source**: Systematic API probing of 25+ URL patterns to find how Clay reads table data
+
+**Critical Finding**: Row reading requires a **view ID** — there is no view-less GET endpoint for records.
+
+**Two confirmed read endpoints**:
+
+1. **`GET /v3/tables/{tableId}/views/{viewId}/records`** — List rows through a view
+   - Returns `{results: Record[]}` with full cell data, metadata, timestamps
+   - `limit` query param works (controls result count)
+   - `offset` query param is accepted but **silently ignored** (always returns from start)
+   - No pagination metadata in response (no hasMore, total, nextCursor)
+   - View-level filtering is applied server-side (e.g., "Fully enriched rows" view returns 0 for unenriched table, "All rows" returns everything)
+   - Confirmed on 2 tables (Experts: 79 rows, Creators: 49 rows)
+
+2. **`GET /v3/tables/{tableId}/records/{recordId}`** — Single record by ID
+   - Returns full record object (same shape as list items)
+   - 404 with `"Record {id} was not found"` for invalid IDs
+   - Route pattern means any sub-path (e.g., `/records/count`) is treated as a record ID lookup
+
+**View IDs**: Come from `GET /v3/tables/{tableId}` → `table.views[]` array. Each view has `id` (gv_xxx), `name`, `filter`, `sort`, `limit`, `offset` fields.
+
+**What was tested and returned 404**:
+- `GET /v3/tables/{id}/records` (no view) — 404
+- `GET /v3/tables/{id}/rows` — 404
+- `GET /v3/tables/{id}/data` — 404
+- `GET /v3/records?tableId=` — 404
+- `POST /v3/tables/{id}/query` — 404
+- `POST /v3/records/query` — 404
+- `GET /v3/views/{viewId}/records` — 404
+- `GET /v3/grid-views/{viewId}` — 404
+- `GET /v3/grid-views/{viewId}/records` — 404
+- `POST /v3/views/{viewId}/records/query` — 404
+- `POST /graphql` — 404
+- `POST /v3/graphql` — 404
+
+**Trap discovered**: `POST /v3/tables/{id}/records/{anything}` creates a new record with `id` set to `{anything}`. The POST create endpoint interprets the last path segment as a custom record ID. During probing, "query", "search", "list", "fetch", "batch" all created junk rows (cleaned up via DELETE).
+
+**Record shape**:
+```json
+{
+  "id": "r_xxx",
+  "tableId": "t_xxx",
+  "cells": { "f_fieldId": { "value": "...", "metadata": { "status": "SUCCESS" } } },
+  "recordMetadata": { "runHistory": {...}, "preprocessingMarkerMax": {...} },
+  "createdAt": "ISO8601",
+  "updatedAt": "ISO8601",
+  "deletedBy": null,
+  "dedupeValue": null
+}
+```
+
+**Impact**: v3 row CRUD is now **100% complete** — Create (POST), Read (GET via view), Update (PATCH), Delete (DELETE).
+
+**Gaps resolved**: GAP-025
+**Endpoints added**: 2 (view-based list + single record GET)
+
+## 2026-04-06: INV-011 — v1 API DEPRECATED + v3 Records Endpoint
+
+**Source**: Agent integration test failure led to systematic v1 endpoint testing
+
+**Critical Finding**: The entire v1 API is deprecated and non-functional:
+- `api.clay.com/api/v1/*` — routes not registered (Express HTML 404)
+- `api.clay.run/v1/*` — returns `{"success":false,"message":"deprecated API endpoint"}`
+- All auth methods tested (Bearer, x-api-key, session cookie) — all 404
+
+**Breakthrough**: `POST /v3/tables/{id}/records` exists for row creation:
+- Format: `{records: [{cells: {f_fieldId: "value"}}]}`
+- Returns created records with IDs, timestamps
+- `PATCH /v3/tables/{id}/records` updates rows (async, enqueued)
+- `DELETE /v3/tables/{id}/records` deletes rows (`{recordIds: [...]}`)
+- `GET /v3/tables/{id}/records` does NOT exist (404)
+
+**Also confirmed**: Webhook row insertion works — POST to `state.url` returns 200.
+
+**Impact**: All v1 tools in backend (`clay_read_rows`, `clay_write_rows`, `clay_trigger_enrichment`) are broken and need migration to v3.
+
 ## 2026-04-06: INV-010 Deep Dive — authAccountId BREAKTHROUGH
 
 **Source**: Creative endpoint probing after systematically exhausting obvious paths

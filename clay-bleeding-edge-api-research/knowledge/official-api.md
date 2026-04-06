@@ -1,6 +1,23 @@
 # Clay Official v1 API Reference
 
-Last updated: 2026-04-05
+Last updated: 2026-04-06
+
+## ⚠ V1 API IS FULLY DEPRECATED (confirmed 2026-04-06, INV-011)
+
+The entire v1 REST API is non-functional:
+- `api.clay.run/v1/*` returns `{"success":false,"message":"deprecated API endpoint"}`
+- `api.clay.com/api/v1/*` routes are not registered (Express 404)
+- Both the `apiToken` from /v3/me AND proper UUID API keys from /v3/api-keys receive 404
+- Community reports confirm this deprecation
+
+**Replacement endpoints (all on api.clay.com, session cookie auth):**
+- Row creation: `POST /v3/tables/{id}/records` with `{records: [{cells: {f_fieldId: "value"}}]}`
+- Row update: `PATCH /v3/tables/{id}/records` (async, enqueued)
+- Row deletion: `DELETE /v3/tables/{id}/records` with `{recordIds: [...]}`
+- Enrichment trigger: `PATCH /v3/tables/{id}/run` with `{fieldIds: [...], runRecords: {recordIds: [...]}}`
+- Data ingestion (external): Webhook sources — POST JSON to `state.url` (no auth needed)
+
+The v1 endpoint documentation below is preserved for historical reference only.
 
 ## Overview
 

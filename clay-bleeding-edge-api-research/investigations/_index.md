@@ -12,6 +12,8 @@
 | INV-008 | Boundary Exploration (Session 2) | completed | P0 | GAP-003, GAP-005, GAP-011, GAP-017, GAP-004 |
 | INV-009 | Reach Goals (Session 3) | completed | P1 | GAP-010, GAP-018, GAP-021, GAP-023, GAP-024 |
 | INV-010 | authAccountId Deep Dive | completed | P0 | GAP-004, GAP-022 |
+| INV-011 | v1 Deprecated + v3 Records | completed | P0 | GAP-011 (corrected), GAP-009 |
+| INV-012 | v3 Row Reading Endpoint Discovery | completed | P0 | GAP-025 |
 
 ## How to Add an Investigation
 

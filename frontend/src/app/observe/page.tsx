@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import { OBSERVE_STATUS_BADGE } from "@/lib/tokens";
 
 interface ObservationSession {
@@ -15,14 +15,17 @@ interface ObservationSession {
 }
 
 export default function ObservePage() {
+  const { apiFetch, token } = useAuth();
   const [sessions, setSessions] = useState<ObservationSession[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch<{ sessions: ObservationSession[] }>("/api/observe/sessions")
-      .then((data) => { setSessions(data.sessions ?? []); setLoading(false); })
+    if (!token) { setLoading(false); return; }
+    apiFetch("/api/observe/sessions")
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((data: { sessions: ObservationSession[] }) => { setSessions(data.sessions ?? []); setLoading(false); })
       .catch((err) => { console.error("Failed to load sessions:", err); setLoading(false); });
-  }, []);
+  }, [token, apiFetch]);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">

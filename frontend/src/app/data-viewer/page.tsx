@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useAuth } from "@/lib/auth-context";
 import {
   Database,
   Play,
@@ -51,6 +52,7 @@ function prettyPrint(value: unknown): string {
 }
 
 export default function DataViewerPage() {
+  const { apiFetch } = useAuth();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesLoading, setTablesLoading] = useState(true);
   const [sql, setSql] = useState("SELECT * FROM live_events ORDER BY created_at DESC LIMIT 50");
@@ -68,7 +70,7 @@ export default function DataViewerPage() {
 
   // Load table list
   useEffect(() => {
-    fetch("/api/data/schemas")
+    apiFetch("/api/data/schemas")
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         const sorted = (data.tables ?? []).sort((a: TableInfo, b: TableInfo) => {
@@ -88,7 +90,7 @@ export default function DataViewerPage() {
     if (!q.trim()) return;
     setQueryLoading(true);
     try {
-      const res = await fetch("/api/data/query", {
+      const res = await apiFetch("/api/data/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sql: q }),

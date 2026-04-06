@@ -43,7 +43,7 @@ const STATUS_BADGE = SESSION_STATUS_BADGE;
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, activeClient, loading: authLoading, apiFetch } = useAuth();
+  const { user, activeClient, loading: authLoading, apiFetch, token } = useAuth();
   const [request, setRequest] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +54,7 @@ export default function HomePage() {
   const [defaultModel, setDefaultModel] = useState<string>("");
 
   useEffect(() => {
+    if (!token) return;
     apiFetch("/api/models")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -64,9 +65,10 @@ export default function HomePage() {
         }
       })
       .catch(() => {});
-  }, [apiFetch]);
+  }, [token, apiFetch]);
 
   useEffect(() => {
+    if (!token) { setSessionsLoading(false); return; }
     apiFetch("/api/execute/sessions")
       .then((r) => {
         if (!r.ok) throw new Error(r.statusText);
@@ -77,7 +79,7 @@ export default function HomePage() {
         setSessionsLoading(false);
       })
       .catch(() => setSessionsLoading(false));
-  }, [apiFetch]);
+  }, [token, apiFetch]);
 
   const handleSubmit = async () => {
     if (!request.trim()) return;

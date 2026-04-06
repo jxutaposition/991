@@ -7,6 +7,7 @@ import { LiveEventFeed } from "@/components/live-event-feed";
 import { ScriptedDemo } from "@/components/scripted-demo";
 import { LiveTestPanel } from "@/components/live-test-panel";
 import { ShadowSessionPanel } from "@/components/shadow-session-panel";
+import { useAuth } from "@/lib/auth-context";
 
 type Mode = "scripted" | "live" | "shadow";
 
@@ -17,6 +18,7 @@ const MODE_CONFIG = {
 } as const;
 
 export default function TestingPage() {
+  const { apiFetch } = useAuth();
   const [mode, setMode] = useState<Mode>("scripted");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -24,7 +26,7 @@ export default function TestingPage() {
   const startScriptedDemo = useCallback(async () => {
     setIsRunning(true);
     try {
-      const res = await fetch("/api/demo/run", { method: "POST" });
+      const res = await apiFetch("/api/demo/run", { method: "POST" });
       if (!res.ok) throw new Error(`Demo failed: ${res.statusText}`);
       const data = await res.json();
       if (data.session_id) {
@@ -34,11 +36,11 @@ export default function TestingPage() {
       console.error("Failed to start demo:", e);
       setIsRunning(false);
     }
-  }, []);
+  }, [apiFetch]);
 
   const startLiveSession = useCallback(async () => {
     try {
-      const res = await fetch("/api/observe/session/start", {
+      const res = await apiFetch("/api/observe/session/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expert_id: "00000000-0000-0000-0000-000000000099" }),
@@ -52,12 +54,12 @@ export default function TestingPage() {
     } catch (e) {
       console.error("Failed to start session:", e);
     }
-  }, []);
+  }, [apiFetch]);
 
   const endLiveSession = useCallback(async () => {
     if (!sessionId) return;
     try {
-      await fetch(`/api/observe/session/${sessionId}/end`, { method: "POST" });
+      await apiFetch(`/api/observe/session/${sessionId}/end`, { method: "POST" });
       setIsRunning(false);
     } catch (e) {
       console.error("Failed to end session:", e);

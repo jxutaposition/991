@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AUTHORITY_BADGE, SEVERITY_BADGE, SCOPE_BADGE, PR_TYPE_BADGE } from "@/lib/tokens";
+import { useAuth } from "@/lib/auth-context";
 
 interface SignalStat {
   agent_slug: string;
@@ -69,6 +70,7 @@ interface DashboardData {
 
 
 export default function FeedbackDashboardPage() {
+  const { apiFetch } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [synthesizing, setSynthesizing] = useState(false);
@@ -76,18 +78,18 @@ export default function FeedbackDashboardPage() {
 
   const loadDashboard = useCallback(() => {
     setLoading(true);
-    fetch("/api/feedback/dashboard")
+    apiFetch("/api/feedback/dashboard")
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((d) => { setData(d); setLoading(false); })
       .catch((err) => { console.error("Failed to load dashboard:", err); setLoading(false); });
-  }, []);
+  }, [apiFetch]);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
   const handleSynthesize = async () => {
     setSynthesizing(true);
     try {
-      const res = await fetch("/api/feedback/synthesize", { method: "POST" });
+      const res = await apiFetch("/api/feedback/synthesize", { method: "POST" });
       if (res.ok) {
         const result = await res.json();
         alert(`Pipeline complete: ${result.prs_count ?? 0} PRs created, ${result.signals_deduped ?? 0} deduped, ${result.patterns_detected ?? 0} patterns`);

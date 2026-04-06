@@ -184,14 +184,11 @@ async fn handle_run_command(
     {
         Ok(resp) => {
             // Store the channel mapping so we can route interactions back
-            let mapping_sql = format!(
-                r#"
-                INSERT INTO slack_channel_mappings (slack_team_id, slack_channel_id, slack_user_id, session_id, thread_ts)
-                VALUES ('{team_id}', '{channel_id}', '{user_id}', '{session_id}', '{ts}')
-                "#,
-                ts = resp.ts,
-            );
-            let _ = state.db.execute(&mapping_sql).await;
+            let _ = state.db.execute_with(
+                "INSERT INTO slack_channel_mappings (slack_team_id, slack_channel_id, slack_user_id, session_id, thread_ts) \
+                 VALUES ($1, $2, $3, $4, $5)",
+                crate::pg_args!(team_id.to_string(), channel_id.to_string(), user_id.to_string(), session_id.to_string(), resp.ts.clone()),
+            ).await;
 
             info!(
                 session = %session_id,
@@ -490,16 +487,18 @@ async fn log_slack_event(
     session_id: Option<&str>,
     payload: &Value,
 ) {
-    let channel_val = channel_id.map(|s| format!("'{}'", s.replace('\'', "''"))).unwrap_or_else(|| "NULL".to_string());
-    let user_val = user_id.map(|s| format!("'{}'", s.replace('\'', "''"))).unwrap_or_else(|| "NULL".to_string());
-    let session_val = session_id.map(|s| format!("'{}'", s.replace('\'', "''"))).unwrap_or_else(|| "NULL".to_string());
-    let payload_escaped = payload.to_string().replace('\'', "''");
-
-    let sql = format!(
-        r#"INSERT INTO slack_events (direction, event_type, slack_channel_id, slack_user_id, session_id, payload)
-           VALUES ('{direction}', '{event_type}', {channel_val}, {user_val}, {session_val}, '{payload_escaped}'::jsonb)"#
-    );
-    let _ = db.execute(&sql).await;
+    let _ = db.execute_with(
+        "INSERT INTO slack_events (direction, event_type, slack_channel_id, slack_user_id, session_id, payload) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        crate::pg_args!(
+            direction.to_string(),
+            event_type.to_string(),
+            channel_id.map(|s| s.to_string()),
+            user_id.map(|s| s.to_string()),
+            session_id.map(|s| s.to_string()),
+            payload.clone()
+        ),
+    ).await;
 }
 
 fn get_param(params: &[(String, String)], key: &str) -> String {
@@ -518,50 +517,34 @@ async fn persist_session_from_slack(
     plan_json: &Value,
     nodes: &[crate::agent_catalog::ExecutionPlanNode],
 ) -> anyhow::Result<()> {
-    let request_escaped = request_text.replace('\'', "''");
-    let plan_escaped = plan_json.to_string().replace('\'', "''");
-
-    let session_sql = format!(
-        r#"
-        INSERT INTO execution_sessions (id, request_text, plan, status)
-        VALUES ('{session_id}', '{request_escaped}', '{plan_escaped}'::jsonb, 'awaiting_approval')
-        "#
-    );
-    db.execute(&session_sql).await?;
+    db.execute_with(
+        "INSERT INTO execution_sessions (id, request_text, plan, status) \
+         VALUES ($1, $2, $3, 'awaiting_approval')",
+        crate::pg_args!(session_id, request_text.to_string(), plan_json.clone()),
+    ).await?;
 
     for node in nodes {
-        let requires_arr = if node.requires.is_empty() {
-            "ARRAY[]::uuid[]".to_string()
-        } else {
-            let items: Vec<String> = node.requires.iter().map(|u| format!("'{u}'::uuid")).collect();
-            format!("ARRAY[{}]", items.join(","))
-        };
+        let judge_config: Value = serde_json::to_value(&node.judge_config)
+            .unwrap_or_else(|_| serde_json::json!({}));
 
-        let judge_config_json = serde_json::to_string(&node.judge_config)
-            .unwrap_or_else(|_| "{}".to_string())
-            .replace('\'', "''");
-        let task_escaped = node.task_description.replace('\'', "''");
-
-        let node_sql = format!(
-            r#"
-            INSERT INTO execution_nodes
-              (id, session_id, agent_slug, agent_git_sha, task_description, status,
-               requires, attempt_count, judge_config, max_iterations, model, skip_judge)
-            VALUES
-              ('{uid}', '{session_id}', '{slug}', '{sha}', '{task}', 'pending',
-               {requires}, 0, '{judge}'::jsonb, {max_iter}, '{model}', {skip_judge})
-            "#,
-            uid = node.uid,
-            slug = node.agent_slug,
-            sha = node.agent_git_sha,
-            task = task_escaped,
-            requires = requires_arr,
-            judge = judge_config_json,
-            max_iter = node.max_iterations,
-            model = node.model,
-            skip_judge = node.skip_judge,
-        );
-        db.execute(&node_sql).await?;
+        db.execute_with(
+            "INSERT INTO execution_nodes \
+              (id, session_id, agent_slug, agent_git_sha, task_description, status, \
+               requires, attempt_count, judge_config, max_iterations, model, skip_judge) \
+             VALUES ($1, $2, $3, $4, $5, 'pending', $6, 0, $7, $8, $9, $10)",
+            crate::pg_args!(
+                node.uid,
+                session_id,
+                node.agent_slug.clone(),
+                node.agent_git_sha.clone(),
+                node.task_description.clone(),
+                node.requires.clone(),
+                judge_config,
+                node.max_iterations as i32,
+                node.model.clone(),
+                node.skip_judge
+            ),
+        ).await?;
     }
 
     Ok(())

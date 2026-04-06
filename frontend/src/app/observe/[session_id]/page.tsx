@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Activity, Brain, Layers, GitPullRequest } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 interface ActionEvent {
   id: string;
@@ -49,6 +50,7 @@ interface SessionDetail {
 
 export default function ObserveSessionPage() {
   const { session_id } = useParams();
+  const { apiFetch } = useAuth();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [events, setEvents] = useState<ActionEvent[]>([]);
   const [distillations, setDistillations] = useState<Distillation[]>([]);
@@ -57,7 +59,7 @@ export default function ObserveSessionPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/observe/session/${session_id}`)
+    apiFetch(`/api/observe/session/${session_id}`)
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {
         setSession(data.session);

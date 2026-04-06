@@ -24,8 +24,12 @@ Cookie lifetime is 7 days, but the timer **resets on every API call** (confirmed
 ### ~~GAP-005: v3 Rate Limits~~ — RESOLVED (INV-008)
 20 rapid-fire requests with zero delays: **0 out of 20 rate-limited**. No 429 responses, no `X-RateLimit` headers. Average latency 21ms. The 150ms Claymate baseline was a courtesy, not a requirement. Safe to remove inter-call delays entirely.
 
-### ~~GAP-011: Row-Level v3 Operations~~ — RESOLVED NEGATIVE (INV-008)
-`GET /v3/tables/{id}/rows`, `GET /v3/tables/{id}/rows?limit=5`, `POST /v3/tables/{id}/rows` all return 404. **v3 has no row endpoints.** v1 API is the only path for row CRUD.
+### ~~GAP-011: Row-Level v3 Operations~~ — CORRECTED (INV-011)
+**Previous finding (INV-008) was WRONG.** We tested `/v3/tables/{id}/rows` (404) but the correct endpoint is `/v3/tables/{id}/records`. Row CRUD is fully functional via v3:
+- `POST /v3/tables/{id}/records` — create rows (confirmed working)
+- `PATCH /v3/tables/{id}/records` — update rows (async, enqueued)
+- `DELETE /v3/tables/{id}/records` — delete rows (confirmed working)
+- `GET /v3/tables/{id}/records` — returns 404 (read endpoint unknown, see GAP-025)
 
 ### ~~GAP-017: Response Shapes for Discovered Endpoints~~ — MOSTLY RESOLVED (INV-008)
 Response shapes now documented for: /v3/me, /v3/workspaces/{id}, /v3/workspaces/{id}/tables, /v3/actions, /v3/sources, /v3/sources/{id}, PATCH /v3/sources/{id}, PATCH /v3/tables/{id}, /v3/imports. Note: /v3/imports/csv and /v3/imports/webhook are NOT separate endpoints (false positives from INV-006).
@@ -57,10 +61,8 @@ Webhook URL is in `state.url` on the source object. Create webhook source → re
 ## P1: Important for Full Coverage
 
 
-### GAP-009: v1 API Pagination
-**Question**: How does row pagination work in `GET /api/v1/tables/{id}/rows`?
-**Method**: Direct API probing with a valid table ID
-**Note**: `/api/v1/sources` confirmed working for credential validation.
+### ~~GAP-009: v1 API Pagination~~ — RESOLVED NEGATIVE (INV-011)
+The entire v1 API is deprecated and non-functional. `api.clay.com/api/v1/*` routes are not registered (Express 404), and `api.clay.run/v1/*` returns `{"success":false,"message":"deprecated API endpoint"}`. The pagination question is moot.
 
 
 ### GAP-019: Action Package Definition Format
@@ -95,4 +97,10 @@ Direct listing via `/v3/app-accounts` is far superior to column extraction.
 
 ### GAP-016: Bulk Field Creation
 **Question**: Does v3 support creating multiple fields in a single call?
+
+### ~~GAP-025: v3 Row Reading~~ — RESOLVED (INV-012)
+Reading rows requires a **view ID**. Two endpoints confirmed:
+- **List**: `GET /v3/tables/{tableId}/views/{viewId}/records?limit=N` — returns `{results: Record[]}`. Views apply server-side filtering. `limit` works; `offset` is accepted but **ignored**.
+- **Single**: `GET /v3/tables/{tableId}/records/{recordId}` — returns one record by ID.
+View IDs (gv_xxx) come from `GET /v3/tables/{tableId}` response under `table.views[]`. Use "All rows" or "Default view" for full table reads.
 
