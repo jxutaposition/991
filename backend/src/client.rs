@@ -36,7 +36,7 @@ pub async fn create_client(
 pub async fn get_client(db: &PgClient, slug: &str) -> anyhow::Result<Option<Value>> {
     let rows = db
         .execute_with(
-            "SELECT * FROM clients WHERE slug = $1",
+            "SELECT * FROM clients WHERE slug = $1 AND deleted_at IS NULL",
             pg_args!(slug.to_string()),
         )
         .await?;
@@ -44,7 +44,7 @@ pub async fn get_client(db: &PgClient, slug: &str) -> anyhow::Result<Option<Valu
 }
 
 pub async fn list_clients(db: &PgClient) -> anyhow::Result<Vec<Value>> {
-    db.execute("SELECT * FROM clients ORDER BY name").await
+    db.execute("SELECT * FROM clients WHERE deleted_at IS NULL ORDER BY name").await
 }
 
 pub async fn add_contact(

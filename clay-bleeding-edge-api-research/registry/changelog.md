@@ -2,6 +2,36 @@
 
 Timestamped log of significant discoveries and registry updates.
 
+## 2026-04-06: Session 4 — Gap Discovery & Programmatic Investigation (INV-013 through INV-017)
+
+**Source**: 5 parallel investigation scripts probing 100+ endpoint/parameter combinations
+
+**Breakthroughs**:
+
+1. **Table duplication** (INV-016): `POST /v3/tables/{id}/duplicate` → confirmed working. Also `POST /v3/tables` with `sourceTableId` or `duplicateFromTableId`. Workbook duplication also works: `POST /v3/workbooks/{id}/duplicate`.
+
+2. **View CRUD** (INV-015): `POST /v3/tables/{id}/views` creates views. `PATCH /v3/tables/{id}/views/{viewId}` renames them. Filter/sort update payload needs refinement (returns 200 but doesn't persist).
+
+3. **Enrichment cell metadata** (INV-013): Full state machine documented from existing tables. `metadata.status` values: `SUCCESS`, `ERROR_OUT_OF_CREDITS`, `ERROR_BAD_REQUEST`. Stale cells: `{isStale: true, staleReason: "TABLE_AUTO_RUN_OFF"}`. `recordMetadata.runHistory`: per-field `[{time, runId}]`.
+
+4. **Pagination** (INV-014): No cursor/page/offset mechanism. All params silently ignored. `limit=10000` returns all 160 rows (39ms). Default limit=100.
+
+5. **Formula auto-evaluation** (INV-017): Formulas auto-evaluate on insert and auto-re-evaluate on update. No trigger needed.
+
+6. **CSV export** (INV-017): `POST /v3/tables/{id}/export` creates async job (`ej_xxx`, status: ACTIVE).
+
+7. **Workbook creation** (INV-016): `POST /v3/workbooks` confirmed. 42 workbooks in workspace.
+
+**Negative results**: Table history/restore/runs/jobs/stats all 404. Row sorting query params all ignored. Credit-specific endpoints all 404. Individual workbook GET/PATCH/DELETE all 404.
+
+**TODOs resolved**: 17 of 19 (89%). Only TODO-007 (WebSocket/SSE) and TODO-010 (view filter/sort payload) remain open.
+
+**New endpoints confirmed**: 8 (table duplicate, view create, view update, workbook duplicate, workbook create, table export, plus `sourceTableId`/`duplicateFromTableId` params on table create)
+
+**Registry**: Grew from 49 to 57 entries.
+
+---
+
 ## 2026-04-06: INV-012 — v3 Row READING Endpoint DISCOVERED
 
 **Source**: Systematic API probing of 25+ URL patterns to find how Clay reads table data

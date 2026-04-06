@@ -1,15 +1,15 @@
 # Clay Internal v3 API Reference
 
-Last updated: 2026-04-06 (post INV-006 + INV-007 + INV-011 + INV-012)
-Source: Originally reverse-engineered from Claymate Lite. Expanded via unauthenticated enumeration (INV-006) and authenticated validation (INV-007).
+Last updated: 2026-04-06 (post Session 4 — INV-013 through INV-017)
+Source: Originally reverse-engineered from Claymate Lite. Expanded via enumeration (INV-006), validation (INV-007), and systematic gap investigation (INV-013–017).
 
-**Canonical endpoint registry**: `registry/endpoints.jsonl` (49 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
+**Canonical endpoint registry**: `registry/endpoints.jsonl` (57 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
 
 ## Overview
 
 Clay's React frontend communicates with its backend via an internal REST API at `https://api.clay.com/v3`. This API is not publicly documented but is stable enough for the Claymate Lite Chrome extension (22+ stars, MIT licensed) to ship against.
 
-The v3 API supports **full table lifecycle CRUD** including table creation/deletion, column creation/update/deletion, row creation/reading/update/deletion (via `/records`), source management, enrichment triggering, table listing, actions catalog, and import/export. With the v1 API now fully deprecated, v3 is the **only** functional API layer. **Row CRUD is 100% complete** as of INV-012.
+The v3 API supports **full table lifecycle CRUD** including table creation/deletion/duplication, column creation/update/deletion, row creation/reading/update/deletion (via `/records`), view creation/rename, source management, enrichment triggering, table listing, workbook creation/duplication, actions catalog, CSV export jobs, and import history. With the v1 API now fully deprecated, v3 is the **only** functional API layer. **57 endpoints documented, 38+ confirmed working** as of Session 4.
 
 ## Authentication
 
@@ -374,8 +374,34 @@ Returns array of import records with config and column mapping details.
 
 **Note**: `/v3/imports/csv` and `/v3/imports/webhook` are NOT separate endpoints (INV-009). "csv" and "webhook" are treated as import job IDs. The real pattern is `/v3/imports/{jobId}`.
 
-### Export Endpoints (Async Job Model)
-`GET /v3/exports/csv?tableId=` returns 404 "Export job csv not found". Exports are likely async (POST to create job, GET to download). Not fully documented.
+### POST /v3/tables/{tableId}/export — CSV Export Job (INV-017)
+Creates an async export job.
+
+**Request**:
+```
+POST /v3/tables/{tableId}/export
+Cookie: claysession=...
+Content-Type: application/json
+
+{"format": "csv"}
+```
+
+**Response** (200):
+```json
+{
+  "id": "ej_xxx",
+  "workspaceId": 1080480,
+  "tableId": "t_xxx",
+  "viewId": "",
+  "userId": "1282581",
+  "fileName": "table-name-export",
+  "status": "ACTIVE",
+  "uploadedFilePath": null
+}
+```
+
+**Async flow**: POST to create → poll `GET /v3/exports/{ej_xxx}` for `uploadedFilePath` → download when populated.
+Note: `GET /v3/exports/csv` treats "csv" as a job ID (404). `GET /v3/exports` requires admin.
 
 ### POST /v3/actions — Action Package Creation
 ```json
@@ -531,6 +557,140 @@ Cookie: claysession=...
 - `GET /v3/api-keys?resourceType=user&resourceId={userId}` — list user's API keys
 - `POST /v3/api-keys` with `{resourceType: "user", resourceId: "userId", name: "key-name", keyData: {scopes: []}}` — creates a UUID API key
 - Note: These keys do NOT work with the deprecated v1 API. Their purpose is unclear but they may be used for webhook auth or future API versions.
+
+### POST /v3/tables/{tableId}/duplicate — Table Duplication (INV-016)
+
+**Request**:
+```
+POST /v3/tables/{tableId}/duplicate
+Cookie: claysession=...
+Content-Type: application/json
+
+{"name": "My Copy"}
+```
+
+**Response**: Full table object (same as POST /v3/tables). Name defaults to "Copy of {original}" if not specified.
+
+**Alternative paths**: `POST /v3/tables` with `sourceTableId` or `duplicateFromTableId` also work for duplication.
+
+### POST /v3/tables/{tableId}/views — View Creation (INV-015)
+
+**Request**:
+```
+POST /v3/tables/{tableId}/views
+Cookie: claysession=...
+Content-Type: application/json
+
+{"name": "My Custom View"}
+```
+
+**Response** (200):
+```json
+{
+  "id": "gv_xxx",
+  "tableId": "t_xxx",
+  "name": "My Custom View",
+  "description": null,
+  "order": "y",
+  "fields": {"f_created_at": {"order": "b", "isVisible": false, "width": 200}},
+  "sort": null,
+  "filter": null,
+  "limit": null,
+  "offset": null
+}
+```
+
+Only `/v3/tables/{id}/views` path works. `/v3/views`, `/v3/grid-views` return 404.
+
+### PATCH /v3/tables/{tableId}/views/{viewId} — View Update (INV-015)
+
+**Request**:
+```
+PATCH /v3/tables/{tableId}/views/{viewId}
+Cookie: claysession=...
+Content-Type: application/json
+
+{"name": "Renamed View"}
+```
+
+Rename confirmed working. Filter/sort update returns 200 but values show null — payload format needs further investigation (see TODO-010).
+
+### POST /v3/workbooks — Workbook Creation (INV-016)
+
+**Request**:
+```json
+{"workspaceId": 1080480, "name": "My Workbook"}
+```
+Returns full workbook object with id (wb_xxx).
+
+### POST /v3/workbooks/{workbookId}/duplicate — Workbook Duplication (INV-016)
+
+**Request**:
+```json
+{"name": "My Copy"}
+```
+Returns duplicated workbook. Name defaults to "Copy of {original}".
+
+**Note**: `GET /v3/workbooks/{id}`, `PATCH /v3/workbooks/{id}`, and `DELETE /v3/workbooks/{id}` all return 404. Only collection-level operations work (list via workspace, create, duplicate).
+
+### GET /v3/api-keys — API Key Management (INV-017)
+
+Requires query params `?resourceType=user&resourceId={userId}`. Returns 400 without them.
+
+## Enrichment Cell Metadata (INV-013)
+
+When reading rows, enrichment/action column cells include a `metadata` object that reveals run status:
+
+**Successful enrichment**:
+```json
+{"value": "✅ 25 posts found", "metadata": {"status": "SUCCESS", "isPreview": true, "imagePreview": "https://..."}}
+```
+
+**Failed enrichment (out of credits)**:
+```json
+{"value": null, "metadata": {"status": "ERROR_OUT_OF_CREDITS", "isPreview": true}}
+```
+
+**Failed enrichment (bad request)**:
+```json
+{"value": null, "metadata": {"status": "ERROR_BAD_REQUEST", "isPreview": true}}
+```
+
+**Not yet run (stale)**:
+```json
+{"value": null, "metadata": {"isStale": true, "staleReason": "TABLE_AUTO_RUN_OFF"}}
+```
+
+**Formula cells**:
+```json
+{"value": "HELLO WORLD", "metadata": {"status": "SUCCESS"}}
+```
+
+### recordMetadata.runHistory
+
+Per-field array of run entries with unix timestamp and unique run ID:
+```json
+{
+  "runHistory": {
+    "f_enrichmentFieldId": [
+      {"time": 1775443230930, "runId": "run_0td1wrisJxroYsg5UxE"},
+      {"time": 1775443585553, "runId": "run_0td1x1ddn8m87zK6S3g"}
+    ]
+  }
+}
+```
+
+**Polling-based completion detection**: After triggering enrichment, poll `GET /v3/tables/{id}/views/{viewId}/records` every 2-5 seconds. Check `cell.metadata.status` for each enrichment column — when all are `SUCCESS` or `ERROR_*`, the run is complete.
+
+## Pagination (INV-014)
+
+**There is no pagination mechanism.** All cursor/page/offset query params are silently ignored.
+
+**Workaround**: Set `limit=10000` (or any large number) to retrieve all rows in a single call. Default limit without param = 100. Tested with 160 rows at 39ms response time.
+
+## Formula Evaluation (INV-017)
+
+Formulas auto-evaluate immediately on row insert and auto-re-evaluate when dependent cells are updated. No manual trigger is needed. `PATCH /v3/tables/{id}/run` with formula fieldIds also works if explicit re-evaluation is desired.
 
 ## Confirmed Non-Existent Endpoints
 

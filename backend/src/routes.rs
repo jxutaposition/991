@@ -1,4 +1,5 @@
 /// HTTP route handlers.
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use std::time::Duration;
@@ -47,7 +48,8 @@ pub async fn models_list(State(state): State<Arc<AppState>>) -> Json<Value> {
         "models": [
             {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "description": "Fastest, lowest cost. Good for most tasks.", "cost": "low", "provider": "anthropic"},
             {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Balanced speed and quality.", "cost": "high", "provider": "anthropic"},
-            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Highest quality, slowest. Best for complex planning.", "cost": "very_high", "provider": "anthropic"},
+            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Highest quality. Best for complex planning.", "cost": "very_high", "provider": "anthropic"},
+            {"id": "claude-opus-4-6-thinking", "name": "Claude Opus 4.6 Thinking", "description": "Highest quality with extended thinking. Best for the hardest tasks.", "cost": "very_high", "provider": "anthropic"},
         ]
     }))
 }
@@ -337,7 +339,7 @@ pub async fn execution_create(
     // Resolve client_slug to client_id for credential injection
     let mut client_id: Option<Uuid> = if let Some(ref slug) = body.client_slug {
         let rows = state.db.execute_with(
-            "SELECT id FROM clients WHERE slug = $1",
+            "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
             pg_args!(slug.clone()),
         ).await.ok().unwrap_or_default();
         rows.first()
@@ -2509,7 +2511,7 @@ pub async fn engagement_create(
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Expert not found"}))))?;
 
     let client_rows = state.db.execute_with(
-        "SELECT id FROM clients WHERE slug = $1",
+        "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
         crate::pg_args!(body.client_slug.clone()),
     ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
     let client_id: Uuid = client_rows.first()
@@ -3597,7 +3599,7 @@ pub async fn auth_me(
     let user_data = rows.first().cloned().unwrap_or(json!({}));
 
     let clients = state.db.execute_with(
-        "SELECT c.slug, c.name, ucr.role FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id WHERE ucr.user_id = $1",
+        "SELECT c.slug, c.name, ucr.role FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id WHERE ucr.user_id = $1 AND c.deleted_at IS NULL",
         crate::pg_args!(user.user_id),
     ).await.unwrap_or_default();
 
@@ -3653,6 +3655,62 @@ pub async fn auth_create_workspace(
         "name": body.name,
         "role": "admin",
     })))
+}
+
+// ── Workspace deletion (authenticated, admin-only, soft-delete) ──────────────
+
+#[derive(Deserialize)]
+pub struct DeleteWorkspaceRequest {
+    pub confirmation: String,
+}
+
+/// DELETE /api/auth/workspaces/:slug — soft-delete a workspace (admin only).
+pub async fn auth_delete_workspace(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: axum::extract::Request,
+) -> Result<Json<Value>, InternalError> {
+    let user = request.extensions().get::<crate::auth::AuthenticatedUser>()
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({"error": "Not authenticated"}))))?
+        .clone();
+
+    let body: DeleteWorkspaceRequest = {
+        let bytes = axum::body::to_bytes(request.into_body(), 1024 * 64)
+            .await
+            .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid body"}))))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid JSON"}))))?
+    };
+
+    if body.confirmation.trim().to_lowercase() != "delete workspace" {
+        return Err(crate::error::ApiError::bad_request("Confirmation text must be exactly \"delete workspace\"").into());
+    }
+
+    // Verify the user is an admin on this workspace
+    let role_rows = state.db.execute_with(
+        "SELECT ucr.role FROM user_client_roles ucr \
+         JOIN clients c ON ucr.client_id = c.id \
+         WHERE ucr.user_id = $1 AND c.slug = $2",
+        crate::pg_args!(user.user_id, slug.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let role = role_rows.first()
+        .and_then(|r| r.get("role").and_then(|v| v.as_str().map(String::from)))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found or you don't have access"}))))?;
+
+    if role != "admin" {
+        return Err(crate::error::ApiError::forbidden("Only workspace admins can delete a workspace").into());
+    }
+
+    // Soft-delete: set deleted_at and deleted_by
+    state.db.execute_with(
+        "UPDATE clients SET deleted_at = NOW(), deleted_by = $1 WHERE slug = $2 AND deleted_at IS NULL",
+        crate::pg_args!(user.user_id, slug.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    info!(user = %user.email, workspace = %slug, "workspace soft-deleted");
+
+    Ok(Json(json!({"ok": true, "slug": slug})))
 }
 
 // ── Credential check ─────────────────────────────────────────────────────────
@@ -4122,7 +4180,7 @@ pub async fn project_create(
     Json(body): Json<CreateProjectRequest>,
 ) -> Result<Json<Value>, InternalError> {
     let client_rows = state.db.execute_with(
-        "SELECT id FROM clients WHERE slug = $1",
+        "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
         crate::pg_args!(body.client_slug.clone()),
     ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
     let client_id: Uuid = client_rows.first()
@@ -4557,7 +4615,7 @@ async fn resolve_tenant_id(raw: &str, db: &crate::pg::PgClient) -> Result<Uuid, 
         return Ok(u);
     }
     match db.execute_with(
-        "SELECT id FROM clients WHERE slug = $1",
+        "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
         pg_args!(raw.to_string()),
     ).await {
         Ok(rows) if !rows.is_empty() => {
@@ -5843,6 +5901,243 @@ pub async fn thread_update(
     system_description::update_thread_status(&state.db, thread_uuid, status)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ── Chat Learnings ───────────────────────────────────────────────────────────
+
+/// GET /api/chat-learnings/:session_id — list learnings for a session
+pub async fn chat_learnings_list(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let sid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    let rows = state.db.execute_with(
+        "SELECT id, learning_text, suggested_scope, suggested_primitive_slug, \
+         confidence, evidence, status, conflicting_overlay_id, overlay_id, \
+         source_node_id, created_at \
+         FROM chat_learnings WHERE session_id = $1 ORDER BY created_at ASC",
+        pg_args!(sid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "learnings": rows })))
+}
+
+/// POST /api/chat-learnings/:id/reject — manually reject a learning
+pub async fn chat_learning_reject(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let lid = id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid learning ID"})))
+    })?;
+
+    state.db.execute_with(
+        "UPDATE chat_learnings SET status = 'rejected' WHERE id = $1",
+        pg_args!(lid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// POST /api/chat-learnings/:id/resolve-conflict — resolve a contradiction
+pub async fn chat_learning_resolve_conflict(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, InternalError> {
+    let lid = id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid learning ID"})))
+    })?;
+
+    let action = body.get("action").and_then(Value::as_str).unwrap_or("keep_old");
+
+    let learning_row = state.db.execute_with(
+        "SELECT session_id, learning_text, suggested_scope, suggested_primitive_slug, \
+         conflicting_overlay_id FROM chat_learnings WHERE id = $1 AND status = 'conflict'",
+        pg_args!(lid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let row = learning_row.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Learning not found or not in conflict status"})))
+    })?;
+
+    match action {
+        "accept_new" => {
+            // Retire the conflicting overlay
+            if let Some(old_id) = row.get("conflicting_overlay_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
+                let _ = state.db.execute_with(
+                    "UPDATE overlays SET retired_at = NOW() WHERE id = $1",
+                    pg_args!(old_id),
+                ).await;
+            }
+            // Write the new learning as an overlay (simplified — uses the learning text directly)
+            let _ = state.db.execute_with(
+                "UPDATE chat_learnings SET status = 'distilled' WHERE id = $1",
+                pg_args!(lid),
+            ).await;
+        }
+        "keep_both" => {
+            let _ = state.db.execute_with(
+                "UPDATE chat_learnings SET status = 'distilled' WHERE id = $1",
+                pg_args!(lid),
+            ).await;
+        }
+        _ => {
+            // keep_old — reject the learning
+            let _ = state.db.execute_with(
+                "UPDATE chat_learnings SET status = 'rejected' WHERE id = $1",
+                pg_args!(lid),
+            ).await;
+        }
+    }
+
+    Ok(Json(json!({ "ok": true, "action": action })))
+}
+
+/// POST /api/chat-learnings/analyze/:session_id — trigger on-demand analysis
+pub async fn chat_learnings_analyze(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let sid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+
+    let session_rows = state.db.execute_with(
+        "SELECT es.id, es.request, es.project_id, es.client_id, \
+                p.expert_id, p.slug as project_slug \
+         FROM execution_sessions es \
+         LEFT JOIN projects p ON es.project_id = p.id \
+         WHERE es.id = $1",
+        pg_args!(sid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let session_row = session_rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
+    })?;
+
+    // Reset analysis state so it can be re-analyzed
+    let _ = state.db.execute_with(
+        "UPDATE execution_sessions SET learning_analyzed_at = NULL, analysis_skip = FALSE WHERE id = $1",
+        pg_args!(sid),
+    ).await;
+
+    let mut narratives_regenerated = std::collections::HashSet::new();
+    crate::chat_analyzer::analyze_session(
+        &state.db,
+        &state.settings.anthropic_api_key,
+        &state.settings.anthropic_model,
+        sid,
+        session_row,
+        &mut narratives_regenerated,
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "ok": true, "session_id": sid.to_string() })))
+}
+
+/// GET /api/chat-learnings/stats — dashboard statistics
+pub async fn chat_learnings_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, InternalError> {
+    let stats = state.db.execute(
+        "SELECT \
+           (SELECT COUNT(*) FROM execution_sessions WHERE learning_analyzed_at IS NOT NULL) as sessions_analyzed, \
+           (SELECT COUNT(*) FROM chat_learnings) as total_learnings, \
+           (SELECT COUNT(*) FROM chat_learnings WHERE status = 'distilled') as distilled, \
+           (SELECT COUNT(*) FROM chat_learnings WHERE status = 'duplicate') as duplicates, \
+           (SELECT COUNT(*) FROM chat_learnings WHERE status = 'conflict') as pending_conflicts, \
+           (SELECT COUNT(*) FROM chat_learnings WHERE status = 'rejected') as rejected, \
+           (SELECT COUNT(*) FROM overlays WHERE source = 'transcript' AND retired_at IS NULL) as transcript_overlays, \
+           (SELECT COUNT(*) FROM scope_narratives) as narratives"
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let row = stats.first().cloned().unwrap_or(json!({}));
+    Ok(Json(row))
+}
+
+/// GET /api/overlays/memories — list transcript-derived overlays
+pub async fn overlays_memories(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, InternalError> {
+    let scope_filter = params.get("scope").map(|s| s.as_str());
+    let source_filter = params.get("source").map(|s| s.as_str());
+
+    let mut conditions = vec!["retired_at IS NULL".to_string()];
+    if let Some(scope) = scope_filter {
+        conditions.push(format!("scope = '{}'", scope.replace('\'', "''")));
+    }
+    if let Some(source) = source_filter {
+        conditions.push(format!("source = '{}'", source.replace('\'', "''")));
+    } else {
+        conditions.push("source IN ('transcript', 'feedback', 'corpus')".to_string());
+    }
+
+    let sql = format!(
+        "SELECT id, primitive_type, primitive_id, scope, scope_id, content, source, \
+         reinforced_at, reinforcement_count, metadata, created_at \
+         FROM overlays WHERE {} ORDER BY created_at DESC LIMIT 200",
+        conditions.join(" AND ")
+    );
+
+    let rows = state.db.execute(&sql).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({ "overlays": rows })))
+}
+
+/// GET /api/scope-narratives — list generated holistic narratives
+pub async fn scope_narratives_list(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, InternalError> {
+    let rows = state.db.execute(
+        "SELECT id, scope, scope_id, narrative_text, narrative_text_user, \
+         source_overlay_count, generated_at \
+         FROM scope_narratives ORDER BY scope, scope_id"
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    Ok(Json(json!({ "narratives": rows })))
+}
+
+/// POST /api/scope-narratives/:id/regenerate — force regeneration
+pub async fn scope_narrative_regenerate(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let nid = id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid narrative ID"})))
+    })?;
+
+    let rows = state.db.execute_with(
+        "SELECT scope, scope_id FROM scope_narratives WHERE id = $1",
+        pg_args!(nid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let row = rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Narrative not found"})))
+    })?;
+
+    let scope = row.get("scope").and_then(Value::as_str).unwrap_or("base").to_string();
+    let scope_id = row.get("scope_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok());
+
+    // Force regeneration by using an empty HashSet (no cycle dedup)
+    let mut empty = std::collections::HashSet::new();
+    crate::chat_analyzer::maybe_regenerate_narrative(
+        &state.db,
+        &state.settings.anthropic_api_key,
+        &state.settings.anthropic_model,
+        &scope,
+        scope_id,
+        &mut empty,
+    ).await;
 
     Ok(Json(json!({ "ok": true })))
 }

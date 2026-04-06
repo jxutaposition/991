@@ -69,9 +69,11 @@ The entire v1 API is deprecated and non-functional. `api.clay.com/api/v1/*` rout
 **Question**: What is the format of `actionPackageDefinition` (string) in `POST /v3/actions`?
 **Method**: CDP interception during action column configuration
 
-### GAP-020: Import/Export Mechanics — PARTIALLY RESOLVED
-**Question**: How do import/export work via API?
-**Status**: `GET /v3/imports?workspaceId=` confirmed (returns import history with column mappings). `GET /v3/exports/csv?tableId=` returns 404 "Export job csv not found" — export is likely an async job (POST to create, GET to download).
+### ~~GAP-020: Import/Export Mechanics~~ — RESOLVED (INV-017)
+**Status**: Export confirmed: `POST /v3/tables/{id}/export` creates an async job returning `{id: "ej_xxx", status: "ACTIVE", fileName, uploadedFilePath: null}`. Poll `GET /v3/exports/{jobId}` for `uploadedFilePath`. Import: `GET /v3/imports?workspaceId=` works.
+
+### ~~GAP-026: Row Pagination~~ — RESOLVED (INV-014)
+No cursor/page/offset mechanism exists. All params silently ignored. **Workaround**: use `limit=10000` (or larger) to get all rows in one call. Default limit without param = 100. Tested with 160 rows, 39ms response time.
 
 ### ~~GAP-004: Enrichment Provider Configuration~~ — FULLY RESOLVED (INV-010)
 `GET /v3/app-accounts` returns all 111 auth accounts with IDs, provider types, ownership. The `id` field IS the `authAccountId` needed for enrichment column creation. No need to extract from existing columns — just list and match by `appAccountTypeId` to `auth.providerType` in the actions catalog.
@@ -81,22 +83,21 @@ Direct listing via `/v3/app-accounts` is far superior to column extraction.
 
 ## P2: Nice to Have
 
-### GAP-012: Formula Evaluation Trigger — PARTIALLY RESOLVED
-**Question**: Can we trigger formula re-evaluation programmatically?
-**Status**: `PATCH /v3/tables/{tableId}/run` confirmed with `{runRecords: object, fieldIds: string[]}`. Likely works for formulas.
+### ~~GAP-012: Formula Evaluation Trigger~~ — RESOLVED (INV-017)
+Formulas auto-evaluate immediately on row insert AND auto-re-evaluate when dependent cells are updated. No trigger needed. `PATCH /run` also works explicitly for formulas. Formula cell metadata shows `{"status":"SUCCESS"}`.
 
-### GAP-013: Error State API Access
-**Question**: Does v3 expose error states for failed enrichments/formulas?
+### ~~GAP-013: Error State API Access~~ — RESOLVED (INV-013)
+Error states are in cell `metadata.status`. Observed values: `ERROR_OUT_OF_CREDITS`, `ERROR_BAD_REQUEST`. Stale/not-run cells show `{"isStale":true,"staleReason":"TABLE_AUTO_RUN_OFF"}`. No detailed error messages — just status codes.
 
-### GAP-014: Clay Frontend Version Requirement — PARTIALLY RESOLVED
-**Question**: Does the `X-Clay-Frontend-Version` header matter?
-**Status**: All Session 2 probes succeeded WITHOUT this header. Confirmed optional.
+### GAP-014: Clay Frontend Version Requirement — RESOLVED
+**Status**: All probes succeeded WITHOUT this header. Confirmed optional.
 
 ### GAP-015: WebSocket/Real-time Updates
 **Question**: Does Clay use WebSockets for real-time table updates?
+**Note**: Not solvable with API probing — requires CDP/Playwright browser inspection.
 
-### GAP-016: Bulk Field Creation
-**Question**: Does v3 support creating multiple fields in a single call?
+### ~~GAP-016: Bulk Field Creation~~ — RESOLVED NEGATIVE (CLOSED)
+No bulk endpoint exists. But with zero rate limiting and 21ms latency, 20 sequential field creates take <500ms. Non-issue in practice.
 
 ### ~~GAP-025: v3 Row Reading~~ — RESOLVED (INV-012)
 Reading rows requires a **view ID**. Two endpoints confirmed:

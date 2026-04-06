@@ -24,6 +24,7 @@ interface AuthContextValue {
   signIn: (idToken: string) => Promise<void>;
   signOut: () => void;
   setActiveClient: (slug: string) => void;
+  refreshClients: () => Promise<void>;
   apiFetch: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
@@ -36,6 +37,7 @@ const AuthContext = createContext<AuthContextValue>({
   signIn: async () => {},
   signOut: () => {},
   setActiveClient: () => {},
+  refreshClients: async () => {},
   apiFetch: (url, init) => fetch(url, init),
 });
 
@@ -108,10 +110,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("lele_active_client", slug);
   }, []);
 
+  const refreshClients = useCallback(async () => {
+    const jwt = tokenRef.current ?? localStorage.getItem("lele_token");
+    if (!jwt) return;
+    try {
+      const res = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUser(data.user);
+      const fresh: ClientRole[] = data.clients ?? [];
+      setClients(fresh);
+      setActiveClientState(prev => {
+        if (prev && fresh.some(c => c.slug === prev)) return prev;
+        return fresh[0]?.slug ?? null;
+      });
+    } catch { /* ignore */ }
+  }, []);
+
   // Use a ref for the token so apiFetch has a stable identity and doesn't
   // cause cascading re-renders / EventSource reconnects when the token changes.
+  // Updated synchronously during render (not in an effect) so that child
+  // effects calling apiFetch always see the current value.
   const tokenRef = useRef(token);
-  useEffect(() => { tokenRef.current = token; }, [token]);
+  tokenRef.current = token;
 
   const apiFetch = useCallback(
     (url: string, init?: RequestInit): Promise<Response> => {
@@ -128,8 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, apiFetch }),
-    [user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, apiFetch]
+    () => ({ user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, refreshClients, apiFetch }),
+    [user, clients, activeClient, token, loading, signIn, signOut, setActiveClient, refreshClients, apiFetch]
   );
 
   return (

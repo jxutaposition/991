@@ -387,6 +387,6 @@ When an overlay has been promoted to `scope='base'` with strong evidence (10+ so
 | Corpus Analyzer (doc → overlay distillation) | Designed | `jira/CORPUS-001_automated_distillation_pipeline.md` |
 | Observation Distiller | Designed (SD-003 Part 8) | Not implemented |
 | Execution Reviewer | Designed (SD-003 Part 8) | Not implemented |
-| Transcript Analyzer | Designed (SD-003 Part 8) | Not implemented |
+| Transcript Analyzer (Chat Learning Pipeline) | Built | `backend/src/chat_analyzer.rs`, see [SD-007](SD-007_chat_learning_pipeline.md) |
 | HTTP search endpoint hybrid upgrade | Pending | `backend/src/routes.rs` `knowledge_search()` still uses vector-only |
 | Local `lele/` directory auto-sync | Designed (GAP WS2) | Not implemented |

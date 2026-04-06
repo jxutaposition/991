@@ -48,8 +48,7 @@ function formatTimestamp(ts: string): string {
 
 function getEventIcon(eventType: string) {
   if (eventType.includes("tool")) return Zap;
-  if (eventType.includes("judge") || eventType.includes("critic"))
-    return MessageSquare;
+  if (eventType.includes("judge")) return MessageSquare;
   return Clock;
 }
 
@@ -217,8 +216,6 @@ function formatEventType(eventType: string): string {
     node_completed: "Node Completed",
     tool_call: "Tool Call",
     tool_result: "Tool Result",
-    critic_start: "Critic Started",
-    critic_done: "Critic Done",
     judge_start: "Judge Started",
     judge_done: "Judge Verdict",
     judge_pass: "Judge Passed",

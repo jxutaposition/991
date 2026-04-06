@@ -27,6 +27,7 @@ pub mod workflow;
 pub mod skills;
 pub mod project_learner;
 pub mod pattern_promoter;
+pub mod chat_analyzer;
 pub mod preflight;
 pub mod system_description;
 

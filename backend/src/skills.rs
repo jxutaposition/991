@@ -188,6 +188,10 @@ fn parse_skill_row(row: &Value) -> Option<SkillDefinition> {
 
 /// Resolve all overlays for a skill across the scope chain.
 /// Returns concatenated overlay content in order: base → expert → client → project.
+///
+/// Uses a narrative + recency buffer strategy: if a scope has a pre-computed
+/// narrative, inject the narrative plus only overlays created after the narrative
+/// was generated. If no narrative exists, inject all non-retired overlays.
 pub async fn resolve_overlays(
     db: &PgClient,
     skill_id: uuid::Uuid,
@@ -195,6 +199,9 @@ pub async fn resolve_overlays(
     client_id: Option<uuid::Uuid>,
     project_id: Option<uuid::Uuid>,
 ) -> String {
+    // Load narratives for the relevant scope chain
+    let narratives = load_scope_narratives(db, expert_id, client_id, project_id).await;
+
     let mut scope_clauses = vec![format!(
         "(primitive_type = 'skill' AND primitive_id = '{skill_id}' AND scope = 'base')"
     )];
@@ -216,7 +223,9 @@ pub async fn resolve_overlays(
     }
 
     let sql = format!(
-        "SELECT content, scope FROM overlays WHERE {} ORDER BY \
+        "SELECT content, scope, scope_id, created_at FROM overlays \
+         WHERE ({}) AND retired_at IS NULL \
+         ORDER BY \
          CASE scope WHEN 'base' THEN 0 WHEN 'expert' THEN 1 \
          WHEN 'client' THEN 2 WHEN 'project' THEN 3 END, \
          created_at ASC",
@@ -231,14 +240,90 @@ pub async fn resolve_overlays(
         }
     };
 
-    let mut parts = Vec::new();
-    for row in &rows {
-        if let Some(content) = row.get("content").and_then(Value::as_str) {
-            parts.push(content.to_string());
-        }
+    let mut narrative_parts = Vec::new();
+    let mut overlay_parts = Vec::new();
+
+    // Inject narratives first
+    for (scope_name, narrative_text, _generated_at) in &narratives {
+        narrative_parts.push(format!("[{scope_name} context] {narrative_text}"));
     }
 
-    parts.join("\n\n")
+    for row in &rows {
+        let content = match row.get("content").and_then(Value::as_str) {
+            Some(c) => c,
+            None => continue,
+        };
+        let scope = row
+            .get("scope")
+            .and_then(Value::as_str)
+            .unwrap_or("base");
+        let created_at = row
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
+        // If there is a narrative for this scope, only include overlays newer than it
+        let narrative_generated = narratives.iter().find(|(s, _, _)| s == scope);
+        if let Some((_, _, gen_at)) = narrative_generated {
+            if created_at <= gen_at.as_str() {
+                continue; // narrative already covers this overlay
+            }
+        }
+
+        overlay_parts.push(content.to_string());
+    }
+
+    let mut result = String::new();
+    if !narrative_parts.is_empty() {
+        result.push_str(&narrative_parts.join("\n\n"));
+    }
+    if !overlay_parts.is_empty() {
+        if !result.is_empty() {
+            result.push_str("\n\n");
+        }
+        result.push_str(&overlay_parts.join("\n\n"));
+    }
+    result
+}
+
+/// Load scope narratives for the given scope chain.
+/// Returns Vec of (scope_name, narrative_text, generated_at).
+async fn load_scope_narratives(
+    db: &PgClient,
+    expert_id: Option<uuid::Uuid>,
+    client_id: Option<uuid::Uuid>,
+    project_id: Option<uuid::Uuid>,
+) -> Vec<(String, String, String)> {
+    let mut clauses = vec!["(scope = 'base' AND scope_id IS NULL)".to_string()];
+    if let Some(eid) = expert_id {
+        clauses.push(format!("(scope = 'expert' AND scope_id = '{eid}')"));
+    }
+    if let Some(cid) = client_id {
+        clauses.push(format!("(scope = 'client' AND scope_id = '{cid}')"));
+    }
+    if let Some(pid) = project_id {
+        clauses.push(format!("(scope = 'project' AND scope_id = '{pid}')"));
+    }
+
+    let sql = format!(
+        "SELECT scope, narrative_text, generated_at FROM scope_narratives WHERE {} \
+         ORDER BY CASE scope WHEN 'base' THEN 0 WHEN 'expert' THEN 1 \
+         WHEN 'client' THEN 2 WHEN 'project' THEN 3 END",
+        clauses.join(" OR ")
+    );
+
+    match db.execute(&sql).await {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| {
+                let scope = r.get("scope")?.as_str()?.to_string();
+                let text = r.get("narrative_text")?.as_str()?.to_string();
+                let gen = r.get("generated_at")?.as_str()?.to_string();
+                Some((scope, text, gen))
+            })
+            .collect(),
+        Err(_) => vec![],
+    }
 }
 
 /// Build the full assembled prompt for a spawned agent.

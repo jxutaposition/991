@@ -498,6 +498,7 @@ function NodeDetailContent({
                     { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", cost: "low", provider: "anthropic" },
                     { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", cost: "high", provider: "anthropic" },
                     { id: "claude-opus-4-6", name: "Claude Opus 4.6", cost: "very_high", provider: "anthropic" },
+                    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 Thinking", cost: "very_high", provider: "anthropic" },
                   ]}
                   value={selectedNode.model || "claude-haiku-4-5-20251001"}
                   onChange={(v) => handleSaveField("model", v)}
@@ -1384,24 +1385,27 @@ export const InspectorPanel = React.memo(function InspectorPanel({
                     <div className="space-y-2">
                       <h4 className="text-xs font-semibold text-ink-2 uppercase tracking-wider">Artifacts</h4>
                       <div className="grid gap-2">
-                        {(selectedNode.artifacts as Array<{type: string; url: string; title: string}>).map((artifact, idx) => (
-                          <a
-                            key={idx}
-                            href={artifact.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-3 p-3 rounded-lg border border-rim bg-surface hover:bg-blue-50 hover:border-blue-200 transition-colors group"
-                          >
-                            <div className="flex-shrink-0 w-8 h-8 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center">
-                              <ExternalLink className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-ink truncate group-hover:text-blue-700">{artifact.title}</p>
-                              <p className="text-xs text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
-                            </div>
-                            <ExternalLink className="w-3.5 h-3.5 text-ink-3 group-hover:text-blue-500 flex-shrink-0" />
-                          </a>
-                        ))}
+                        {(selectedNode.artifacts as Array<{type: string; url: string; title: string}>).map((artifact, idx) => {
+                          const integrationSlug = artifact.type.split("_")[0];
+                          return (
+                            <a
+                              key={idx}
+                              href={artifact.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 p-3 rounded-lg border border-rim bg-surface hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                            >
+                              <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
+                                <IntegrationIcon slug={integrationSlug} size={18} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-ink truncate group-hover:text-blue-700">{artifact.title}</p>
+                                <p className="text-xs text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
+                              </div>
+                              <ExternalLink className="w-3.5 h-3.5 text-ink-3 group-hover:text-blue-500 flex-shrink-0" />
+                            </a>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : null}
@@ -1689,10 +1693,10 @@ function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border border-rim rounded-lg overflow-hidden">
+    <div className="border border-rim rounded-lg">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-1.5 px-3 py-2 bg-surface hover:bg-gray-50 transition-colors text-left"
+        className={`w-full flex items-center gap-1.5 px-3 py-2 bg-surface hover:bg-gray-50 transition-colors text-left ${open ? "rounded-t-lg" : "rounded-lg"}`}
       >
         {open ? (
           <ChevronDown className="w-3 h-3 text-ink-3" />
@@ -2009,8 +2013,6 @@ function formatEventType(eventType: string): string {
     executor_thinking: "Model thinking",
     tool_call: "Tool call",
     tool_result: "Tool result",
-    critic_start: "Critic started",
-    critic_done: "Critic done",
     judge_start: "Judge started",
     judge_done: "Judge verdict",
     judge_pass: "Judge passed",
@@ -2061,7 +2063,6 @@ function eventDotColor(eventType: string): string {
     return "bg-red-500";
   if (eventType.includes("thinking")) return "bg-violet-400";
   if (eventType.includes("judge")) return "bg-purple-500";
-  if (eventType.includes("critic")) return "bg-amber-500";
   if (eventType.includes("tool")) return "bg-cyan-500";
   if (eventType.includes("llm_send") || eventType.includes("llm_receive"))
     return "bg-indigo-400";

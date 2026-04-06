@@ -13,6 +13,7 @@ import {
   Table2,
   FlaskConical,
   Hash,
+  Trash2,
 } from "lucide-react";
 
 const settingsSections = [
@@ -50,7 +51,7 @@ const settingsSections = [
 ];
 
 export default function SettingsPage() {
-  const { user, clients, activeClient, setActiveClient, apiFetch } = useAuth();
+  const { user, clients, activeClient, setActiveClient, apiFetch, refreshClients } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -116,6 +117,38 @@ export default function SettingsPage() {
     setSavingProjectSlack(null);
   }, [projectSlackValues, apiFetch]);
 
+  // Delete workspace state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const activeRole = clients.find((c) => c.slug === activeClient)?.role;
+  const activeClientName = clients.find((c) => c.slug === activeClient)?.name;
+
+  const deleteWorkspace = async () => {
+    if (!activeClient || deleteConfirmText.trim().toLowerCase() !== "delete workspace") return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await apiFetch(`/api/auth/workspaces/${activeClient}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmation: deleteConfirmText.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to delete workspace");
+      }
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText("");
+      await refreshClients();
+    } catch (e: unknown) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete workspace");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const createWorkspace = async () => {
     if (!newName.trim()) return;
     setCreating(true);
@@ -138,7 +171,7 @@ export default function SettingsPage() {
       setActiveClient(data.slug);
       setShowCreate(false);
       setNewName("");
-      window.location.reload();
+      await refreshClients();
     } catch (e: unknown) {
       setCreateError(
         e instanceof Error ? e.message : "Failed to create workspace"
@@ -268,6 +301,64 @@ export default function SettingsPage() {
                   setShowCreate(false);
                   setNewName("");
                   setCreateError("");
+                }}
+                className="px-4 py-1.5 rounded text-xs font-medium text-ink-3 hover:text-ink border border-rim"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Delete workspace (admin only) */}
+        {activeClient && activeRole === "admin" && !showDeleteConfirm && (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="mt-4 flex items-center gap-2 text-xs text-red-500 hover:text-red-600 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete workspace
+          </button>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="mt-4 p-4 border border-red-300 rounded-lg bg-red-50 dark:bg-red-950/20 dark:border-red-800 space-y-3">
+            <p className="text-sm font-medium text-red-600 dark:text-red-400">
+              Delete &ldquo;{activeClientName}&rdquo;?
+            </p>
+            <p className="text-xs text-red-500 dark:text-red-400/80">
+              This workspace will be recoverable for 30 days, after which it will be permanently removed along with all associated data.
+            </p>
+            <div>
+              <label className="text-xs text-ink-3 block mb-1">
+                Type <span className="font-mono font-medium text-ink">delete workspace</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="delete workspace"
+                className="w-full bg-page border border-rim rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-red-400"
+                onKeyDown={(e) => e.key === "Enter" && deleteWorkspace()}
+                autoFocus
+              />
+            </div>
+            {deleteError && (
+              <p className="text-xs text-red-500">{deleteError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={deleteWorkspace}
+                disabled={deleteConfirmText.trim().toLowerCase() !== "delete workspace" || deleting}
+                className="bg-red-600 text-white px-4 py-1.5 rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? "Deleting..." : "Delete workspace"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteConfirmText("");
+                  setDeleteError("");
                 }}
                 className="px-4 py-1.5 rounded text-xs font-medium text-ink-3 hover:text-ink border border-rim"
               >

@@ -48,8 +48,6 @@ const EVENT_DISPLAY_LABELS: Record<string, string> = {
   executor_llm_send: "Sending to LLM",
   executor_llm_receive: "Receiving LLM response",
   executor_thinking: "Processing",
-  critic_start: "Running quality check",
-  critic_done: "Quality check complete",
   judge_start: "Evaluating output",
   judge_done: "Evaluation complete",
   node_started: "Node started",
@@ -66,8 +64,6 @@ export function humanizeEventType(eventType: string): string {
 
 const VISIBLE_EVENT_TYPES = new Set([
   "executor_start",
-  "critic_start",
-  "critic_done",
   "judge_start",
   "judge_done",
   "plan_execution_start",

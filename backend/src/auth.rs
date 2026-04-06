@@ -129,9 +129,22 @@ pub async fn auth_middleware(
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "));
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.to_owned());
 
-    match auth_header {
+    // Fall back to ?token= query param for SSE / EventSource (which can't set headers).
+    let token_value = auth_header.or_else(|| {
+        request
+            .uri()
+            .query()
+            .and_then(|q| {
+                q.split('&')
+                    .find_map(|pair| pair.strip_prefix("token="))
+            })
+            .map(|s| s.to_owned())
+    });
+
+    match token_value.as_deref() {
         Some(token) => {
             let claims = decode::<JwtClaims>(
                 token,
@@ -168,7 +181,11 @@ pub async fn auth_middleware(
             Ok(next.run(request).await)
         }
         None => {
-            debug!("auth rejected — no Bearer token in request");
+            debug!(
+                path = %request.uri(),
+                method = %request.method(),
+                "auth rejected — no Bearer token in request"
+            );
             Err(StatusCode::UNAUTHORIZED)
         }
     }

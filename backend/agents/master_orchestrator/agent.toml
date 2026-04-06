@@ -3,6 +3,6 @@ name = "Master Orchestrator"
 category = "orchestration"
 description = "Persistent orchestrator that decomposes complex requests into deliverables, spawns subagents with rich context, validates results, retries with feedback, and synthesizes the final output."
 intents = ["orchestrate", "decompose", "coordinate", "validate", "synthesize"]
-max_iterations = 50
+max_iterations = 300
 skip_judge = true
 automation_mode = "full"

@@ -301,15 +301,15 @@ pub fn all_action_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "clay_read_rows".to_string(),
-            description: "Read rows from a Clay table via the v3 API. Uses clay_get_table_schema to fetch the full table including row data. Requires session cookie.".to_string(),
+            description: "Read rows from a Clay table via the v3 API. Requires a view_id (get from clay_get_table_schema → views[]). Returns records with cell values keyed by field IDs. Requires session cookie.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"},
-                    "limit": {"type": "integer", "description": "Max rows to return (default 50)"},
-                    "offset": {"type": "integer", "description": "Number of rows to skip (default 0)"}
+                    "view_id": {"type": "string", "description": "View ID (e.g. gv_abc123) — required. Get from clay_get_table_schema response under views[]. Use the default/all-rows view for full table reads."},
+                    "limit": {"type": "integer", "description": "Max rows to return (default 100). Note: offset is NOT supported by Clay API."}
                 },
-                "required": ["table_id"]
+                "required": ["table_id", "view_id"]
             }),
             required_credential: Some("clay".to_string()),
         },
@@ -346,6 +346,113 @@ pub fn all_action_defs() -> Vec<ToolDef> {
             required_credential: Some("clay".to_string()),
         },
         ToolDef {
+            name: "clay_update_rows".to_string(),
+            description: "Update existing rows in a Clay table via the v3 API. Updates are async (enqueued). Each record needs its ID and new cell values keyed by field IDs. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"},
+                    "records": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Array of record update objects. Each needs an 'id' (record ID r_xxx) and 'cells' with field ID keys."
+                    }
+                },
+                "required": ["table_id", "records"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_delete_rows".to_string(),
+            description: "Delete rows from a Clay table via the v3 API. Pass an array of record IDs to delete. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"},
+                    "record_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Array of record IDs to delete (e.g. [\"r_abc123\"])"
+                    }
+                },
+                "required": ["table_id", "record_ids"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_app_accounts".to_string(),
+            description: "List all connected auth accounts (enrichment providers) in the Clay workspace. Returns authAccountId values needed for enrichment column creation. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_actions".to_string(),
+            description: "List all available enrichment actions (1,191 actions, 170+ providers) with full I/O schemas. Use to discover actionKey and actionPackageId for enrichment column creation. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_sources".to_string(),
+            description: "List all sources (webhooks, manual, etc.) in the Clay workspace. Returns source IDs, types, webhook URLs, and subscription details. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_get_workspace".to_string(),
+            description: "Get Clay workspace details including billing, credit balance, feature flags, and abilities. Use to check enrichment credit balance before bulk operations. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_workbooks".to_string(),
+            description: "List all workbooks in the Clay workspace. Returns workbook IDs and names. Requires session cookie.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_create_workbook".to_string(),
+            description: "Create a new Clay workbook in the workspace via v3 API. Returns the workbook ID (wb_xxx). Use this to group related tables together, then pass the workbook_id to clay_create_table.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to credential settings."},
+                    "name": {"type": "string", "description": "Workbook name"}
+                },
+                "required": ["name"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
             name: "clay_create_table".to_string(),
             description: "Create a new Clay table in a workspace via v3 API. Returns the new table ID. Requires session cookie.".to_string(),
             input_schema: json!({
@@ -353,7 +460,8 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                 "properties": {
                     "workspace_id": {"type": "integer", "description": "Clay workspace ID (numeric). Falls back to the value stored in credentials if not provided."},
                     "name": {"type": "string", "description": "Table name"},
-                    "table_type": {"type": "string", "enum": ["spreadsheet", "company", "people", "jobs"], "description": "Table type (default: spreadsheet)"}
+                    "table_type": {"type": "string", "enum": ["spreadsheet", "company", "people", "jobs"], "description": "Table type (default: spreadsheet)"},
+                    "workbook_id": {"type": "string", "description": "Workbook ID (wb_xxx) to place the table in. If omitted, Clay auto-creates a new workbook per table."}
                 },
                 "required": ["name"]
             }),
@@ -666,7 +774,10 @@ pub fn action_credential(tool_name: &str) -> Option<String> {
         "clay_read_rows" | "clay_write_rows" | "clay_trigger_enrichment"
         | "clay_get_table_schema" | "clay_create_field" | "clay_create_source"
         | "clay_create_table" | "clay_delete_table" | "clay_list_tables"
-        | "clay_update_field" | "clay_delete_field" => Some("clay"),
+        | "clay_update_field" | "clay_delete_field"
+        | "clay_update_rows" | "clay_delete_rows" | "clay_list_app_accounts"
+        | "clay_list_actions" | "clay_list_sources" | "clay_get_workspace"
+        | "clay_list_workbooks" | "clay_create_workbook" => Some("clay"),
         _ => None,
     };
     cred.map(String::from)
@@ -1157,7 +1268,10 @@ async fn execute_action_inner(
         "clay_get_table_schema" | "clay_create_field" | "clay_create_source"
         | "clay_create_table" | "clay_delete_table" | "clay_list_tables"
         | "clay_update_field" | "clay_delete_field"
-        | "clay_read_rows" | "clay_write_rows" | "clay_trigger_enrichment" => {
+        | "clay_read_rows" | "clay_write_rows" | "clay_trigger_enrichment"
+        | "clay_update_rows" | "clay_delete_rows" | "clay_list_app_accounts"
+        | "clay_list_actions" | "clay_list_sources" | "clay_get_workspace"
+        | "clay_list_workbooks" | "clay_create_workbook" => {
             let cred = match credentials.get("clay") {
                 Some(c) => c,
                 None => return json!({
@@ -1304,6 +1418,7 @@ async fn execute_action_inner(
             let ws_id = resolved_ws_id;
             let table_name = input.get("name").and_then(Value::as_str).unwrap_or("");
             let table_type = input.get("table_type").and_then(Value::as_str).unwrap_or("spreadsheet");
+            let workbook_id = input.get("workbook_id").and_then(Value::as_str).unwrap_or("");
 
             if ws_id == 0 {
                 return json!({"error": "workspace_id is required. Set it in Clay credential settings or pass as a parameter."}).to_string();
@@ -1315,6 +1430,9 @@ async fn execute_action_inner(
                 });
                 if !table_name.is_empty() {
                     body["name"] = json!(table_name);
+                }
+                if !workbook_id.is_empty() {
+                    body["workbookId"] = json!(workbook_id);
                 }
                 match http_client.post("https://api.clay.com/v3/tables")
                     .header("Cookie", cookie.as_str())
@@ -1469,16 +1587,18 @@ async fn execute_action_inner(
 
         "clay_read_rows" => {
             let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let view_id = input.get("view_id").and_then(Value::as_str).unwrap_or("");
+            let limit = input.get("limit").and_then(Value::as_u64).unwrap_or(100);
 
-            if table_id.is_empty() {
-                return json!({"error": "table_id is required"}).to_string();
+            if table_id.is_empty() || view_id.is_empty() {
+                return json!({"error": "table_id and view_id are required. Get view_id from clay_get_table_schema → views[]."}).to_string();
             }
 
-            // v3 has no GET /records endpoint. Read the full table schema which
-            // includes field definitions. Agents use this to understand table
-            // structure and then write/trigger enrichments.
             if let Some(cookie) = &session_cookie {
-                let url = format!("https://api.clay.com/v3/tables/{}", table_id);
+                let url = format!(
+                    "https://api.clay.com/v3/tables/{}/views/{}/records?limit={}",
+                    table_id, view_id, limit
+                );
                 match http_client.get(&url)
                     .header("Cookie", cookie.as_str())
                     .header("Accept", "application/json")
@@ -1494,7 +1614,7 @@ async fn execute_action_inner(
                             http_result_json(status, &body, settings.http_response_max_chars)
                         }
                     }
-                    Err(e) => json!({"error": format!("Clay v3 read table failed: {}", e)}).to_string(),
+                    Err(e) => json!({"error": format!("Clay v3 read rows failed: {}", e)}).to_string(),
                 }
             } else {
                 json!({
@@ -1593,6 +1713,266 @@ async fn execute_action_inner(
                     "error": "Session cookie not configured — cannot trigger enrichment via API.",
                     "no_session": true,
                     "action": "Add a session cookie in Settings → Integrations → Clay."
+                }).to_string()
+            }
+        }
+
+        // ── New v3 tools (discovered via bleeding-edge research) ──
+
+        "clay_update_rows" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let records = input.get("records").cloned().unwrap_or(json!([]));
+
+            if table_id.is_empty() {
+                return json!({"error": "table_id is required"}).to_string();
+            }
+
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/tables/{}/records", table_id);
+                let body = json!({"records": records});
+                match http_client.patch(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let resp_body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": resp_body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &resp_body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 update rows failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_delete_rows" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let record_ids = input.get("record_ids").cloned().unwrap_or(json!([]));
+
+            if table_id.is_empty() {
+                return json!({"error": "table_id is required"}).to_string();
+            }
+
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/tables/{}/records", table_id);
+                let body = json!({"recordIds": record_ids});
+                match http_client.delete(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let resp_body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": resp_body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            json!({"ok": true, "deleted_count": record_ids.as_array().map(|a| a.len()).unwrap_or(0)}).to_string()
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 delete rows failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_list_app_accounts" => {
+            let ws_id = resolved_ws_id;
+            if let Some(cookie) = &session_cookie {
+                let url = if ws_id > 0 {
+                    format!("https://api.clay.com/v3/app-accounts?workspaceId={}", ws_id)
+                } else {
+                    "https://api.clay.com/v3/app-accounts".to_string()
+                };
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 list app accounts failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_list_actions" => {
+            let ws_id = resolved_ws_id;
+            if ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/actions?workspaceId={}", ws_id);
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 list actions failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_list_sources" => {
+            let ws_id = resolved_ws_id;
+            if ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/sources?workspaceId={}", ws_id);
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 list sources failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_get_workspace" => {
+            let ws_id = resolved_ws_id;
+            if ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/workspaces/{}", ws_id);
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 get workspace failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_list_workbooks" => {
+            let ws_id = resolved_ws_id;
+            if ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            if let Some(cookie) = &session_cookie {
+                let url = format!("https://api.clay.com/v3/workspaces/{}/workbooks", ws_id);
+                match http_client.get(&url)
+                    .header("Cookie", cookie.as_str())
+                    .header("Accept", "application/json")
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 list workbooks failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({"error": "Session cookie not configured.", "no_session": true, "action": "Add a session cookie in Settings → Integrations → Clay."}).to_string()
+            }
+        }
+
+        "clay_create_workbook" => {
+            let ws_id = resolved_ws_id;
+            let wb_name = input.get("name").and_then(Value::as_str).unwrap_or("");
+            if ws_id == 0 {
+                return json!({"error": "workspace_id is required. Set it in Clay credential settings or pass as a parameter."}).to_string();
+            }
+            if wb_name.is_empty() {
+                return json!({"error": "name is required for workbook creation."}).to_string();
+            }
+            if let Some(ref cookie) = session_cookie {
+                let body = json!({
+                    "workspaceId": ws_id,
+                    "name": wb_name
+                });
+                match http_client.post("https://api.clay.com/v3/workbooks")
+                    .header("Cookie", cookie.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .json(&body)
+                    .send().await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        let resp_body = resp.text().await.unwrap_or_default();
+                        if status >= 400 {
+                            let (error_type, suggestion) = classify_http_error(status);
+                            json!({"status": status, "error_type": error_type, "suggestion": suggestion, "body": resp_body.chars().take(1000).collect::<String>()}).to_string()
+                        } else {
+                            http_result_json(status, &resp_body, settings.http_response_max_chars)
+                        }
+                    }
+                    Err(e) => json!({"error": format!("Clay v3 create workbook failed: {}", e)}).to_string(),
+                }
+            } else {
+                json!({
+                    "error": "Session cookie not configured — cannot create workbooks via API.",
+                    "no_session": true,
+                    "action": "Use request_user_action to instruct the user to create the workbook in Clay UI. They can enable full automation by adding a session cookie in Settings → Integrations → Clay."
                 }).to_string()
             }
         }

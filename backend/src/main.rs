@@ -16,6 +16,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use lele2_backend::{
     tool_catalog::ToolCatalog,
     agent_catalog::AgentCatalog,
+    chat_analyzer,
     config::Settings,
     pattern_promoter,
     pg::PgClient,
@@ -126,6 +127,14 @@ async fn main() -> anyhow::Result<()> {
         db.clone(),
         settings.anthropic_api_key.clone(),
         settings.anthropic_model.clone(),
+        shutdown_rx.clone(),
+    );
+
+    // Spawn chat analyzer background scheduler
+    chat_analyzer::spawn_scheduler(
+        db.clone(),
+        settings.anthropic_api_key.clone(),
+        settings.anthropic_model.clone(),
         shutdown_rx,
     );
 
@@ -207,6 +216,7 @@ async fn main() -> anyhow::Result<()> {
         // Auth
         .route("/api/auth/me", get(routes::auth_me))
         .route("/api/auth/workspaces", post(routes::auth_create_workspace))
+        .route("/api/auth/workspaces/:slug", axum::routing::delete(routes::auth_delete_workspace))
         // DAG editor
         .route("/api/execute/:session_id/nodes", post(routes::execution_node_add))
         .route("/api/execute/:session_id/nodes/:node_id", axum::routing::patch(routes::execution_node_update))
@@ -273,6 +283,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/:session_id/threads", get(routes::thread_list).post(routes::thread_create))
         .route("/api/execute/:session_id/threads/:thread_id/messages", post(routes::thread_message_create))
         .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
+        // Chat Learnings
+        .route("/api/chat-learnings/stats", get(routes::chat_learnings_stats))
+        .route("/api/chat-learnings/analyze/:session_id", post(routes::chat_learnings_analyze))
+        .route("/api/chat-learnings/:session_id", get(routes::chat_learnings_list))
+        .route("/api/chat-learnings/:id/reject", post(routes::chat_learning_reject))
+        .route("/api/chat-learnings/:id/resolve-conflict", post(routes::chat_learning_resolve_conflict))
+        // Memory visibility
+        .route("/api/overlays/memories", get(routes::overlays_memories))
+        .route("/api/scope-narratives", get(routes::scope_narratives_list))
+        .route("/api/scope-narratives/:id/regenerate", post(routes::scope_narrative_regenerate))
         .layer(middleware::from_fn_with_state(state.clone(), lele2_backend::auth::auth_middleware));
 
     let app = public_routes.merge(protected_routes);

@@ -14,6 +14,13 @@
 | INV-010 | authAccountId Deep Dive | completed | P0 | GAP-004, GAP-022 |
 | INV-011 | v1 Deprecated + v3 Records | completed | P0 | GAP-011 (corrected), GAP-009 |
 | INV-012 | v3 Row Reading Endpoint Discovery | completed | P0 | GAP-025 |
+| INV-013 | Enrichment Cell Metadata States | completed | P1 | GAP-013, TODO-004, TODO-005, TODO-011, TODO-017 |
+| INV-014 | Pagination Investigation | completed | P1 | GAP-026, TODO-009, TODO-012 |
+| INV-015 | View CRUD | completed | P1 | TODO-010 (partial: create + rename work, filter/sort payload TBD) |
+| INV-016 | Table/Workbook Duplication + CRUD | completed | P1 | TODO-013, TODO-015, TODO-016 |
+| INV-017 | Quick Wins (formula, sorting, export) | completed | P2 | GAP-012, GAP-020, TODO-002, TODO-006, TODO-018, TODO-019 |
+| INV-018 | Deep Scan 1: Hidden Entity APIs | completed | P1 | Signals, resource-tags, users, permissions, attributes, export polling |
+| INV-019 | Deep Scan 2: View Filters + Table Settings | completed | P1 | TODO-010 (resolved negative), table settings (autoRun, dedupeFieldId), view deletion |
 
 ## How to Add an Investigation
 

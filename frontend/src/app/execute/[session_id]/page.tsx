@@ -111,7 +111,7 @@ export type CatalogMap = Record<string, CatalogAgent>;
 export default function SessionPage() {
   const { session_id } = useParams();
   const router = useRouter();
-  const { activeClient, apiFetch } = useAuth();
+  const { activeClient, apiFetch, token } = useAuth();
   const [session, setSession] = useState<ExecutionSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -393,9 +393,10 @@ export default function SessionPage() {
   }, [fetchNodeStream]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !token) return;
     let isMounted = true;
-    const es = new EventSource(`/api/execute/${session_id}/events`);
+    const sseUrl = `/api/execute/${session_id}/events?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(sseUrl);
     es.onmessage = (msg) => {
       if (!isMounted) return;
 
@@ -459,8 +460,11 @@ export default function SessionPage() {
           setLivePreviewMap((m) => { const next = { ...m }; delete next[nodeUid]; return next; });
         }
 
-        // Accumulate live chunks for MASTER node (bottom panel)
-        if (streamEntry && isMasterNode) {
+        // Accumulate live chunks for MASTER node (bottom panel).
+        // Also forward child-node deltas when the master is selected so the
+        // orchestrator view isn't blank while children execute.
+        const showInMaster = isMasterNode || (!isMasterNode && nodeUid && masterNodeIdRef.current && selectedNodeIdRef.current === masterNodeIdRef.current);
+        if (streamEntry && showInMaster) {
           const st = streamEntry.stream_type;
           if (st === "text_delta") {
             const key = String(streamEntry.block_index ?? 0);
@@ -545,7 +549,7 @@ export default function SessionPage() {
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [session_id, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
+  }, [session_id, token, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
 
   useEffect(() => {
     setNodeEventsLoading(true);

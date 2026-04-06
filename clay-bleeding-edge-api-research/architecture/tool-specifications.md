@@ -204,95 +204,164 @@ This replicates Claymate Lite's import functionality server-side: resolves depen
 ### clay_read_rows
 
 **Purpose**: Read rows from a table.
-**Layer**: v1 API
-**Auth**: API key
+**Layer**: v3 API (v1 is deprecated)
+**Auth**: Session cookie
 
 ```
 Input:
   table_id: string,
-  limit: number | null,
-  offset: number | null
+  view_id: string | null,  // null = auto-select "All rows" view
+  limit: number | null      // default 100, max tested 10000
 
 Output:
-  rows: [object],
-  total: number
+  rows: [object],           // array of {id, cells, recordMetadata, ...}
+  count: number             // count of returned rows (no server-side total)
 ```
 
-**Status**: Available (`GET /api/v1/tables/{id}/rows`). Exact pagination mechanics need verification.
+**Status**: **Confirmed** (`GET /v3/tables/{id}/views/{viewId}/records?limit=N`). View ID required — get from table schema. No pagination: use `limit=10000` for all rows.
 
 ### clay_write_rows
 
 **Purpose**: Add rows to a table.
-**Layer**: v1 API
-**Auth**: API key
+**Layer**: v3 API
+**Auth**: Session cookie
 
 ```
 Input:
   table_id: string,
-  rows: [object]  // key-value pairs matching column names
+  rows: [{cells: {field_id: value}}]
 
 Output:
-  created: number
+  records: [{id, cells, createdAt}]
 ```
 
-**Status**: Available (`POST /api/v1/tables/{id}/rows`).
+**Status**: **Confirmed** (`POST /v3/tables/{id}/records`).
+
+### clay_update_rows
+
+**Purpose**: Update existing rows in a table.
+**Layer**: v3 API
+**Auth**: Session cookie
+
+```
+Input:
+  table_id: string,
+  records: [{id: "r_xxx", cells: {field_id: value}}]
+
+Output:
+  message: "Record updates enqueued"  // async
+```
+
+**Status**: **Confirmed** (`PATCH /v3/tables/{id}/records`). Updates are async/enqueued.
+
+### clay_delete_rows
+
+**Purpose**: Delete rows from a table.
+**Layer**: v3 API
+**Auth**: Session cookie
+
+```
+Input:
+  table_id: string,
+  record_ids: string[]
+
+Output:
+  {}  // empty on success
+```
+
+**Status**: **Confirmed** (`DELETE /v3/tables/{id}/records`).
 
 ### clay_trigger_enrichment
 
-**Purpose**: Trigger enrichment runs on a table.
-**Layer**: v1 API
-**Auth**: API key
-
-```
-Input:
-  table_id: string
-
-Output:
-  triggered: boolean
-```
-
-**Status**: Available (`POST /api/v1/tables/{id}/trigger`). Exact parameters (which columns, which rows) need verification.
-
-### clay_read_formula (Future)
-
-**Purpose**: Read the formula text behind a specific cell.
-**Layer**: Playwright DOM
-**Auth**: Session cookie (browser)
+**Purpose**: Trigger enrichment runs on specific rows and fields.
+**Layer**: v3 API
+**Auth**: Session cookie
 
 ```
 Input:
   table_id: string,
-  column_name: string,
-  row_index: number | null  // null = just read column formula
+  field_ids: string[],
+  record_ids: string[],
+  force_run: boolean  // default true
 
 Output:
-  formula_text: string
+  record_count: number,
+  run_mode: "INDIVIDUAL"
 ```
 
-**Status**: Needs DOM selector verification.
+**Status**: **Confirmed** (`PATCH /v3/tables/{id}/run`).
 
-### clay_scan_errors (Future)
+### clay_duplicate_table
 
-**Purpose**: Scan a table for cells with error states.
-**Layer**: Playwright DOM
-**Auth**: Session cookie (browser)
+**Purpose**: Duplicate a table with all its columns.
+**Layer**: v3 API
+**Auth**: Session cookie
+
+```
+Input:
+  table_id: string,
+  name: string | null  // default "Copy of {original}"
+
+Output:
+  table: {id, name, fields, views, workbookId}
+```
+
+**Status**: **Confirmed** (`POST /v3/tables/{id}/duplicate`).
+
+### clay_create_view
+
+**Purpose**: Create a custom view on a table.
+**Layer**: v3 API
+**Auth**: Session cookie
+
+```
+Input:
+  table_id: string,
+  name: string
+
+Output:
+  view: {id, name, fields, filter, sort}
+```
+
+**Status**: **Confirmed** (`POST /v3/tables/{id}/views`). Filter/sort update via PATCH needs payload refinement.
+
+### clay_export_csv
+
+**Purpose**: Export table data as CSV (async job).
+**Layer**: v3 API
+**Auth**: Session cookie
 
 ```
 Input:
   table_id: string
 
 Output:
-  errors: [
-    {
-      column_name: string,
-      row_index: number,
-      error_type: string,
-      error_message: string | null
-    }
-  ]
+  job: {id: "ej_xxx", status: "ACTIVE", uploadedFilePath: null}
 ```
 
-**Status**: Needs DOM selector verification.
+**Status**: **Confirmed** (`POST /v3/tables/{id}/export`). Poll `GET /v3/exports/{jobId}` for `uploadedFilePath`.
+
+### clay_check_enrichment_status
+
+**Purpose**: Check completion status of enrichment runs by polling row metadata.
+**Layer**: v3 API
+**Auth**: Session cookie
+
+```
+Input:
+  table_id: string,
+  view_id: string,
+  field_ids: string[]  // enrichment fields to check
+
+Output:
+  rows: [{
+    id: string,
+    status: "SUCCESS" | "ERROR_OUT_OF_CREDITS" | "ERROR_BAD_REQUEST" | "STALE" | "PENDING",
+    has_value: boolean
+  }]
+```
+
+**Status**: **Implementable** — poll `GET /v3/tables/{id}/views/{viewId}/records` and inspect `cell.metadata.status`.
 
 ## Integration with actions.toml
 
@@ -314,7 +383,13 @@ actions = [
   "clay_import_schema",
   "clay_read_rows",
   "clay_write_rows",
-  "clay_trigger_enrichment"
+  "clay_update_rows",
+  "clay_delete_rows",
+  "clay_trigger_enrichment",
+  "clay_check_enrichment_status",
+  "clay_duplicate_table",
+  "clay_create_view",
+  "clay_export_csv"
 ]
 ```
 
@@ -323,6 +398,14 @@ actions = [
 All tools should:
 1. Return structured errors with error type and message
 2. On auth failure (401), trigger session refresh and retry once
-3. On rate limit (429), wait and retry with exponential backoff
+3. Rate limiting (429): Not observed in testing (50 req/s, 0 throttled). No backoff needed.
 4. On v3 failure, suggest Playwright fallback or `request_user_action`
 5. Never expose raw session cookies in error messages or logs
+
+## Notes (updated Session 4)
+
+- **v1 API is dead.** All tools must use v3 with session cookie auth.
+- **No rate limiting.** Safe to call endpoints sequentially without delays.
+- **Formulas auto-evaluate.** No need to trigger formula recalculation after row writes.
+- **No pagination.** Use `limit=10000` to get all rows. No cursor/offset mechanism.
+- **Enrichment completion = polling.** After triggering, poll rows every 2-5s and check `cell.metadata.status`.

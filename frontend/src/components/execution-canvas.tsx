@@ -435,16 +435,20 @@ function NodeBox({
 
       {/* Artifact links */}
       {(node.artifacts?.length ?? 0) > 0 && (status === "passed" || status === "failed") && !isVariantAlt && (
-        <div className="flex items-center gap-1 flex-wrap mt-1">
-          {node.artifacts!.slice(0, 3).map((a, idx) => (
-            <a key={idx} href={a.url} target="_blank" rel="noopener noreferrer"
-               onClick={e => e.stopPropagation()}
-               className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
-               title={a.url}>
-              <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
-              {truncate(a.title, 20)}
-            </a>
-          ))}
+        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+          {node.artifacts!.slice(0, 3).map((a, idx) => {
+            const integrationSlug = a.type.split("_")[0];
+            return (
+              <a key={idx} href={a.url} target="_blank" rel="noopener noreferrer"
+                 onClick={e => e.stopPropagation()}
+                 className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-white ring-1 ring-gray-200 text-ink hover:ring-blue-300 hover:bg-blue-50 transition-colors font-medium shadow-sm"
+                 title={`${a.type.replace(/_/g, " ")} · ${a.url}`}>
+                <IntegrationIcon slug={integrationSlug} size={12} />
+                <span className="truncate max-w-[120px]">{a.title}</span>
+                <ExternalLink className="w-3 h-3 flex-shrink-0 text-ink-3" />
+              </a>
+            );
+          })}
           {(node.artifacts?.length ?? 0) > 3 && (
             <span className="text-xs text-ink-3">+{node.artifacts!.length - 3}</span>
           )}

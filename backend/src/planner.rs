@@ -1,6 +1,4 @@
 /// LLM planner — decomposes a customer NL request into a DAG of agent nodes.
-///
-/// Adapted from dataAggregate/planner.rs for the GTM domain.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
@@ -114,6 +112,8 @@ pub async fn plan_execution(
             Ok(nodes) if !nodes.is_empty() => {
                 let mut nodes = nodes;
                 sanitize_depends_on(&mut nodes);
+                deduplicate_nodes(&mut nodes);
+                enforce_canonical_ordering(&mut nodes);
                 info!(node_count = nodes.len(), "planner produced DAG");
                 return Ok(nodes);
             }
@@ -138,20 +138,37 @@ pub async fn plan_execution(
     Err(anyhow::anyhow!("planner output is not valid JSON: {last_error}"))
 }
 
-/// Trait to allow `sanitize_depends_on` to work on both `PlannedNode` and `RichPlannedNode`.
+/// Trait to allow post-processing functions to work on both `PlannedNode` and `RichPlannedNode`.
 trait HasDependsOn {
     fn agent_slug(&self) -> &str;
+    fn task_description(&self) -> &str;
+    fn depends_on(&self) -> &[usize];
     fn depends_on_mut(&mut self) -> &mut Vec<usize>;
+    /// Append another node's task description (used when deduplicating).
+    fn merge_from_task(&mut self, task: &str);
 }
 
 impl HasDependsOn for PlannedNode {
     fn agent_slug(&self) -> &str { &self.agent_slug }
+    fn task_description(&self) -> &str { &self.task_description }
+    fn depends_on(&self) -> &[usize] { &self.depends_on }
     fn depends_on_mut(&mut self) -> &mut Vec<usize> { &mut self.depends_on }
+    fn merge_from_task(&mut self, task: &str) {
+        self.task_description.push_str("; ");
+        self.task_description.push_str(task);
+    }
 }
 
 impl HasDependsOn for RichPlannedNode {
     fn agent_slug(&self) -> &str { &self.agent_slug }
+    fn task_description(&self) -> &str { &self.task_description }
+    fn depends_on(&self) -> &[usize] { &self.depends_on }
     fn depends_on_mut(&mut self) -> &mut Vec<usize> { &mut self.depends_on }
+    fn merge_from_task(&mut self, task: &str) {
+        self.task_description.push_str("; ");
+        self.task_description.push_str(task);
+        // Keep first occurrence's rich description — it captures the primary task
+    }
 }
 
 fn sanitize_depends_on<T: HasDependsOn>(nodes: &mut Vec<T>) {
@@ -168,6 +185,205 @@ fn sanitize_depends_on<T: HasDependsOn>(nodes: &mut Vec<T>) {
             );
         }
     }
+}
+
+/// Canonical execution phase for each agent slug.
+/// Lower phase = earlier in execution order.
+fn agent_phase(slug: &str) -> u8 {
+    match slug {
+        "notion_operator" => 0,          // planning / documentation first
+        "n8n_operator" => 1,             // automation / pipelines second
+        "clay_operator" => 2,            // enrichment / data third
+        "dashboard_builder"
+        | "lovable_operator" => 3,       // UI / dashboards last
+        _ => 2,                          // unknown agents default to middle
+    }
+}
+
+/// Deduplicate nodes that share the same agent_slug by merging their tasks and deps.
+fn deduplicate_nodes<T: HasDependsOn>(nodes: &mut Vec<T>) {
+    if nodes.len() <= 1 {
+        return;
+    }
+
+    let n = nodes.len();
+    let slugs: Vec<String> = nodes.iter().map(|nd| nd.agent_slug().to_string()).collect();
+
+    // remap[i] = index of the canonical (first) node for slug i
+    let mut first_for_slug: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut remap: Vec<usize> = (0..n).collect();
+
+    for (i, slug) in slugs.iter().enumerate() {
+        match first_for_slug.entry(slug.clone()) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                remap[i] = *e.get();
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(i);
+            }
+        }
+    }
+
+    if remap.iter().enumerate().all(|(i, &r)| r == i) {
+        return; // no duplicates
+    }
+
+    // Collect task descriptions and deps from duplicates before mutating
+    let dup_info: Vec<(usize, String, Vec<usize>)> = (0..n)
+        .filter(|&i| remap[i] != i)
+        .map(|i| {
+            (
+                remap[i],
+                nodes[i].task_description().to_string(),
+                nodes[i].depends_on().to_vec(),
+            )
+        })
+        .collect();
+
+    // Merge tasks and deps into first occurrences
+    for (first, task, deps) in &dup_info {
+        nodes[*first].merge_from_task(task);
+        for &dep in deps {
+            let canonical_dep = remap[dep];
+            if canonical_dep != *first {
+                nodes[*first].depends_on_mut().push(canonical_dep);
+            }
+        }
+    }
+
+    // Determine which nodes to keep and build old→new index mapping
+    let keep: Vec<bool> = (0..n).map(|i| remap[i] == i).collect();
+    let mut old_to_new = vec![0usize; n];
+    let mut new_idx = 0usize;
+    for i in 0..n {
+        if keep[i] {
+            old_to_new[i] = new_idx;
+            new_idx += 1;
+        } else {
+            old_to_new[i] = old_to_new[remap[i]];
+        }
+    }
+
+    // Remap depends_on in all kept nodes, removing self-references
+    for i in 0..n {
+        if !keep[i] {
+            continue;
+        }
+        let new_self = old_to_new[i];
+        let new_deps: Vec<usize> = nodes[i]
+            .depends_on()
+            .iter()
+            .filter_map(|&d| {
+                if d >= n {
+                    return None;
+                }
+                let mapped = old_to_new[remap[d]];
+                if mapped == new_self { None } else { Some(mapped) }
+            })
+            .collect();
+        *nodes[i].depends_on_mut() = new_deps;
+        nodes[i].depends_on_mut().sort();
+        nodes[i].depends_on_mut().dedup();
+    }
+
+    // Remove duplicate nodes
+    let mut idx = 0;
+    nodes.retain(|_| {
+        let k = keep[idx];
+        idx += 1;
+        k
+    });
+
+    let removed = n - nodes.len();
+    warn!(removed, "deduplicated agent nodes (merged duplicate slugs)");
+}
+
+/// Reorder nodes to match canonical phase ordering via topological sort.
+/// Uses agent phase as a tiebreaker — dependency constraints always win.
+fn enforce_canonical_ordering<T: HasDependsOn>(nodes: &mut Vec<T>) {
+    if nodes.len() <= 1 {
+        return;
+    }
+
+    let n = nodes.len();
+
+    // Build adjacency for Kahn's algorithm
+    let mut in_degree: Vec<usize> = vec![0; n];
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); n];
+
+    for (i, node) in nodes.iter().enumerate() {
+        for &d in node.depends_on() {
+            if d < n {
+                in_degree[i] += 1;
+                dependents[d].push(i);
+            }
+        }
+    }
+
+    // Topological sort with (phase, original_index) as priority
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
+    let mut heap: BinaryHeap<Reverse<(u8, usize)>> = BinaryHeap::new();
+    for i in 0..n {
+        if in_degree[i] == 0 {
+            heap.push(Reverse((agent_phase(nodes[i].agent_slug()), i)));
+        }
+    }
+
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    while let Some(Reverse((_, idx))) = heap.pop() {
+        order.push(idx);
+        for &dep in &dependents[idx] {
+            in_degree[dep] -= 1;
+            if in_degree[dep] == 0 {
+                heap.push(Reverse((agent_phase(nodes[dep].agent_slug()), dep)));
+            }
+        }
+    }
+
+    if order.len() != n {
+        warn!("cycle detected in plan DAG, skipping canonical reorder");
+        return;
+    }
+
+    // Check if already in canonical order
+    if order.iter().enumerate().all(|(new, &old)| new == old) {
+        return;
+    }
+
+    // Build old→new index mapping
+    let mut old_to_new = vec![0usize; n];
+    for (new_pos, &old_pos) in order.iter().enumerate() {
+        old_to_new[old_pos] = new_pos;
+    }
+
+    // Remap depends_on before physical reorder
+    for node in nodes.iter_mut() {
+        let deps = node.depends_on_mut();
+        for dep in deps.iter_mut() {
+            if *dep < n {
+                *dep = old_to_new[*dep];
+            }
+        }
+        deps.sort();
+    }
+
+    // Physical reorder via permutation cycles
+    let mut perm = old_to_new.clone();
+    for i in 0..n {
+        while perm[i] != i {
+            let j = perm[i];
+            nodes.swap(i, j);
+            perm.swap(i, j);
+        }
+    }
+
+    info!("reordered plan nodes to match canonical phase ordering");
+
+    // Re-sanitize to drop any forward refs introduced by reorder
+    sanitize_depends_on(nodes);
 }
 
 /// Shared implementation for converting planned nodes to execution nodes.
@@ -280,6 +496,15 @@ const RICH_PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM system architect. Your
 - IMPORTANT: Use each agent_slug AT MOST ONCE. If the request requires multiple workflows, pipelines, or artifacts from the same tool, combine them into a single component with a compound task_description. The agent handles sequencing internally. Duplicate slugs waste execution resources.
 - Every component must BUILD something or ACT on an external system. No planning-only components.
 - CRITICAL CONCISENESS: Your total JSON output must stay under 4000 tokens. Keep ALL string values short and declarative. Do NOT generate sample data, mock rows, example records, initial_rows, placeholder content, or any kind of filler. Schemas should be empty objects `{}` unless a specific format is essential. Summaries should be 2-3 sentences max. Acceptance criteria should be one-liners.
+
+## Ordering Guidelines
+When building the component list, follow this execution order strictly:
+1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
+2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
+3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
+4. **UI / dashboard / app last**: dashboard_builder, lovable_operator — these reference data from Clay tables and upstream pipelines.
+
+Infer depends_on automatically: if component B reads from or references a system that component A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), component B MUST depend on component A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
 
 ## Agent-Specific Guidance
 
@@ -498,6 +723,8 @@ pub async fn plan_rich_description(
         match serde_json::from_str::<RichPlanOutput>(cleaned) {
             Ok(mut output) if !output.components.is_empty() => {
                 sanitize_depends_on(&mut output.components);
+                deduplicate_nodes(&mut output.components);
+                enforce_canonical_ordering(&mut output.components);
                 info!(
                     component_count = output.components.len(),
                     title = %output.title,

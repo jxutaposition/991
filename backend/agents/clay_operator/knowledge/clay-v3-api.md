@@ -1,76 +1,32 @@
-# Clay v3 Internal API
+# Clay v3 API Reference
 
-Clay's frontend uses an internal API at `https://api.clay.com/v3` for structural operations. This API is not publicly documented but is stable and usable. The v1 API (`/api/v1/`) uses your Clay API key. The v3 API requires a `claysession` browser cookie (7-day lifetime).
+Clay's internal API at `https://api.clay.com/v3` powers all operations. The v1 API is **deprecated and non-functional** — all v1 endpoints return errors. The v3 API is stable and production-ready.
 
 ## Authentication
 
-**v1 API** (row operations, enrichment triggers): `Authorization: Bearer {CLAY_API_KEY}` — auto-injected for `api.clay.com` URLs.
+**Session cookie** (`claysession`): Required for all v3 calls. Stored in the Clay credential and auto-injected by all dedicated Clay tools.
 
-**v3 API** (table lifecycle, schema, column CRUD): Uses the `claysession` cookie stored in the Clay credential. All dedicated Clay tools handle this automatically. If the session cookie isn't configured, tools return a clear `no_session` error — switch to `request_user_action` for those operations.
+- **Domain**: `.api.clay.com`
+- **Lifetime**: 7 days, rolling — resets on every API call. As long as any endpoint is hit once per 7 days, the session never expires.
+- **Format**: `claysession=s%3A...` (URL-encoded Express session ID)
+- **How to get it**: DevTools → Application → Cookies → `api.clay.com` → copy `claysession` value
 
-## v1 Endpoints (API Key Auth)
+**Rate limiting**: None detected. 50 rapid-fire requests at zero delay: 0 throttled. No rate-limit headers observed. No inter-call delays needed.
 
-### Read Rows
-```
-GET https://api.clay.com/api/v1/tables/{table_id}/rows
-```
-Returns row data from a table.
+## Table Lifecycle
 
-### Write Rows
+### Create Table
 ```
-POST https://api.clay.com/api/v1/tables/{table_id}/rows
-Body: {"rows": [{"Column Name": "value"}]}
+POST /v3/tables
+Body: {"workspaceId": <number>, "type": "spreadsheet"|"company"|"people"|"jobs", "name": "<string>", "workbookId": "<string> (optional)"}
 ```
+Returns the new table object with ID. Table types are functionally identical in API — type only affects UI onboarding.
 
-### Trigger Enrichment
+### Read Full Table Schema
 ```
-POST https://api.clay.com/api/v1/tables/{table_id}/trigger
+GET /v3/tables/{tableId}
 ```
-
-### Read Table Metadata
-```
-GET https://api.clay.com/api/v1/tables/{table_id}
-```
-
-## v3 Endpoints (Session Cookie Auth)
-
-### Table Lifecycle
-
-#### Create Table
-```
-POST https://api.clay.com/v3/tables
-Body: {
-  "workspaceId": <number>,
-  "type": "spreadsheet" | "company" | "people" | "jobs",
-  "name": "<string>"
-}
-```
-Returns the new table object with its ID.
-
-#### Delete Table
-```
-DELETE https://api.clay.com/v3/tables/{tableId}
-```
-
-#### List Tables in Workspace
-```
-GET https://api.clay.com/v3/workspaces/{workspaceId}/tables
-```
-Returns all tables in the workspace.
-
-#### Update Table
-```
-PATCH https://api.clay.com/v3/tables/{tableId}
-Body: {"name": "New Name"}
-```
-
-### Schema Management
-
-#### Read Full Table Schema
-```
-GET https://api.clay.com/v3/tables/{tableId}
-```
-Returns complete schema: every field with its ID, name, type, and full `typeSettings` (formulas, enrichment configs, data types). Also returns `gridViews` with field ordering.
+Returns complete schema: all fields with IDs, names, types, full `typeSettings` (formulas, enrichment configs, data types), views with field ordering, sources, and abilities.
 
 Response shape:
 ```json
@@ -79,96 +35,179 @@ Response shape:
     {"id": "f_abc", "name": "Website", "type": "text", "typeSettings": {"dataTypeSettings": {"type": "url"}}},
     {"id": "f_def", "name": "Domain", "type": "formula", "typeSettings": {"formulaText": "DOMAIN({{f_abc}})", "formulaType": "text"}}
   ],
-  "gridViews": [{"id": "gv_xyz", "fieldOrder": ["f_abc", "f_def"]}]
+  "views": [{"id": "gv_xyz", "name": "All rows", "fieldOrder": ["f_abc", "f_def"]}],
+  "sources": [...]
 }
 ```
 
-Field references in formulas use internal IDs: `{{f_abc123}}`.
-
-#### Create Column
+### Update Table
 ```
-POST https://api.clay.com/v3/tables/{tableId}/fields
+PATCH /v3/tables/{tableId}
+Body: {"name": "New Name"}
+```
+
+### Delete Table
+```
+DELETE /v3/tables/{tableId}
+```
+
+### List Tables in Workspace
+```
+GET /v3/workspaces/{workspaceId}/tables
+```
+Returns `{results: Table[]}`.
+
+### List Workbooks in Workspace
+```
+GET /v3/workspaces/{workspaceId}/workbooks
+```
+
+## Row CRUD
+
+### Read Rows (requires view ID)
+```
+GET /v3/tables/{tableId}/views/{viewId}/records?limit=N
+```
+View IDs (`gv_xxx`) come from `GET /v3/tables/{tableId}` → `views[]`. Views apply server-side filtering (e.g. "Fully enriched rows" returns only enriched records). Use the default or "All rows" view for full table reads.
+
+**Important**: `limit` works. `offset` is accepted but **silently ignored** — always returns from start. No pagination metadata (no hasMore, total, nextCursor).
+
+### Read Single Row
+```
+GET /v3/tables/{tableId}/records/{recordId}
+```
+
+### Write Rows
+```
+POST /v3/tables/{tableId}/records
+Body: {"records": [{"cells": {"f_abc123": "value", "f_def456": 42}}]}
+```
+Cell keys must be field IDs (`f_xxx`). Multiple records per call.
+
+### Update Rows
+```
+PATCH /v3/tables/{tableId}/records
+Body: {"records": [{"id": "r_xxx", "cells": {"f_abc123": "new value"}}]}
+```
+Updates are **async (enqueued)** — may not be immediately visible.
+
+### Delete Rows
+```
+DELETE /v3/tables/{tableId}/records
+Body: {"recordIds": ["r_xxx", "r_yyy"]}
+```
+
+## Column CRUD
+
+### Create Column
+```
+POST /v3/tables/{tableId}/fields
 Body: {
   "name": "Column Name",
-  "type": "text|formula|action|source",
+  "type": "text"|"formula"|"action"|"source",
   "activeViewId": "gv_xxx",
   "typeSettings": { ... }
 }
 ```
 
-**Text column**: `{"type": "text", "typeSettings": {"dataTypeSettings": {"type": "text"}}}`
+**Text column**: `{"type": "text", "typeSettings": {"dataTypeSettings": {"type": "text"|"url"|"email"|"number"|"boolean"|"json"|"select"}}}`
+
 **Formula column**: `{"type": "formula", "typeSettings": {"formulaText": "DOMAIN({{f_xxx}})", "formulaType": "text", "dataTypeSettings": {"type": "text"}}}`
-**Action column**: `{"type": "action", "typeSettings": {"actionKey": "provider-name", "actionPackageId": "uuid", "authAccountId": "aa_xxx", "inputsBinding": [{"name": "domain", "formulaText": "{{f_xxx}}"}], "dataTypeSettings": {"type": "json"}}}`
+
+**Action/enrichment column**: `{"type": "action", "typeSettings": {"actionKey": "provider-name", "actionPackageId": "uuid", "authAccountId": "aa_xxx", "inputsBinding": [{"name": "domain", "formulaText": "{{f_xxx}}"}], "dataTypeSettings": {"type": "json"}}}`
+
+**Route-row column**: `{"type": "action", "typeSettings": {"actionKey": "route-row", "tableId": "formulaText with literal table ID string", "rowData": {"Key Name": "{{f_xxx}}"}}}`
+- Auto-creates source fields on target table
+- List mode: `type: "list"` + `listData` creates one row per list item
 
 Returns: `{"field": {"id": "f_new123", "name": "...", "type": "..."}}`
 
-Wait 150ms between calls. Track returned field IDs for subsequent references.
-
-#### Update Column
+### Update Column
 ```
-PATCH https://api.clay.com/v3/tables/{tableId}/fields/{fieldId}
+PATCH /v3/tables/{tableId}/fields/{fieldId}
 Body: {"name": "New Name", "typeSettings": { ... }}
 ```
-Use PATCH only — PUT returns 404.
+Use PATCH only — PUT returns 404. Can update name, formula text, action config, input bindings.
 
-#### Delete Column
+### Delete Column
 ```
-DELETE https://api.clay.com/v3/tables/{tableId}/fields/{fieldId}
+DELETE /v3/tables/{tableId}/fields/{fieldId}
 ```
 
-### Source Management
+Field references in formulas use internal IDs: `{{f_abc123}}`.
 
-#### Create Source
+## Source Management
+
+### Create Source
 ```
-POST https://api.clay.com/v3/sources
+POST /v3/sources
 Body: {"workspaceId": 12345, "tableId": "t_xxx", "name": "Webhook", "type": "v3-action", "typeSettings": {"hasAuth": false, "iconType": "Webhook"}}
 ```
 
-#### Read Source Details
+### Read Source (get webhook URL)
 ```
-GET https://api.clay.com/v3/sources/{sourceId}
+GET /v3/sources/{sourceId}
 ```
-Returns source name, type, `dataFieldId`, and `typeSettings`.
+Webhook URL is in `state.url`: `https://api.clay.com/v3/sources/webhook/{uuid}`
 
-#### Update Source
+### List All Sources
 ```
-PATCH https://api.clay.com/v3/sources/{sourceId}
-```
-
-#### Delete Source
-```
-DELETE https://api.clay.com/v3/sources/{sourceId}
+GET /v3/sources?workspaceId=N
 ```
 
-### Enrichment Trigger (v3)
+### Update Source
 ```
-PATCH https://api.clay.com/v3/tables/{tableId}/run
+PATCH /v3/sources/{sourceId}
+```
+
+### Delete Source
+```
+DELETE /v3/sources/{sourceId}
+```
+Returns `{success: true}`.
+
+## Enrichment & Actions
+
+### List All Available Actions
+```
+GET /v3/actions?workspaceId=N
+```
+Returns 1,191 available enrichment actions from 170+ providers, each with full I/O schemas, rate limits, and auth requirements.
+
+### List Connected Auth Accounts
+```
+GET /v3/app-accounts
+```
+Returns all auth accounts with their IDs. The `id` field IS the `authAccountId` needed for enrichment column creation. Match `appAccountTypeId` to an action's `auth.providerType` to find the right account.
+
+### Trigger Enrichment/Action Runs
+```
+PATCH /v3/tables/{tableId}/run
 Body: {
-  "runRecords": {"recordIds": ["row_id_1", "row_id_2"]},
+  "runRecords": {"recordIds": ["r_xxx"]},
   "fieldIds": ["f_enrichment_col"],
   "forceRun": true
 }
 ```
-More granular than v1 trigger — can target specific rows and columns.
+Target specific rows and fields. `forceRun: true` re-runs even completed rows.
 
-## URL/ID Patterns
+## Workspace & Account
 
-- Table IDs: `t_` + alphanumeric (from URL: `/tables/t_abc123`)
-- View IDs: `gv_` + alphanumeric (from URL: `/views/gv_abc123`)
-- Workspace IDs: numeric (from URL: `/workspaces/12345`)
-- Field IDs: `f_` + alphanumeric (from API responses, not URLs)
-- Source IDs: `s_` + alphanumeric (from API responses)
+### Get Workspace Details
+```
+GET /v3/workspaces/{workspaceId}
+```
+Returns billing, credit balance (`credits: {basic: N, actionExecution: N}`), feature flags, abilities. Real-time credit tracking.
 
-## Session Cookie
+### Get Current User
+```
+GET /v3/me
+```
+Returns user info, API token, auth strategy, workspace IDs. Also refreshes session cookie.
 
-The `claysession` cookie is required for all v3 API calls.
-- **Domain**: `.api.clay.com`
-- **Lifetime**: 7 days from issuance
-- **Format**: `claysession=s%3A...` (URL-encoded Express session ID)
-- **How to get it**: DevTools → Application → Cookies → `api.clay.com` → copy `claysession` value
+## What Requires `request_user_action`
 
-## What Requires request_user_action
+Only one thing has no API endpoint:
+- Connecting enrichment provider accounts (OAuth handshake inside Clay UI)
 
-These have no known API endpoint — instruct the user manually:
-- Connecting enrichment provider accounts (authAccountId values)
-- Getting webhook URLs after source creation
+Everything else — including discovering `authAccountId` values — is fully automatable via the API.

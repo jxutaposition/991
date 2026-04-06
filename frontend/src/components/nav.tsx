@@ -15,6 +15,7 @@ import {
   LogIn,
   ChevronsLeft,
   ChevronsRight,
+  Plus,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -28,9 +29,12 @@ const navLinks = [
 
 export function Nav() {
   const pathname = usePathname();
-  const { user, clients, activeClient, setActiveClient, signOut } = useAuth();
+  const { user, clients, activeClient, setActiveClient, signOut, apiFetch, refreshClients } = useAuth();
   const [wsOpen, setWsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [showNewWs, setShowNewWs] = useState(false);
+  const [newWsName, setNewWsName] = useState("");
+  const [creatingWs, setCreatingWs] = useState(false);
   const wsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,6 +61,26 @@ export function Nav() {
     pathname.startsWith("/feedback") ||
     pathname.startsWith("/data-viewer") ||
     pathname.startsWith("/testing");
+
+  const handleCreateWorkspace = async () => {
+    if (!newWsName.trim() || creatingWs) return;
+    setCreatingWs(true);
+    try {
+      const slug = newWsName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const res = await apiFetch("/api/auth/workspaces", {
+        method: "POST",
+        body: JSON.stringify({ slug, name: newWsName.trim() }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveClient(data.slug);
+      setShowNewWs(false);
+      setNewWsName("");
+      await refreshClients();
+    } finally {
+      setCreatingWs(false);
+    }
+  };
 
   return (
     <aside
@@ -127,6 +151,47 @@ export function Nav() {
                     )}
                   </button>
                 ))}
+                <div className="border-t border-rim mt-1 pt-1">
+                  {showNewWs ? (
+                    <div className="px-3 py-2 space-y-2">
+                      <input
+                        type="text"
+                        value={newWsName}
+                        onChange={(e) => setNewWsName(e.target.value)}
+                        placeholder="Workspace name"
+                        className="w-full bg-page border border-rim rounded px-2 py-1 text-xs text-ink focus:outline-none focus:border-brand"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateWorkspace();
+                          if (e.key === "Escape") { setShowNewWs(false); setNewWsName(""); }
+                        }}
+                        autoFocus
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={handleCreateWorkspace}
+                          disabled={!newWsName.trim() || creatingWs}
+                          className="bg-brand text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-brand-hover disabled:opacity-50"
+                        >
+                          {creatingWs ? "Creating..." : "Create"}
+                        </button>
+                        <button
+                          onClick={() => { setShowNewWs(false); setNewWsName(""); }}
+                          className="px-2.5 py-1 rounded text-xs text-ink-3 hover:text-ink border border-rim"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowNewWs(true)}
+                      className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-ink-3 hover:text-brand hover:bg-raised transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      New workspace
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

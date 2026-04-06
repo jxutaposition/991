@@ -6,52 +6,32 @@ Clay is a data enrichment and prospecting platform. You build tables where each 
 
 - **Manual/imported** — data you paste or import
 - **Enrichment** — data pulled from external providers (LinkedIn, Apollo, Clearbit, etc.)
-- **Formula** — computed values using Clay's formula language
+- **Formula** — computed values using Clay's formula language (JavaScript syntax, field refs via `{{f_xxx}}`)
 - **Lookup** — cross-table joins matching on a key column
 - **Action** — outbound webhooks or API calls triggered per row
+- **Route-row** — route rows to other Clay tables based on conditions (auto-creates source on target)
+- **Source** — inbound data fields populated by webhooks or route-row actions
 
-## No Table CRUD API
+## Full API Access (v3)
 
-Clay has **no public API** for:
-- Creating tables
-- Adding/configuring columns
-- Setting up enrichment providers
-- Configuring formulas
-- Creating action columns or webhooks
+Clay's v3 API provides **complete CRUD** for all objects. The v1 API is deprecated and non-functional.
 
-All structural setup must be done in the Clay UI by the user. The agent provides detailed step-by-step instructions via `request_user_action`.
+### What the API can do (all via dedicated tools):
 
-## What the API Can Do
+- **Tables**: Create, read schema, update, delete, list all in workspace
+- **Rows**: Read (via view), create, update (async), delete
+- **Columns**: Create (text, formula, enrichment, action, route-row, source), update, delete
+- **Sources**: Create webhooks, read (get webhook URL from `state.url`), list all, update, delete
+- **Enrichments**: Trigger runs on specific rows/fields, list all 1,191 available actions, list connected auth accounts
+- **Workspace**: Check credit balance, billing, features
+- **Workbooks**: Create, list all in workspace
 
-- Read rows from a table
-- Add rows to a table
-- Trigger column runs (enrichments, actions)
-- Read table metadata
+### Key patterns:
+- **Row reading requires a view ID**: `clay_read_rows` needs `view_id` from `clay_get_table_schema` → `views[]`
+- **Enrichment auto-wiring**: `clay_list_actions` + `clay_list_app_accounts` gives you everything needed to create enrichment columns without user input
+- **Webhook URLs**: Create source → read source → URL is in `state.url`
+- **No rate limiting**: No inter-call delays needed
+- **Session cookie**: 7-day rolling lifetime, refreshes on every API call
 
-## Instruction Templates
-
-### Table Creation
-1. Go to Clay workspace
-2. Click "New Table"
-3. Name: "{table_name}"
-4. Row unit: Each row represents {row_unit_description}
-5. Add columns as specified
-
-### Enrichment Column
-1. In table, click "+ Add Column" -> "Enrichment"
-2. Select provider, map inputs, configure output
-3. Run strategy: "all rows" or "empty rows only"
-
-### Formula Column
-1. Click "+ Add Column" -> "Formula"
-2. Paste the exact formula text
-3. Verify output matches expected computation
-
-### Action Column (Webhook)
-1. Click "+ Add Column" -> "Action" -> "HTTP API"
-2. Configure method, URL, headers, body template
-3. Set run condition
-
-### Lookup Column
-1. Click "+ Add Column" -> "Lookup"
-2. Set source table, match key, columns to pull
+### Only requires manual UI action:
+- Connecting new enrichment provider accounts (OAuth handshake)

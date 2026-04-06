@@ -67,6 +67,7 @@ pub async fn run_promotion_scan(
         LEFT JOIN projects p ON o.scope_id = p.id
         WHERE o.scope = 'project'
           AND o.source = 'feedback'
+          AND o.retired_at IS NULL
         ORDER BY o.primitive_id, o.created_at
     "#;
 

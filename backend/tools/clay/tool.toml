@@ -1,12 +1,12 @@
 id = "clay"
 name = "Clay"
 category = "data-enrichment"
-description = "Data enrichment and prospecting platform. Full API access: create tables, columns, formulas, enrichment configs, webhook sources, and action columns. v1 API (API key) for row CRUD and enrichment triggers. v3 API (session cookie) for table lifecycle, schema management, and column CRUD."
+description = "Data enrichment and prospecting platform. Full v3 API access: create/read/update/delete tables, rows, columns, sources, and enrichments. Auto-discover enrichment providers and auth accounts. Session cookie required."
 required_credentials = ["clay"]
 enabled = true
 
 [tradeoffs]
 automation = "full"
-api_access = "v1 (official) + v3 (internal, full CRUD)"
+api_access = "v3 (internal, full CRUD — v1 is deprecated and non-functional)"
 cost = "credit-based"
-notes = "v1 API key for row operations and enrichment triggers. v3 session cookie (7-day lifetime) for table creation/deletion, column CRUD, source management, and workspace listing. Only enrichment provider account connections require the Clay UI. Enrichment credits are finite — always test on a single row first."
+notes = "v3 session cookie (7-day rolling lifetime) for all operations: table lifecycle, row CRUD, column CRUD, source management, enrichment triggers, auth account discovery, workspace details. No rate limiting detected. Only enrichment provider account connections require the Clay UI. Enrichment credits are finite — always test on a single row first."

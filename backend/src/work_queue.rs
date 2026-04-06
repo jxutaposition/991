@@ -1,6 +1,6 @@
 /// Work queue — executes execution nodes in DAG order using Kahn's algorithm.
 ///
-/// Adapted from dataAggregate/work_queue.rs. Core logic is identical:
+/// Core logic:
 /// - Poll for ready nodes (FOR UPDATE SKIP LOCKED)
 /// - Execute up to MAX_CONCURRENT_NODES in parallel tokio tasks
 /// - On completion, eagerly unblock downstream nodes

@@ -1,6 +1,4 @@
 /// Native Anthropic Messages API client.
-///
-/// Copied from dataAggregate with minor type updates.
 use std::time::Duration;
 
 use reqwest::Client;
@@ -303,6 +301,7 @@ pub enum ContentBlockType {
 pub enum DeltaPayload {
     TextDelta(String),
     ThinkingDelta(String),
+    SignatureDelta(String),
     InputJsonDelta(String),
 }
 
@@ -338,6 +337,9 @@ fn parse_sse_event(event_type: &str, data: &Value) -> Option<StreamEvent> {
                 "thinking_delta" => DeltaPayload::ThinkingDelta(
                     delta_obj.get("thinking")?.as_str()?.to_string(),
                 ),
+                "signature_delta" => DeltaPayload::SignatureDelta(
+                    delta_obj.get("signature")?.as_str()?.to_string(),
+                ),
                 "input_json_delta" => DeltaPayload::InputJsonDelta(
                     delta_obj.get("partial_json")?.as_str()?.to_string(),
                 ),
@@ -369,6 +371,7 @@ struct ResponseAccumulator {
     block_types: Vec<String>,
     text_accumulators: Vec<String>,
     json_accumulators: Vec<String>,
+    signature_accumulators: Vec<String>,
     stop_reason: Option<String>,
     usage: Option<Value>,
 }
@@ -380,6 +383,7 @@ impl ResponseAccumulator {
             block_types: Vec::new(),
             text_accumulators: Vec::new(),
             json_accumulators: Vec::new(),
+            signature_accumulators: Vec::new(),
             stop_reason: None,
             usage: None,
         }
@@ -391,6 +395,7 @@ impl ResponseAccumulator {
             self.block_types.push(String::new());
             self.text_accumulators.push(String::new());
             self.json_accumulators.push(String::new());
+            self.signature_accumulators.push(String::new());
         }
     }
 
@@ -427,6 +432,9 @@ impl ResponseAccumulator {
                     DeltaPayload::TextDelta(t) | DeltaPayload::ThinkingDelta(t) => {
                         self.text_accumulators[*index].push_str(t);
                     }
+                    DeltaPayload::SignatureDelta(s) => {
+                        self.signature_accumulators[*index].push_str(s);
+                    }
                     DeltaPayload::InputJsonDelta(j) => {
                         self.json_accumulators[*index].push_str(j);
                     }
@@ -443,6 +451,11 @@ impl ResponseAccumulator {
                         "thinking" => {
                             self.content_blocks[*index]["thinking"] =
                                 Value::String(self.text_accumulators[*index].clone());
+                            let sig = &self.signature_accumulators[*index];
+                            if !sig.is_empty() {
+                                self.content_blocks[*index]["signature"] =
+                                    Value::String(sig.clone());
+                            }
                         }
                         "tool_use" => {
                             let json_str = &self.json_accumulators[*index];

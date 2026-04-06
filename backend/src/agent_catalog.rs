@@ -41,7 +41,7 @@ struct AgentToml {
 }
 
 fn default_max_iterations() -> u32 {
-    15
+    100
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -413,7 +413,7 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
     let max_iterations = row
         .get("max_iterations")
         .and_then(Value::as_i64)
-        .unwrap_or(15) as u32;
+        .unwrap_or(100) as u32;
     let model = row
         .get("model")
         .and_then(Value::as_str)

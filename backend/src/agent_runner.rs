@@ -1,8 +1,7 @@
-/// AgentRunner — Executor → Critic → Judge loop for a single agent node.
+/// AgentRunner — Executor → Judge loop for a single agent node.
 ///
-/// Adapted from dataAggregate/node_runner.rs for GTM agents.
-/// Same three-stage pattern: Executor runs tool loop, Critic checks rubric,
-/// Judge scores and decides pass/fail/retry.
+/// Two-stage pattern: Executor runs tool loop, Judge scores against
+/// rubric + need_to_know and decides pass/fail/retry.
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -126,7 +125,7 @@ async fn forward_stream_delta(
                         "created_at": chrono::Utc::now().to_rfc3339(),
                     }
                 }),
-                DeltaPayload::InputJsonDelta(_) => return, // not forwarded
+                DeltaPayload::SignatureDelta(_) | DeltaPayload::InputJsonDelta(_) => return, // not forwarded
             }
         }
         StreamEvent::ContentBlockStart { index, block_type } => {
@@ -622,7 +621,7 @@ impl AgentRunner {
         }
 
         // Merge dynamic acceptance_criteria (from orchestrator enrichment) into the
-        // judge rubric so critic/judge can validate against task-specific criteria,
+        // judge rubric so it can validate against task-specific criteria,
         // not just the agent's static rubric from agent.toml.
         let mut effective_judge_config = plan_node.judge_config.clone();
         if let Some(ref criteria_json) = node_criteria {
@@ -691,7 +690,7 @@ impl AgentRunner {
                 .unwrap_or("")
                 .to_string();
 
-            // Always extract the tool_log so critic/judge can see what was executed.
+            // Always extract the tool_log so the judge can see what was executed.
             let tool_log = result.get("tool_log")
                 .and_then(Value::as_array)
                 .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
@@ -767,57 +766,7 @@ impl AgentRunner {
                 }
             }
 
-            // ── Stage 2: Critic (rubric check) ──────────────────────────────
-            info!(uid = %uid_str, attempt = attempt, rubric_items = effective_judge_config.rubric.len(), "entering critic stage");
-            if !effective_judge_config.rubric.is_empty() {
-                emit_event(&self.db, &self.event_bus, &sid, &nid, "critic_start", &json!({
-                    "attempt": attempt,
-                })).await;
-
-                let critic_result = self
-                    .critic_run(&executor_summary, &effective_judge_config, model)
-                    .await;
-
-                let critic_passed = critic_result
-                    .get("overall_pass")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true);
-
-                emit_event(&self.db, &self.event_bus, &sid, &nid, "critic_done", &json!({
-                    "attempt": attempt,
-                    "passed": critic_passed,
-                    "summary": critic_result.get("summary").and_then(Value::as_str).unwrap_or(""),
-                    "items": critic_result.get("items"),
-                })).await;
-
-                if !critic_passed {
-                    let summary = critic_result
-                        .get("summary")
-                        .and_then(Value::as_str)
-                        .unwrap_or("Rubric check failed")
-                        .to_string();
-                    judge_feedback_for_retry = summary;
-
-                    if attempt == MAX_JUDGE_RETRIES {
-                        warn!(attempt, "critic failed on final attempt — giving up");
-                        return AgentResult {
-                            node_uid: uid_str,
-                            status: NodeStatus::Failed,
-                            judge_score: None,
-                            judge_feedback: Some(judge_feedback_for_retry),
-                            final_summary: Some(executor_summary),
-                            output: executor_output,
-                            error: Some("Critic failed after max retries".to_string()),
-                            duration_ms: node_started_at.elapsed().as_millis() as u64,
-                        };
-                    }
-
-                    warn!(attempt, "critic failed — retrying executor");
-                    continue;
-                }
-            }
-
-            // ── Stage 3: Judge ───────────────────────────────────────────────
+            // ── Stage 2: Judge ────────────────────────────────────────────────
             info!(uid = %uid_str, attempt = attempt, threshold = effective_judge_config.threshold, "entering judge stage");
             emit_event(&self.db, &self.event_bus, &sid, &nid, "judge_start", &json!({
                 "attempt": attempt,
@@ -973,6 +922,8 @@ impl AgentRunner {
         let mut final_summary = String::new();
         let mut tool_call_log: Vec<String> = Vec::new();
         let mut last_llm_text = String::new();
+        let mut consecutive_no_tool_calls: usize = 0;
+        const STALL_THRESHOLD: usize = 3;
 
         // Persist initial user message
         persist_message(&self.db, &self.event_bus, session_id, node_id, "user", question, &json!({})).await;
@@ -1063,6 +1014,20 @@ impl AgentRunner {
                 .collect();
             for name in &tool_call_names {
                 tool_call_log.push(format!("iter {}: {}", iteration + 1, name));
+            }
+
+            if tool_call_names.is_empty() {
+                consecutive_no_tool_calls += 1;
+                if consecutive_no_tool_calls >= STALL_THRESHOLD {
+                    warn!(node_id = %node_id, iteration = iteration + 1, "executor stalled — {STALL_THRESHOLD} consecutive iterations with no tool calls");
+                    emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_stall", &json!({
+                        "iteration": iteration + 1,
+                        "consecutive_no_tool_calls": consecutive_no_tool_calls,
+                    })).await;
+                    break;
+                }
+            } else {
+                consecutive_no_tool_calls = 0;
             }
 
             emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_llm_receive", &json!({
@@ -1258,7 +1223,17 @@ impl AgentRunner {
                         .unwrap_or("")
                         .to_string();
 
-                    // write_output summary is already captured above — no need for an extra LLM call.
+                    // Merge top-level artifacts into the output so work_queue can extract them
+                    if let Some(artifacts) = tool_input.get("artifacts") {
+                        if let Some(ref mut output) = final_output {
+                            if let Some(obj) = output.as_object_mut() {
+                                obj.entry("artifacts").or_insert_with(|| artifacts.clone());
+                            }
+                        } else {
+                            final_output = Some(json!({"artifacts": artifacts}));
+                        }
+                    }
+
                     break;
                 }
 
@@ -1342,67 +1317,7 @@ impl AgentRunner {
         })
     }
 
-    /// Critic: check rubric items against the executor's output.
-    #[tracing::instrument(skip(self, narrative), fields(stage = "critic"))]
-    async fn critic_run(
-        &self,
-        narrative: &str,
-        judge_config: &JudgeConfig,
-        model: &str,
-    ) -> Value {
-        if judge_config.rubric.is_empty() {
-            debug!("critic skipped — empty rubric");
-            return json!({"overall_pass": true, "items": [], "summary": ""});
-        }
-        info!(rubric_items = judge_config.rubric.len(), "running critic");
-
-        let client = AnthropicClient::new(
-            self.settings.anthropic_api_key.clone(),
-            model.to_string(),
-        );
-
-        let rubric_list = judge_config
-            .rubric
-            .iter()
-            .enumerate()
-            .map(|(i, item)| format!("{}. {}", i + 1, item))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let system = "You are a quality checker reviewing an agent's output against a checklist.\n\nIMPORTANT: The agent's tool calls (API requests, table creation, row writes, etc.) are executed by the platform and their results are verified automatically. When the output references resource IDs, table names, or operation results, treat those as evidence of real execution — the agent cannot fabricate tool call results.\n\nFAIL only when: (a) a checklist item's requirement is genuinely unmet (e.g. wrong column name, missing table), or (b) the output is purely aspirational planning with no tool calls made at all.\n\nDo NOT fail items just because the output summarizes results instead of pasting raw API responses.";
-        let prompt = format!(
-            "Review this output against each checklist item. For each item, state PASS or FAIL and briefly explain why.\n\n## Checklist\n{rubric_list}\n\n## Output to Review\n{narrative}\n\nRespond with JSON: {{\"overall_pass\": bool, \"summary\": \"string\", \"items\": [{{\"item\": \"...\", \"pass\": bool, \"reason\": \"...\"}}]}}"
-        );
-
-        let response = match client
-            .messages(system, &[user_message(prompt)], &[], 2048, Some(model))
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                warn!(error = %e, "critic LLM call failed — treating as fail");
-                return json!({"overall_pass": false, "items": [], "summary": "critic unavailable — LLM call failed"});
-            }
-        };
-
-        let text = response.text();
-        let cleaned = text
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
-
-        let result: Value = serde_json::from_str(cleaned).unwrap_or_else(|_| {
-            warn!("critic returned unparseable JSON — treating as fail");
-            json!({"overall_pass": false, "items": [], "summary": "critic parse error — could not validate output"})
-        });
-        let passed = result.get("overall_pass").and_then(Value::as_bool).unwrap_or(false);
-        info!(passed = passed, "critic finished");
-        result
-    }
-
-    /// Judge: score the output 0-10 and decide pass/fail/reject.
+    /// Judge: score the output 0-10 against the rubric + need_to_know and decide pass/fail/reject.
     #[tracing::instrument(skip(self, question, narrative), fields(stage = "judge"))]
     async fn judge_run(
         &self,
@@ -1411,11 +1326,26 @@ impl AgentRunner {
         judge_config: &JudgeConfig,
         model: &str,
     ) -> Value {
-        info!(threshold = judge_config.threshold, "running judge");
+        info!(threshold = judge_config.threshold, rubric_items = judge_config.rubric.len(), "running judge");
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
             model.to_string(),
         );
+
+        let rubric_section = if judge_config.rubric.is_empty() {
+            String::new()
+        } else {
+            let items = judge_config
+                .rubric
+                .iter()
+                .enumerate()
+                .map(|(i, item)| format!("{}. {}", i + 1, item))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "\n\n## Quality Checklist\nEvaluate each item. Items that are not applicable to the specific task count as met.\n{items}"
+            )
+        };
 
         let need_to_know = if judge_config.need_to_know.is_empty() {
             String::new()
@@ -1431,9 +1361,9 @@ impl AgentRunner {
             )
         };
 
-        let system = "You are a quality judge evaluating an AI agent's output.\n\nScoring guide:\n- 9-10: All criteria met, work completed with referenced resource IDs or confirmed results\n- 7-8: Core deliverable exists, minor gaps or cosmetic issues\n- 5-6: Deliverable partially exists, significant items missing or wrong\n- 3-4: Mostly planning or aspirational — no tool calls were actually made\n- 1-2: No real work done\n\nIMPORTANT: The agent's tool calls are executed by the platform and results are system-verified. When the output references resource IDs (e.g. table IDs, workflow IDs) or states that operations succeeded, treat this as real execution evidence. Do NOT penalize for summarizing results instead of including raw API response bodies.";
+        let system = "You are a quality judge evaluating an AI agent's output.\n\nScoring guide:\n- 9-10: All applicable criteria met, work completed with referenced resource IDs or confirmed results\n- 7-8: Core deliverable exists, minor gaps or cosmetic issues\n- 5-6: Deliverable partially exists, significant items missing or wrong\n- 3-4: Mostly planning or aspirational — no tool calls were actually made\n- 1-2: No real work done\n\nIMPORTANT: The agent's tool calls are executed by the platform and results are system-verified. When the output references resource IDs (e.g. table IDs, workflow IDs) or states that operations succeeded, treat this as real execution evidence. Do NOT penalize for summarizing results instead of including raw API response bodies.\n\nChecklist items that are not relevant to the specific task should not reduce the score.";
         let prompt = format!(
-            "Score this agent output from 0-10 based on quality, completeness, and accuracy.\n\nThreshold to pass: {threshold:.1}\n{need_to_know}\n\n## Question / Task\n{question}\n\n## Agent Output\n{narrative}\n\nRespond with JSON: {{\"verdict\": \"pass\"|\"fail\"|\"reject\", \"score\": number, \"feedback\": \"string\"}}",
+            "Score this agent output from 0-10 based on quality, completeness, and accuracy.\n\nThreshold to pass: {threshold:.1}\n{rubric_section}{need_to_know}\n\n## Question / Task\n{question}\n\n## Agent Output\n{narrative}\n\nRespond with JSON: {{\"verdict\": \"pass\"|\"fail\"|\"reject\", \"score\": number, \"feedback\": \"string\"}}",
             threshold = judge_config.threshold,
         );
 
@@ -2418,7 +2348,7 @@ Respond with ONLY the JSON object:
         ).await;
 
         // Build child ExecutionPlanNode — use the agent's own judge settings so that
-        // operator agents (n8n, notion, etc.) go through critic/judge validation.
+        // operator agents (n8n, notion, etc.) go through judge validation.
         let mut child_judge_config = agent.judge_config.clone();
         if let Some(criteria) = &acceptance_criteria {
             for c in criteria {
@@ -2562,7 +2492,7 @@ Respond with ONLY the JSON object:
         let conv_state = row.get("conversation_state").cloned().unwrap_or(json!(null));
         let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("");
         let model = row.get("model").and_then(Value::as_str).unwrap_or("claude-haiku-4-5-20251001");
-        let max_iterations = row.get("max_iterations").and_then(Value::as_i64).unwrap_or(12) as usize;
+        let max_iterations = row.get("max_iterations").and_then(Value::as_i64).unwrap_or(100) as usize;
 
         if conv_state.is_null() {
             return AgentResult {
@@ -2679,6 +2609,8 @@ Respond with ONLY the JSON object:
         let started_at = Instant::now();
         let mut final_output: Option<Value> = None;
         let mut final_summary = String::new();
+        let mut consecutive_no_tool_calls: usize = 0;
+        const STALL_THRESHOLD: usize = 3;
 
         // Resume executor loop
         for iteration in 0..max_iterations {
@@ -2718,6 +2650,16 @@ Respond with ONLY the JSON object:
                 .iter()
                 .map(|(_, name, _)| name.to_string())
                 .collect();
+
+            if tool_call_names.is_empty() {
+                consecutive_no_tool_calls += 1;
+                if consecutive_no_tool_calls >= STALL_THRESHOLD {
+                    warn!(node_id = %node_id, iteration = iteration + 1, "resumed executor stalled — {STALL_THRESHOLD} consecutive iterations with no tool calls");
+                    break;
+                }
+            } else {
+                consecutive_no_tool_calls = 0;
+            }
 
             emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_llm_receive", &json!({
                 "iteration": iteration + 1,

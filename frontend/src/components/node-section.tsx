@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, ChevronDown, ChevronRight, Hand, MessageSquare, Pencil, Save, Sparkles, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, ExternalLink, Hand, MessageSquare, Pencil, Save, Sparkles, X } from "lucide-react";
+import { IntegrationIcon } from "@/components/integration-icon";
 import type { ExecutionNode } from "@/components/execution-canvas";
 import { IssueCard, type NodeIssue } from "@/components/issue-card";
 import { InlineChatInput } from "@/components/inline-chat-input";
@@ -418,19 +419,24 @@ export function NodeSection({
           {/* Artifacts (post-execution) */}
           {(node.artifacts ?? []).length > 0 ? (
             <DescSection title="Artifacts">
-              <div className="space-y-1">
-                {(node.artifacts ?? []).map((a, i) => (
-                  <a
-                    key={i}
-                    href={a.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-brand hover:underline"
-                  >
-                    <span className="text-xs px-1 py-0.5 bg-gray-100 rounded font-mono">{a.type}</span>
-                    {a.title}
-                  </a>
-                ))}
+              <div className="space-y-1.5">
+                {(node.artifacts ?? []).map((a, i) => {
+                  const integrationSlug = a.type.split("_")[0];
+                  return (
+                    <a
+                      key={i}
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm text-ink hover:text-blue-700 group"
+                    >
+                      <IntegrationIcon slug={integrationSlug} size={14} />
+                      <span className="truncate group-hover:underline">{a.title}</span>
+                      <span className="text-xs text-ink-3 font-mono">{a.type.replace(/_/g, " ")}</span>
+                      <ExternalLink className="w-3 h-3 text-ink-3 group-hover:text-blue-500 flex-shrink-0 ml-auto" />
+                    </a>
+                  );
+                })}
               </div>
             </DescSection>
           ) : null}

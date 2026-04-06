@@ -19,7 +19,7 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 | Write table rows | no (v1 deprecated) | **yes** (POST /v3/tables/{id}/records) | **v3 working** |
 | Update table rows | no (v1 deprecated) | **yes** (PATCH /v3/tables/{id}/records) | **v3 working (async)** |
 | Row deletion | no (v1 deprecated) | **yes** (DELETE /v3/tables/{id}/records) | **v3 working** |
-| Row pagination | no (v1 deprecated) | **no** (offset silently ignored) | needs investigation (GAP-026) |
+| Row pagination | no (v1 deprecated) | **partial** (no cursor/offset; use limit=10000 workaround) | **RESOLVED (INV-014)**: limit=10000 returns all rows. No cursor/page/offset mechanism. Default limit=100. |
 | Trigger enrichments | no (v1 deprecated) | yes (targeted, fieldIds + runRecords) | **v3 working** |
 | Read table metadata | no (v1 deprecated) | yes (full schema) | **v3 working** |
 | Webhook data ingestion | n/a | **yes** (POST to source webhook URL) | **v3 working** |
@@ -38,7 +38,9 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 | Update formula text | no | yes (PATCH typeSettings.formulaText) | **working** |
 | Update action config | no | yes (PATCH typeSettings.inputsBinding) | **working** |
 | Delete columns | no | yes (DELETE) | **working** |
-| Reorder columns | no | unknown | needs investigation |
+| Reorder columns | no | **yes** (via view field order in PATCH /v3/tables/{id}/views/{viewId}) | **working (INV-015)** — per-view field order |
+| Create view | no | **yes** (`POST /v3/tables/{id}/views`) | **working (INV-015)** |
+| Update/rename view | no | **yes** (`PATCH /v3/tables/{id}/views/{viewId}`) | **working (INV-015)** |
 | Export schema | no | yes (via get_table + transform) | **implementable** |
 | Import schema | no | yes (via create_field + resolution) | **implementable** |
 
@@ -52,8 +54,10 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 | Create table in specific workbook | no | yes (`POST /v3/tables` with `workbookId`) | **working** |
 | Rename/update table | no | yes (`PATCH /v3/tables/{id}`) | **working** |
 | Delete table | no | yes (`DELETE /v3/tables/{id}`) | **working** |
-| Duplicate table | no | unknown | needs investigation |
-| Workbook CRUD | no | **no** (`/v3/workbooks` → 404) | **not available** |
+| Duplicate table | no | **yes** (`POST /v3/tables/{id}/duplicate`) | **working (INV-016)** |
+| Duplicate workbook | no | **yes** (`POST /v3/workbooks/{id}/duplicate`) | **working (INV-016)** |
+| Create workbook | no | **yes** (`POST /v3/workbooks`) | **working (INV-016)** |
+| Workbook CRUD | no | **partial** (create + duplicate + list work; GET/PATCH/DELETE individual 404) | **partially available (INV-016)** |
 
 ## Source/Webhook Management
 
@@ -87,7 +91,7 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 | List all workspaces | no | no (requires admin, 403) | **not available for regular users** |
 | Get current user | no | yes (`GET /v3/me`, includes API token) | **working** |
 | Import history | no | yes (`GET /v3/imports?workspaceId=`) | **working** |
-| CSV export | no | untested (async job model?) | needs investigation |
+| CSV export | no | **yes** (`POST /v3/tables/{id}/export` → async job) | **working (INV-017)** — creates job with ej_xxx ID, status: ACTIVE |
 | API key management | no | yes (`GET/POST /v3/api-keys`) | **working (purpose unclear)** |
 
 ## Authentication
