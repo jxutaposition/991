@@ -2,19 +2,7 @@
 
 import { useMemo } from "react";
 import { type ExecutionNode, buildDag } from "@/components/execution-canvas";
-
-const MINI_DOT: Record<string, string> = {
-  passed: "bg-green-500",
-  running: "bg-blue-500 animate-pulse",
-  ready: "bg-blue-400",
-  waiting: "bg-amber-400",
-  failed: "bg-red-500",
-  skipped: "bg-gray-300",
-  pending: "bg-gray-300",
-  preview: "bg-purple-300",
-  queued: "bg-gray-400",
-  awaiting_reply: "bg-amber-500 animate-pulse",
-};
+import { NODE_STATUS_DOT } from "@/lib/tokens";
 
 interface DagMinimapProps {
   nodes: ExecutionNode[];
@@ -50,12 +38,12 @@ export function DagMinimap({ nodes, selectedNodeId, onNodeClick }: DagMinimapPro
         <div key={li} className="flex flex-col gap-1.5 shrink-0" style={{ zIndex: 1 }}>
           {layer.map((node) => {
             const isSelected = node.id === selectedNodeId;
-            const dotColor = MINI_DOT[node.status] ?? "bg-gray-300";
+            const dotColor = NODE_STATUS_DOT[node.status] ?? "bg-muted-rim";
             return (
               <button
                 key={node.id}
                 onClick={() => onNodeClick?.(node.id)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono
                   border transition-all cursor-pointer
                   ${isSelected
                     ? "border-brand bg-brand/5 ring-1 ring-brand/30"
@@ -71,7 +59,7 @@ export function DagMinimap({ nodes, selectedNodeId, onNodeClick }: DagMinimapPro
             );
           })}
           {li < layers.length - 1 && (
-            <div className="flex items-center justify-center text-purple-300 text-[8px]">
+            <div className="flex items-center justify-center text-purple-300 text-xs">
               &rarr;
             </div>
           )}

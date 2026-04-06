@@ -1,0 +1,10 @@
+# Probe results (can be large, not needed in version control)
+*.json
+*.jsonl
+
+# Session cookies (SENSITIVE - never commit)
+.session-cookies.json
+
+# Keep the directory
+!.gitkeep
+!.gitignore

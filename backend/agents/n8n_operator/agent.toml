@@ -5,4 +5,5 @@ description = "Designs and builds data pipelines and automations end-to-end usin
 intents = ["n8n", "workflow", "automation", "n8n workflow", "build workflow", "create automation", "configure node", "activate workflow", "n8n trigger", "webhook workflow", "data pipeline", "connect systems", "data flow", "webhook setup", "data sync", "integration pipeline", "data routing", "onboarding flow", "onboarding automation", "signup flow", "activation flow"]
 max_iterations = 15
 skip_judge = false
+automation_mode = "full"
 required_integrations = ["n8n"]

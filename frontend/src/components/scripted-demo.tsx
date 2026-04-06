@@ -26,7 +26,7 @@ export function ScriptedDemo({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [currentStep, setCurrentStep] = useState(-1);
-  const [elapsed, setElapsed] = useState(0);
+  const [, setElapsed] = useState(0);
   const startTimeRef = useRef<number | null>(null);
 
   // Drive the animation when running

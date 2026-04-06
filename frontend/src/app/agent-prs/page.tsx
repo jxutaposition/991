@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PR_TYPE_BADGE } from "@/lib/tokens";
 
 interface AgentPR {
   id: string;
@@ -14,13 +16,6 @@ interface AgentPR {
   status: string;
   created_at: string;
 }
-
-const PR_TYPE_COLORS: Record<string, string> = {
-  enhancement:      "bg-blue-100 text-blue-700",
-  new_agent:        "bg-green-100 text-green-700",
-  example_addition: "bg-purple-100 text-purple-700",
-  reclassification: "bg-amber-100 text-amber-700",
-};
 
 export default function AgentPRsPage() {
   const [prs, setPrs] = useState<AgentPR[]>([]);
@@ -41,19 +36,15 @@ export default function AgentPRsPage() {
           <h1 className="text-2xl font-bold text-ink">Agent PRs</h1>
           <p className="text-ink-2 text-sm mt-1">Proposed agent updates from observation sessions</p>
         </div>
-        <div className="flex gap-1 bg-surface rounded-lg p-1">
-          {["open", "approved", "rejected"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`px-3 py-1 rounded-md text-xs capitalize transition-colors ${
-                filter === s ? "bg-page text-ink shadow-sm" : "text-ink-3 hover:text-ink-2"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+        <Tabs value={filter} onValueChange={setFilter}>
+          <TabsList>
+            {["open", "approved", "rejected"].map((s) => (
+              <TabsTrigger key={s} value={s} className="capitalize">
+                {s}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {loading ? (
@@ -71,7 +62,7 @@ export default function AgentPRsPage() {
               href={`/agent-prs/${pr.id}`}
               className="flex items-center gap-4 border border-rim rounded-xl px-5 py-4 hover:border-rim-strong transition-colors bg-page"
             >
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${PR_TYPE_COLORS[pr.pr_type] ?? "bg-surface text-ink-2"}`}>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${PR_TYPE_BADGE[pr.pr_type] ?? "bg-surface text-ink-2"}`}>
                 {pr.pr_type.replace(/_/g, " ")}
               </span>
               <span className="text-sm font-medium text-ink shrink-0 w-40 truncate font-mono">

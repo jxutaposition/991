@@ -5,3 +5,4 @@ description = "Persistent orchestrator that decomposes complex requests into del
 intents = ["orchestrate", "decompose", "coordinate", "validate", "synthesize"]
 max_iterations = 50
 skip_judge = true
+automation_mode = "full"

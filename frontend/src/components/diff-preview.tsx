@@ -31,19 +31,19 @@ export function DiffPreview({ original, proposed, onAccept, onReject }: DiffPrev
   return (
     <div className="border border-rim rounded-lg overflow-hidden">
       <div className="bg-gray-50 px-3 py-1.5 border-b border-rim flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+        <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
           Proposed Changes
         </span>
         <div className="flex gap-1">
           <button
             onClick={onAccept}
-            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-green-500 text-white hover:bg-green-600"
+            className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-green-500 text-white hover:bg-green-600"
           >
             <Check className="w-3 h-3" /> Accept
           </button>
           <button
             onClick={onReject}
-            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600"
+            className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600"
           >
             <X className="w-3 h-3" /> Reject
           </button>

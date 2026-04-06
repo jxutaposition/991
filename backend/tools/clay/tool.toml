@@ -1,12 +1,12 @@
 id = "clay"
 name = "Clay"
 category = "data-enrichment"
-description = "Data enrichment and prospecting platform. Build tables with enrichment columns, formulas, lookups, and action columns (webhooks). No public API for table creation, column configuration, enrichments, or webhooks — those require the Clay UI."
+description = "Data enrichment and prospecting platform. Full API access: create tables, columns, formulas, enrichment configs, webhook sources, and action columns. v1 API (API key) for row CRUD and enrichment triggers. v3 API (session cookie) for table lifecycle, schema management, and column CRUD."
 required_credentials = ["clay"]
 enabled = true
 
 [tradeoffs]
-automation = "partial"
-api_access = "limited"
+automation = "full"
+api_access = "v1 (official) + v3 (internal, full CRUD)"
 cost = "credit-based"
-notes = "No table CRUD API. Has webhook/action columns for outbound data. UI operations require browser automation or user action via request_user_action. Enrichment credits are finite — always test on a single row first."
+notes = "v1 API key for row operations and enrichment triggers. v3 session cookie (7-day lifetime) for table creation/deletion, column CRUD, source management, and workspace listing. Only enrichment provider account connections require the Clay UI. Enrichment credits are finite — always test on a single row first."

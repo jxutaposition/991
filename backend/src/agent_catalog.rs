@@ -37,6 +37,7 @@ struct AgentToml {
     pub expert_slug: Option<String>,
     #[serde(default)]
     pub required_integrations: Vec<String>,
+    pub automation_mode: Option<String>,
 }
 
 fn default_max_iterations() -> u32 {
@@ -111,6 +112,8 @@ pub struct AgentDefinition {
     pub expert_id: Option<uuid::Uuid>,
 
     pub required_integrations: Vec<String>,
+    /// "full" | "guided" | "hybrid" — controls default execution_mode for nodes using this agent.
+    pub automation_mode: Option<String>,
 
     pub version: i32,
     /// Git SHA kept for backward compat; version is the canonical tracker now.
@@ -179,6 +182,16 @@ pub struct ExecutionPlanNode {
     pub variant_selected: Option<bool>,
     pub client_id: Option<uuid::Uuid>,
     pub tool_id: Option<String>,
+    /// "agent" | "manual" — whether the agent executes or the user does it manually.
+    #[serde(default = "default_execution_mode")]
+    pub execution_mode: String,
+    /// Per-node overrides for required integrations, e.g. {"notion": "google_docs"}.
+    #[serde(default)]
+    pub integration_overrides: Value,
+}
+
+fn default_execution_mode() -> String {
+    "agent".to_string()
 }
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
@@ -210,7 +223,7 @@ impl AgentCatalog {
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 expert_id, required_integrations, version FROM agent_definitions ORDER BY slug",
+                 expert_id, required_integrations, automation_mode, version FROM agent_definitions ORDER BY slug",
             )
             .await?;
 
@@ -229,14 +242,14 @@ impl AgentCatalog {
 
     /// Reload a single agent from DB (called after PR approval).
     pub async fn reload_agent(&self, db: &PgClient, slug: &str) -> anyhow::Result<()> {
-        let slug_escaped = slug.replace('\'', "''");
         let rows = db
-            .execute(&format!(
+            .execute_with(
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
-                 expert_id, required_integrations, version FROM agent_definitions WHERE slug = '{slug_escaped}'"
-            ))
+                 expert_id, required_integrations, automation_mode, version FROM agent_definitions WHERE slug = $1",
+                crate::pg_args!(slug.to_string()),
+            )
             .await?;
 
         if let Some(row) = rows.first() {
@@ -300,6 +313,17 @@ impl AgentCatalog {
         parts.join("\n")
     }
 
+    /// Returns known alternatives for each integration platform.
+    pub fn integration_alternatives() -> Value {
+        serde_json::json!({
+            "notion": ["google_docs"],
+            "supabase": ["firebase", "planetscale"],
+            "n8n": ["make", "zapier"],
+            "tolt": [],
+            "clay": [],
+        })
+    }
+
     fn format_agent_summary(agent: &AgentDefinition) -> String {
         let tools_str = if agent.tools.is_empty() {
             "text-only (read_upstream_output, write_output)".to_string()
@@ -328,8 +352,9 @@ impl AgentCatalog {
         } else {
             format!("\n  Hard requirements: {}", agent.judge_config.need_to_know.join("; "))
         };
+        let automation = agent.automation_mode.as_deref().unwrap_or("full");
         format!(
-            "### {} (slug: \"{}\")\n  Category: {}\n  {}\n  Tools: [{}]\n  Required credentials: [{}]\n  Quality: {}{}\n",
+            "### {} (slug: \"{}\")\n  Category: {}\n  {}\n  Tools: [{}]\n  Required credentials: [{}]\n  Quality: {}\n  Automation: {} (full=agent does all work via API, guided=agent designs but user executes in external UI, hybrid=mix){}\n",
             agent.name,
             agent.slug,
             agent.category,
@@ -337,6 +362,7 @@ impl AgentCatalog {
             tools_str,
             integrations_str,
             mode,
+            automation,
             need_to_know,
         )
     }
@@ -407,6 +433,10 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         .and_then(|s| s.parse::<uuid::Uuid>().ok());
 
     let required_integrations = parse_text_array(row.get("required_integrations"));
+    let automation_mode = row
+        .get("automation_mode")
+        .and_then(Value::as_str)
+        .map(String::from);
 
     Some(AgentDefinition {
         slug,
@@ -427,6 +457,7 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
         flexible_tool_use,
         expert_id,
         required_integrations,
+        automation_mode,
         version,
         git_sha: git_sha.to_string(),
     })
@@ -467,12 +498,11 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
                 if let Ok(toml_str) = std::fs::read_to_string(&toml_path) {
                     if let Ok(meta) = toml::from_str::<AgentToml>(&toml_str) {
                         if let Some(ref expert_slug) = meta.expert_slug {
-                            let slug_escaped = expert_slug.replace('\'', "''");
                             let rows = db
-                                .execute(&format!(
-                                    "SELECT id FROM experts WHERE slug = '{}'",
-                                    slug_escaped
-                                ))
+                                .execute_with(
+                                    "SELECT id FROM experts WHERE slug = $1",
+                                    crate::pg_args!(expert_slug.clone()),
+                                )
                                 .await
                                 .unwrap_or_default();
                             if let Some(row) = rows.first() {
@@ -555,18 +585,24 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
         .map(|id| format!("'{}'", id))
         .unwrap_or_else(|| "NULL".to_string());
 
+    let automation_mode_val = agent
+        .automation_mode
+        .as_deref()
+        .map(|m| format!("'{}'", m.replace('\'', "''")))
+        .unwrap_or_else(|| "NULL".to_string());
+
     let sql = format!(
         r#"INSERT INTO agent_definitions
             (slug, name, category, description, intents, system_prompt, tools,
              judge_config, input_schema, output_schema, examples, knowledge_docs,
              max_iterations, model, skip_judge, flexible_tool_use, expert_id,
-             required_integrations, version)
+             required_integrations, automation_mode, version)
            VALUES
             ('{slug}', '{name}', '{category}', '{description}', {intents_arr}, '{system_prompt}',
              {tools_arr}, '{judge_config_json}'::jsonb, '{input_schema_json}'::jsonb,
              '{output_schema_json}'::jsonb, '{examples_json}'::jsonb, {knowledge_arr},
              {max_iter}, {model_val}, {skip_judge}, {flex_tool}, {expert_id_val},
-             {required_integrations_arr}, 1)
+             {required_integrations_arr}, {automation_mode_val}, 1)
            ON CONFLICT (slug) DO UPDATE SET
              name = EXCLUDED.name,
              category = EXCLUDED.category,
@@ -584,12 +620,14 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
              skip_judge = EXCLUDED.skip_judge,
              flexible_tool_use = EXCLUDED.flexible_tool_use,
              expert_id = EXCLUDED.expert_id,
-             required_integrations = EXCLUDED.required_integrations"#,
+             required_integrations = EXCLUDED.required_integrations,
+             automation_mode = EXCLUDED.automation_mode"#,
         max_iter = agent.max_iterations,
         skip_judge = agent.skip_judge,
         flex_tool = agent.flexible_tool_use,
         expert_id_val = expert_id_val,
         required_integrations_arr = required_integrations_arr,
+        automation_mode_val = automation_mode_val,
     );
 
     db.execute(&sql).await?;
@@ -697,6 +735,7 @@ fn load_agent_from_disk(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefini
         flexible_tool_use: meta.flexible_tool_use,
         expert_id: None,
         required_integrations: meta.required_integrations,
+        automation_mode: meta.automation_mode,
         version: 1,
         git_sha: git_sha.to_string(),
     })

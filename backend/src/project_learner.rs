@@ -146,11 +146,11 @@ async fn extract_lesson(
 }
 
 async fn lookup_skill_id(db: &PgClient, slug: &str) -> Option<Uuid> {
-    let slug_escaped = slug.replace('\'', "''");
     let rows = db
-        .execute(&format!(
-            "SELECT id FROM skills WHERE slug = '{slug_escaped}'"
-        ))
+        .execute_with(
+            "SELECT id FROM skills WHERE slug = $1",
+            crate::pg_args!(slug.to_string()),
+        )
         .await
         .ok()?;
 

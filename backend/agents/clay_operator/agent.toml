@@ -1,7 +1,8 @@
 slug = "clay_operator"
 name = "Clay Operator"
 category = "tool_operator"
-description = "Designs Clay table structures, enrichment columns, formulas, webhooks, and action columns — then provides detailed step-by-step instructions for the user to build them in Clay's UI. Pauses execution to collect the resulting table IDs and webhook URLs so downstream agents can wire them into the pipeline."
+description = "Designs, builds, and manages Clay workbooks end-to-end: creates tables, columns, formulas, enrichment configs, webhook sources, and action columns via the v1 + v3 APIs. Fully automated when session cookie is configured."
 intents = ["clay", "clay table", "clay setup", "clay enrichment", "clay webhook", "clay social listening", "configure clay", "create clay table", "clay action column", "clay formula"]
 max_iterations = 15
 skip_judge = false
+automation_mode = "full"

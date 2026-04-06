@@ -48,7 +48,7 @@ export function ShadowSessionPanel({
         <h3 className="text-xs font-semibold text-ink uppercase tracking-wider flex items-center gap-1.5">
           <Eye className="w-3.5 h-3.5" /> Shadow a Session
         </h3>
-        <p className="text-[10px] text-ink-3 mt-1">
+        <p className="text-xs text-ink-3 mt-1">
           Watch an expert&apos;s session in real-time, or review a completed session
         </p>
       </div>
@@ -59,11 +59,11 @@ export function ShadowSessionPanel({
         <>
           {/* Active recording sessions */}
           <div className="px-4 py-3">
-            <h4 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Radio className="w-3 h-3 text-red-500" /> Live Sessions ({recording.length})
             </h4>
             {recording.length === 0 ? (
-              <p className="text-[10px] text-ink-3">No active recording sessions</p>
+              <p className="text-xs text-ink-3">No active recording sessions</p>
             ) : (
               <div className="space-y-1.5">
                 {recording.map((s) => (
@@ -79,9 +79,9 @@ export function ShadowSessionPanel({
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                       <span className="text-xs font-mono text-ink">{s.id.slice(0, 8)}</span>
-                      <span className="text-[10px] text-ink-3 ml-auto">{s.event_count} events</span>
+                      <span className="text-xs text-ink-3 ml-auto">{s.event_count} events</span>
                     </div>
-                    <div className="text-[10px] text-ink-3 mt-1">
+                    <div className="text-xs text-ink-3 mt-1">
                       Started {new Date(s.started_at).toLocaleTimeString()}
                     </div>
                   </button>
@@ -92,11 +92,11 @@ export function ShadowSessionPanel({
 
           {/* Completed sessions */}
           <div className="px-4 py-3 border-t border-rim">
-            <h4 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Clock className="w-3 h-3" /> Recent Completed ({completed.length})
             </h4>
             {completed.length === 0 ? (
-              <p className="text-[10px] text-ink-3">No completed sessions</p>
+              <p className="text-xs text-ink-3">No completed sessions</p>
             ) : (
               <div className="space-y-1.5">
                 {completed.map((s) => (
@@ -111,13 +111,13 @@ export function ShadowSessionPanel({
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono text-ink">{s.id.slice(0, 8)}</span>
-                      <span className="text-[10px] text-green-600">{s.event_count} events</span>
-                      <span className="text-[10px] text-purple-600">{s.distillation_count} narrations</span>
+                      <span className="text-xs text-green-600">{s.event_count} events</span>
+                      <span className="text-xs text-purple-600">{s.distillation_count} narrations</span>
                       {s.coverage_score != null && (
-                        <span className="text-[10px] text-ink-3 ml-auto">{Math.round(s.coverage_score * 100)}% coverage</span>
+                        <span className="text-xs text-ink-3 ml-auto">{Math.round(s.coverage_score * 100)}% coverage</span>
                       )}
                     </div>
-                    <div className="text-[10px] text-ink-3 mt-1">
+                    <div className="text-xs text-ink-3 mt-1">
                       {new Date(s.started_at).toLocaleString()}
                     </div>
                   </button>

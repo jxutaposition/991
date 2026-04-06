@@ -1,0 +1,27 @@
+---
+description: Mandatory verification steps after editing any backend Rust file
+globs: backend/src/**
+alwaysApply: false
+---
+
+# Backend Verification Checklist
+
+After editing **any** file under `backend/src/`, complete **all** of these steps before reporting the task as done.
+
+## 1. Cargo Check
+
+```bash
+cd backend && cargo check
+```
+
+Fix every error. Warnings about unused variables or imports that you introduced must also be fixed.
+
+## 2. If Running — Verify the Server
+
+If the backend is running, confirm it responds:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health
+```
+
+If it crashed, check the terminal output, fix the issue, and restart.

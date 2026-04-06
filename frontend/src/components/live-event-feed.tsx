@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Activity, Brain, GitPullRequest, Layers, RefreshCw } from "lucide-react";
+import { LIVE_STATUS } from "@/lib/tokens";
 
 interface LiveEvent {
   event_type: string;
@@ -91,19 +92,19 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
         <span className="text-xs font-mono text-ink-3">{sessionId.slice(0, 8)}</span>
         {session && (
           <>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-              session.status === "recording" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              session.status === "recording" ? LIVE_STATUS.recording : LIVE_STATUS.active
             }`}>
               {session.status}
             </span>
-            <span className="text-[10px] text-ink-3">{session.event_count} events</span>
+            <span className="text-xs text-ink-3">{session.event_count} events</span>
           </>
         )}
         <div className="flex-1" />
         <button
           onClick={() => setPolling(!polling)}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] ${
-            polling ? "bg-green-100 text-green-700" : "bg-surface text-ink-3"
+          className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+            polling ? LIVE_STATUS.active : LIVE_STATUS.inactive
           }`}
         >
           <RefreshCw className={`w-2.5 h-2.5 ${polling ? "animate-spin" : ""}`} />
@@ -114,14 +115,14 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
       <div className="flex-1 overflow-y-auto">
         {/* Events */}
         <div className="px-4 py-3">
-          <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Activity className="w-3 h-3" /> Events ({events.length})
           </h3>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {events.length === 0 ? (
-              <p className="text-[10px] text-ink-3">Waiting for events...</p>
+              <p className="text-xs text-ink-3">Waiting for events...</p>
             ) : events.map((ev, i) => (
-              <div key={`event-${ev.created_at}-${i}`} className="flex items-start gap-2 text-[10px]">
+              <div key={`event-${ev.created_at}-${i}`} className="flex items-start gap-2 text-xs">
                 <span className="text-ink-3 shrink-0 w-14 font-mono">
                   {new Date(ev.created_at).toLocaleTimeString()}
                 </span>
@@ -129,7 +130,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
                   {ev.event_type}
                 </span>
                 <span className="text-ink-3 truncate flex-1">
-                  {(ev.dom_context as any)?.element_text || ev.url?.slice(0, 60) || ""}
+                  {(ev.dom_context as Record<string, unknown>)?.element_text as string || ev.url?.slice(0, 60) || ""}
                 </span>
               </div>
             ))}
@@ -138,16 +139,16 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
 
         {/* Narrations */}
         <div className="px-4 py-3 border-t border-rim">
-          <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Brain className="w-3 h-3" /> Narrations ({narrations.length})
           </h3>
           <div className="space-y-2">
             {narrations.length === 0 ? (
-              <p className="text-[10px] text-ink-3">Waiting for narrator...</p>
+              <p className="text-xs text-ink-3">Waiting for narrator...</p>
             ) : narrations.map((n, i) => (
               <div key={`narration-${n.sequence_ref}-${i}`} className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
                 <p className="text-xs text-purple-900 leading-relaxed">{n.narrator_text}</p>
-                <p className="text-[10px] text-purple-400 mt-1">seq:{n.sequence_ref}</p>
+                <p className="text-xs text-purple-400 mt-1">seq:{n.sequence_ref}</p>
               </div>
             ))}
           </div>
@@ -156,12 +157,12 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
         {/* Extracted Tasks */}
         {tasks.length > 0 && (
           <div className="px-4 py-3 border-t border-rim">
-            <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Layers className="w-3 h-3" /> Extracted Tasks ({tasks.length})
             </h3>
             <div className="space-y-1.5">
               {tasks.map((t, i) => (
-                <div key={`task-${t.description.slice(0, 20)}-${i}`} className="flex items-start gap-2 text-[10px]">
+                <div key={`task-${t.description.slice(0, 20)}-${i}`} className="flex items-start gap-2 text-xs">
                   <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded shrink-0 font-mono">
                     {t.match_confidence != null ? `${(t.match_confidence * 100).toFixed(0)}%` : "?"}
                   </span>
@@ -176,13 +177,13 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
         {/* Agent PRs */}
         {prs.length > 0 && (
           <div className="px-4 py-3 border-t border-rim">
-            <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <GitPullRequest className="w-3 h-3" /> Agent PRs ({prs.length})
             </h3>
             <div className="space-y-1.5">
               {prs.map((pr, i) => (
                 <div key={`pr-${pr.target_agent_slug}-${i}`} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-2 text-[10px] mb-1">
+                  <div className="flex items-center gap-2 text-xs mb-1">
                     <span className="font-mono font-medium text-amber-700">{pr.target_agent_slug}</span>
                     <span className="text-amber-500">{(pr.confidence * 100).toFixed(0)}% conf</span>
                   </div>

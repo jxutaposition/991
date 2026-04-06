@@ -94,7 +94,7 @@ export function Nav() {
             </button>
             {wsOpen && !collapsed && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-page border border-rim rounded-lg shadow-lg z-50 py-1">
-                <p className="text-[10px] text-ink-3 uppercase tracking-wider px-3 py-1.5">
+                <p className="text-xs text-ink-3 uppercase tracking-wider px-3 py-1.5">
                   Workspaces
                 </p>
                 {clients.map((c) => (
@@ -111,7 +111,7 @@ export function Nav() {
                   >
                     <span
                       className={clsx(
-                        "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                        "w-5 h-5 rounded flex items-center justify-center text-xs font-bold",
                         activeClient === c.slug
                           ? "bg-brand text-white"
                           : "bg-raised text-ink-3"
@@ -121,7 +121,7 @@ export function Nav() {
                     </span>
                     <span className="flex-1 truncate">{c.name}</span>
                     {activeClient === c.slug && (
-                      <span className="text-[9px] bg-brand text-white px-1.5 py-0.5 rounded-full">
+                      <span className="text-xs bg-brand text-white px-1.5 py-0.5 rounded-full">
                         active
                       </span>
                     )}
@@ -197,7 +197,7 @@ export function Nav() {
             )}
           >
             <span
-              className="w-6 h-6 rounded-full flex items-center justify-center bg-raised text-ink-3 text-[10px] font-bold shrink-0"
+              className="w-6 h-6 rounded-full flex items-center justify-center bg-raised text-ink-3 text-xs font-bold shrink-0"
               title={collapsed ? (user.name || user.email) : undefined}
             >
               {user.name?.charAt(0).toUpperCase() ??
@@ -212,6 +212,7 @@ export function Nav() {
                   onClick={signOut}
                   className="p-1 rounded hover:bg-raised text-ink-3 hover:text-ink transition-colors"
                   title="Sign out"
+                  aria-label="Sign out"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -240,6 +241,7 @@ export function Nav() {
             collapsed ? "justify-center px-0" : "px-2"
           )}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
             <ChevronsRight className="w-4 h-4 shrink-0" />

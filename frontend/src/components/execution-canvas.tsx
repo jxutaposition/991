@@ -10,13 +10,14 @@ import {
   useState,
   useEffect,
 } from "react";
-import { ArrowDown, Brain, GitBranch, Lock, LockOpen, Check, X, Wrench, MessageCircle, ExternalLink, Loader2 } from "lucide-react";
+import { ArrowDown, Brain, GitBranch, Hand, Lock, LockOpen, Check, X, Wrench, MessageCircle, ExternalLink, Loader2 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
 import {
   TransformWrapper,
   TransformComponent,
   type ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
+import { NODE_STATUS_BOX, NODE_STATUS_DOT } from "@/lib/tokens";
 
 export interface ArtifactLink {
   type: string;
@@ -59,9 +60,14 @@ export interface ExecutionNode {
     technical_spec?: { approach?: string; tools?: string[]; configuration?: Record<string, unknown> };
     io_contract?: { inputs?: Array<{ name: string; source?: string; schema?: unknown }>; outputs?: Array<{ name: string; schema?: unknown }> };
     optionality?: Array<{ decision: string; tradeoffs?: string; recommendation?: string }>;
+    agent_actions?: string[];
+    user_actions?: string[];
+    validation_hints?: Array<{ type: string; description: string }>;
     visual_refs?: Array<{ type: string; url: string; caption?: string }>;
     prior_artifacts?: Array<{ title: string; reference?: string }>;
   } | null;
+  execution_mode?: string;
+  integration_overrides?: Record<string, string>;
 }
 
 function ElapsedTimer({ startedAt }: { startedAt: string }) {
@@ -78,7 +84,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [startedAt]);
-  return <span className="text-[9px] font-mono text-blue-500">{elapsed}</span>;
+  return <span className="text-xs font-mono text-blue-500">{elapsed}</span>;
 }
 
 export interface CanvasHandle {
@@ -146,35 +152,11 @@ interface ExecutionCanvasProps {
   credentialStatus?: CredentialStatus | null;
   catalogMap?: CatalogMap;
   livePreviewMap?: Record<string, string>;
+  planningMessages?: string[];
 }
 
 type NodeStatus = string;
 
-const NODE_BG: Record<string, string> = {
-  passed:  "bg-green-50 border-green-300 text-green-700",
-  running: "bg-blue-50 border-blue-400 text-blue-700 shadow-lg shadow-blue-200/50 ring-1 ring-blue-300/30",
-  ready:   "bg-blue-50 border-blue-200 text-blue-600",
-  waiting: "bg-amber-50 border-amber-300 text-amber-700",
-  failed:  "bg-red-50 border-red-400 text-red-700",
-  skipped: "bg-surface border-rim text-ink-3 line-through",
-  pending: "bg-surface border-rim text-ink-3",
-  preview: "bg-purple-50/50 border-dashed border-purple-200 text-purple-400",
-  queued:  "bg-gray-50 border-gray-300 text-gray-500",
-  awaiting_reply: "bg-amber-50 border-amber-400 text-amber-700 shadow-lg shadow-amber-100",
-};
-
-const DOT: Record<string, string> = {
-  passed:  "bg-green-500",
-  running: "bg-blue-500 animate-pulse",
-  ready:   "bg-blue-400",
-  waiting: "bg-amber-400",
-  failed:  "bg-red-500",
-  skipped: "bg-gray-300",
-  pending: "bg-gray-300",
-  preview: "bg-purple-300",
-  queued:  "bg-gray-400",
-  awaiting_reply: "bg-amber-500 animate-pulse",
-};
 
 function truncate(s: string, max: number) {
   return s.length > max ? s.slice(0, max) + "\u2026" : s;
@@ -222,8 +204,8 @@ function NodeBox({
   const userTools = catalogAgent?.tools?.filter(
     (t) => !INTERNAL_TOOLS.includes(t.name)
   ) ?? [];
-  const toolsWithCred = userTools.filter((t) => t.credential);
-  const toolsWithoutCred = userTools.filter((t) => !t.credential);
+  const _toolsWithCred = userTools.filter((t) => t.credential);
+  const _toolsWithoutCred = userTools.filter((t) => !t.credential);
 
   return (
     <button
@@ -233,15 +215,24 @@ function NodeBox({
       }}
       className={`relative rounded-xl border-2 px-5 py-4
         ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[380px]"}
-        ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_BG[status] ?? NODE_BG.pending}
+        ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_STATUS_BOX[status] ?? NODE_STATUS_BOX.pending}
         ${isSelected ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-white" : ""}
-        ${isBlocked && !isVariantAlt ? (agentProbeIssue ? "border-l-red-400 border-l-4" : "border-l-amber-400 border-l-4") : ""}
+        ${isBlocked && !isVariantAlt ? (agentProbeIssue ? "border-l-red-400 border-l-4" : "border-l-amber-400 border-l-4")
+          : !isVariantAlt && node.execution_mode === "manual" ? "border-l-amber-400 border-l-4"
+          : ""}
         flex flex-col items-start gap-1.5 transition-all hover:scale-[1.03] cursor-pointer hover:shadow-lg`}
     >
       {/* Step index badge */}
       {node.step_index != null && (
-        <div className="absolute -top-2.5 -left-2 bg-blue-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10">
+        <div className="absolute -top-2.5 -left-2 bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10">
           {node.step_index}
+        </div>
+      )}
+
+      {/* Execution mode indicator */}
+      {!isVariantAlt && node.execution_mode === "manual" && (
+        <div className="absolute -top-2.5 -right-2 bg-amber-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10 flex items-center gap-0.5">
+          <Hand className="w-2.5 h-2.5" /> Manual
         </div>
       )}
 
@@ -256,7 +247,7 @@ function NodeBox({
           <MessageCircle className="w-3 h-3 text-amber-500 animate-pulse" />
         )}
         <div
-          className={`w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : DOT[status] ?? DOT.pending}`}
+          className={`w-2 h-2 rounded-full ${isVariantAlt ? "bg-gray-300" : NODE_STATUS_DOT[status] ?? NODE_STATUS_DOT.pending}`}
         />
       </div>
 
@@ -298,13 +289,13 @@ function NodeBox({
 
       {/* Category badge */}
       {catalogAgent && !isVariantAlt && (
-        <div className="text-[8px] font-medium text-ink-3 uppercase tracking-wider pl-4">
+        <div className="text-xs font-medium text-ink-3 uppercase tracking-wider pl-4">
           {catalogAgent.category.replace(/_/g, " ")}
         </div>
       )}
 
       {node.variant_label && (
-        <div className={`text-[9px] font-medium ${isVariantAlt ? "text-gray-400" : "text-purple-500"}`}>
+        <div className={`text-xs font-medium ${isVariantAlt ? "text-gray-400" : "text-purple-500"}`}>
           {node.variant_selected ? "\u2713 " : ""}{node.variant_label}
         </div>
       )}
@@ -370,7 +361,7 @@ function NodeBox({
             return (
               <span
                 key={detail.slug}
-                className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${chipClass}`}
+                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium ${chipClass}`}
                 title={probe?.hint || probe?.error || `${detail.display_name}: ${chipLabel}`}
               >
                 <IntegrationIcon slug={detail.icon ?? detail.slug} size={10} />
@@ -388,7 +379,7 @@ function NodeBox({
           {userTools.slice(0, 4).map((tool) => (
             <span
               key={tool.name}
-              className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-3 font-mono"
+              className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-3 font-mono"
               title={tool.credential ? `Requires: ${tool.credential}` : "No auth required"}
             >
               {tool.credential && <IntegrationIcon slug={tool.credential} size={8} />}
@@ -396,14 +387,14 @@ function NodeBox({
             </span>
           ))}
           {userTools.length > 4 && (
-            <span className="text-[8px] text-ink-3">+{userTools.length - 4}</span>
+            <span className="text-xs text-ink-3">+{userTools.length - 4}</span>
           )}
         </div>
       )}
 
       {/* Live streaming preview for running nodes */}
       {livePreview && status === "running" && !isVariantAlt && (
-        <div className="text-[10px] text-blue-500 italic truncate w-full mt-0.5">
+        <div className="text-xs text-blue-500 italic truncate w-full mt-0.5">
           {truncate(livePreview, 60)}
           <span className="inline-block w-1.5 h-3 bg-blue-400 animate-pulse ml-0.5 align-middle" />
         </div>
@@ -414,7 +405,7 @@ function NodeBox({
         const out = node.output as Record<string, unknown> | null;
         const summary = out?.summary;
         return summary ? (
-          <div className="text-[10px] text-green-600 truncate w-full mt-0.5">
+          <div className="text-xs text-green-600 truncate w-full mt-0.5">
             {truncate(String(summary), 80)}
           </div>
         ) : null;
@@ -425,7 +416,7 @@ function NodeBox({
         const out = node.output as Record<string, unknown> | null;
         const actionTitle = out?.action_title;
         return actionTitle ? (
-          <div className="text-[10px] text-amber-600 truncate w-full mt-0.5 font-medium">
+          <div className="text-xs text-amber-600 truncate w-full mt-0.5 font-medium">
             {"\u23F8"} {truncate(String(actionTitle), 60)}
           </div>
         ) : null;
@@ -436,7 +427,7 @@ function NodeBox({
         const out = node.output as Record<string, unknown> | null;
         const errMsg = node.judge_feedback || (out?.error ? String(out.error) : "");
         return errMsg ? (
-          <div className="text-[10px] text-red-500 truncate w-full mt-0.5">
+          <div className="text-xs text-red-500 truncate w-full mt-0.5">
             {truncate(errMsg, 80)}
           </div>
         ) : null;
@@ -448,14 +439,14 @@ function NodeBox({
           {node.artifacts!.slice(0, 3).map((a, idx) => (
             <a key={idx} href={a.url} target="_blank" rel="noopener noreferrer"
                onClick={e => e.stopPropagation()}
-               className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
+               className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
                title={a.url}>
               <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
               {truncate(a.title, 20)}
             </a>
           ))}
           {(node.artifacts?.length ?? 0) > 3 && (
-            <span className="text-[8px] text-ink-3">+{node.artifacts!.length - 3}</span>
+            <span className="text-xs text-ink-3">+{node.artifacts!.length - 3}</span>
           )}
         </div>
       )}
@@ -466,12 +457,12 @@ function NodeBox({
           <ElapsedTimer startedAt={node.started_at} />
         )}
         {score && (
-          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px] font-mono">
+          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs font-mono">
             {score}/10
           </span>
         )}
         {userTools.length > 0 && !hasIntegrations && (
-          <span className="text-[10px] text-ink-3">
+          <span className="text-xs text-ink-3">
             {userTools.length} tool{userTools.length !== 1 ? "s" : ""}
           </span>
         )}
@@ -749,7 +740,7 @@ function DagEdges({
 
 export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
   function ExecutionCanvas(
-    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange, credentialStatus, catalogMap, livePreviewMap },
+    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange, credentialStatus, catalogMap, livePreviewMap, planningMessages },
     ref
   ) {
     const transformRef = useRef<ReactZoomPanPinchRef>(null);
@@ -769,11 +760,49 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
     }, [nodes]);
 
     if (nodes.length === 0) {
+      if (sessionStatus === "planning") {
+        return (
+          <div className="flex flex-col items-center justify-center h-full gap-6 px-8">
+            {/* Animated planning indicator */}
+            <div className="relative flex items-center justify-center">
+              <div className="absolute w-16 h-16 rounded-full border-2 border-brand/20 animate-ping" />
+              <div className="absolute w-12 h-12 rounded-full border-2 border-brand/30 animate-pulse" />
+              <div className="w-8 h-8 rounded-full bg-brand/10 border-2 border-brand flex items-center justify-center">
+                <div className="w-2 h-2 rounded-full bg-brand animate-pulse" />
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center gap-2 max-w-md">
+              <span className="text-sm font-medium text-ink-2">Deep planning in progress</span>
+              <span className="text-xs text-ink-3 text-center">
+                Analyzing your request, researching context, and building an execution plan...
+              </span>
+            </div>
+
+            {/* Streaming planning messages */}
+            {planningMessages && planningMessages.length > 0 && (
+              <div className="w-full max-w-sm space-y-1.5 max-h-48 overflow-y-auto">
+                {planningMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-2 text-xs ${
+                      i === planningMessages.length - 1 ? "text-ink-2" : "text-ink-3/60"
+                    } transition-colors duration-300`}
+                  >
+                    <span className={`mt-1 w-1 h-1 rounded-full shrink-0 ${
+                      i === planningMessages.length - 1 ? "bg-brand animate-pulse" : "bg-ink-3/40"
+                    }`} />
+                    <span>{msg}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
       return (
         <div className="flex items-center justify-center h-full text-ink-3 text-sm">
-          {sessionStatus === "planning"
-            ? "Building plan\u2026"
-            : "No nodes in plan"}
+          No nodes in plan
         </div>
       );
     }

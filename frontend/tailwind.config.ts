@@ -34,6 +34,26 @@ export default {
           subtle:  "var(--danger-subtle)",
           rim:     "var(--danger-rim)",
         },
+        success: {
+          DEFAULT: "var(--success)",
+          subtle:  "var(--success-subtle)",
+          rim:     "var(--success-rim)",
+        },
+        warning: {
+          DEFAULT: "var(--warning)",
+          subtle:  "var(--warning-subtle)",
+          rim:     "var(--warning-rim)",
+        },
+        info: {
+          DEFAULT: "var(--info)",
+          subtle:  "var(--info-subtle)",
+          rim:     "var(--info-rim)",
+        },
+        muted: {
+          DEFAULT: "var(--muted)",
+          subtle:  "var(--muted-subtle)",
+          rim:     "var(--muted-rim)",
+        },
       },
     },
   },

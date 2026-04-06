@@ -24,6 +24,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
+import { PR_STATUS_BADGE, PR_TYPE_BADGE } from "@/lib/tokens";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -295,7 +296,7 @@ function FileDiffBlock({
           {label}
         </span>
         <span
-          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+          className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
             isNew
               ? "bg-green-100 text-green-700"
               : "bg-blue-100 text-blue-700"
@@ -381,7 +382,7 @@ function ListDiff({
       <div className="bg-surface px-4 py-2 border-b border-rim flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-ink-2">{label}</span>
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+          <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
             modified
           </span>
         </div>
@@ -463,7 +464,7 @@ function MetaChip({
 }) {
   return (
     <div className="flex flex-col gap-0.5 bg-surface border border-rim rounded-lg px-3 py-2">
-      <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">
+      <span className="text-xs font-medium text-ink-3 uppercase tracking-wider">
         {label}
       </span>
       <span className="text-sm font-semibold text-ink">{value}</span>
@@ -472,29 +473,14 @@ function MetaChip({
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    open: "bg-amber-100 text-amber-700",
-    approved: "bg-green-100 text-green-700",
-    rejected: "bg-red-100 text-red-700",
-    auto_merged: "bg-purple-100 text-purple-700",
-  };
   return (
     <span
-      className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${colors[status] ?? "bg-surface text-ink-3"}`}
+      className={`text-xs font-medium px-2 py-0.5 rounded-full ${PR_STATUS_BADGE[status] ?? "bg-surface text-ink-3"}`}
     >
       {status.replace(/_/g, " ")}
     </span>
   );
 }
-
-const PR_TYPE_COLORS: Record<string, string> = {
-  enhancement: "bg-blue-100 text-blue-700",
-  new_agent: "bg-green-100 text-green-700",
-  example_addition: "bg-purple-100 text-purple-700",
-  rubric_update: "bg-teal-100 text-teal-700",
-  prompt_amendment: "bg-indigo-100 text-indigo-700",
-  reclassification: "bg-amber-100 text-amber-700",
-};
 
 function proposed<T>(
   changes: Record<string, unknown> | null,
@@ -618,7 +604,7 @@ export default function PRDetailPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full ${PR_TYPE_COLORS[pr.pr_type] ?? "bg-surface text-ink-2"}`}
+              className={`text-xs font-medium px-2 py-0.5 rounded-full ${PR_TYPE_BADGE[pr.pr_type] ?? "bg-surface text-ink-2"}`}
             >
               {pr.pr_type.replace(/_/g, " ")}
             </span>
@@ -701,7 +687,7 @@ export default function PRDetailPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
             )}
             {tabCounts[id] != null && tabCounts[id] > 0 && (
-              <span className="text-[10px] bg-surface text-ink-3 px-1.5 py-0.5 rounded-full ml-0.5">
+              <span className="text-xs bg-surface text-ink-3 px-1.5 py-0.5 rounded-full ml-0.5">
                 {tabCounts[id]}
               </span>
             )}
@@ -769,6 +755,7 @@ function ChangesTab({
   isNewAgent: boolean;
 }) {
   // Collect all the diff blocks
+  const diffs = useMemo(() => {
   const diffs: {
     label: string;
     oldText: string | null;
@@ -898,6 +885,23 @@ function ChangesTab({
     }
   }
 
+  return diffs;
+  }, [pr, agent, changes, isNewAgent]);
+
+  // Summary bar — compute diffs once and derive both counts
+  const { totalAdded, totalRemoved } = useMemo(() => {
+    let added = 0;
+    let removed = 0;
+    for (const d of diffs) {
+      const lines = computeUnifiedDiff(d.oldText, d.newText);
+      for (const l of lines) {
+        if (l.type === "added") added++;
+        else if (l.type === "removed") removed++;
+      }
+    }
+    return { totalAdded: added, totalRemoved: removed };
+  }, [diffs]);
+
   if (diffs.length === 0) {
     return (
       <div className="text-center py-16 text-ink-3">
@@ -906,16 +910,6 @@ function ChangesTab({
       </div>
     );
   }
-
-  // Summary bar
-  const totalAdded = diffs.reduce((sum, d) => {
-    const lines = computeUnifiedDiff(d.oldText, d.newText);
-    return sum + lines.filter((l) => l.type === "added").length;
-  }, 0);
-  const totalRemoved = diffs.reduce((sum, d) => {
-    const lines = computeUnifiedDiff(d.oldText, d.newText);
-    return sum + lines.filter((l) => l.type === "removed").length;
-  }, 0);
 
   return (
     <div className="space-y-4">
@@ -1005,7 +999,7 @@ function OverviewTab({
         hasChange(changes, "description")) &&
         !isNewAgent && (
           <div className="border border-blue-200 dark:border-blue-800 rounded-xl p-4 bg-blue-50/30 dark:bg-blue-950/10 space-y-2">
-            <span className="text-[10px] font-medium text-blue-600 uppercase tracking-wider">
+            <span className="text-xs font-medium text-blue-600 uppercase tracking-wider">
               Proposed changes
             </span>
             <FieldDiff label="Name" oldVal={agent?.name ?? null} newVal={proposed(changes, "name", agent?.name ?? "") as string} />
@@ -1055,7 +1049,7 @@ function OverviewTab({
         <h3 className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-3">
           Intent Keywords
           {hasChange(changes, "intents") && !isNewAgent && (
-            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
               changed
             </span>
           )}
@@ -1116,8 +1110,8 @@ function OverviewTab({
 
 function ToolsTab({
   agent,
-  isNewAgent,
-  changes,
+  isNewAgent: _isNewAgent,
+  changes: _changes,
 }: {
   agent: CurrentAgent | null;
   isNewAgent: boolean;
@@ -1193,7 +1187,7 @@ function PromptTab({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
               {isNewAgent ? "new" : "modified"}
             </span>
             <span className="text-xs text-ink-3">
@@ -1247,8 +1241,8 @@ function PromptTab({
 
 function KnowledgeTab({
   agent,
-  isNewAgent,
-  changes,
+  isNewAgent: _isNewAgent,
+  changes: _changes,
 }: {
   agent: CurrentAgent | null;
   isNewAgent: boolean;
@@ -1259,7 +1253,7 @@ function KnowledgeTab({
   const toggle = (i: number) =>
     setExpanded((prev) => {
       const s = new Set(prev);
-      s.has(i) ? s.delete(i) : s.add(i);
+      if (s.has(i)) { s.delete(i); } else { s.add(i); }
       return s;
     });
   const expandAll = () => setExpanded(new Set(docs.map((d) => d.index)));
@@ -1374,7 +1368,7 @@ function ExamplesTab({
   const toggle = (i: number) =>
     setExpanded((prev) => {
       const s = new Set(prev);
-      s.has(i) ? s.delete(i) : s.add(i);
+      if (s.has(i)) { s.delete(i); } else { s.add(i); }
       return s;
     });
 
@@ -1431,7 +1425,7 @@ function ExamplesTab({
                 Example {i + 1}
               </span>
               {isAdded && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
                   new
                 </span>
               )}
@@ -1439,7 +1433,7 @@ function ExamplesTab({
             {isOpen && (
               <div className="border-t border-rim divide-y divide-rim">
                 <div className="px-4 py-3">
-                  <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider mb-1 block">
+                  <span className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-1 block">
                     Input
                   </span>
                   <pre className="text-xs text-ink-2 whitespace-pre-wrap bg-surface rounded p-2 max-h-60 overflow-auto">
@@ -1447,7 +1441,7 @@ function ExamplesTab({
                   </pre>
                 </div>
                 <div className="px-4 py-3">
-                  <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider mb-1 block">
+                  <span className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-1 block">
                     Expected Output
                   </span>
                   <pre className="text-xs text-ink-2 whitespace-pre-wrap bg-surface rounded p-2 max-h-60 overflow-auto">
@@ -1525,7 +1519,7 @@ function RubricTab({
         <h3 className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-3">
           Quality Criteria
           {showDiff && (
-            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
               changed
             </span>
           )}
@@ -1562,7 +1556,7 @@ function RubricTab({
         <h3 className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-3">
           Need to Know
           {showDiff && (
-            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
               changed
             </span>
           )}

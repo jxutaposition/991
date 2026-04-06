@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Copy,
   Check,
-  KeyRound,
   Lock,
   LockOpen,
   ExternalLink,
@@ -23,13 +22,15 @@ import {
   User,
   Bot,
   Wrench,
+  Loader2,
 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
+import { ModelSelector } from "@/components/ui/model-selector";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ExecutionNode } from "./execution-canvas";
-import { EventDetailsPopup } from "./event-details-popup";
 import { ConversationStream, type StreamEntry } from "./conversation-stream";
+import { ERROR_CATEGORY_BADGE } from "@/lib/tokens";
 
 export interface ExecutionEvent {
   id: string;
@@ -119,6 +120,7 @@ interface InspectorPanelProps {
   allNodes: ExecutionNode[];
   credentialStatus?: CredentialStatus | null;
   catalogMap?: Record<string, CatalogAgent>;
+  integrationAlternatives?: Record<string, string[]>;
   sessionStatus?: string;
   onNodeUpdate?: (nodeId: string, patch: Record<string, unknown>) => Promise<void>;
   thinkingBlocks?: ThinkingBlock[];
@@ -139,6 +141,7 @@ interface InspectorPanelProps {
   masterLiveThinkingChunks?: Record<string, string>;
   planningMessages?: string[];
   planningError?: string | null;
+  chatPending?: boolean;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
@@ -148,6 +151,7 @@ function NodeDetailContent({
   allNodes,
   credentialStatus,
   catalogMap,
+  integrationAlternatives,
   sessionStatus,
   onNodeUpdate,
 }: {
@@ -155,6 +159,7 @@ function NodeDetailContent({
   allNodes: ExecutionNode[];
   credentialStatus?: CredentialStatus | null;
   catalogMap?: Record<string, CatalogAgent>;
+  integrationAlternatives?: Record<string, string[]>;
   sessionStatus?: string;
   onNodeUpdate?: (nodeId: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
@@ -167,12 +172,12 @@ function NodeDetailContent({
   const credInfo = credentialStatus?.agents[selectedNode.agent_slug];
 
   // Tools from catalog (user-facing only)
-  const catalogTools = catalogAgent?.tools?.filter(
+  const _catalogTools = catalogAgent?.tools?.filter(
     (t) => !INTERNAL_TOOLS.includes(t.name)
   ) ?? [];
 
   // Tools from credential check (has auth status)
-  const credTools = (credInfo?.tools ?? []).filter(
+  const _credTools = (credInfo?.tools ?? []).filter(
     (t) => !INTERNAL_TOOLS.includes(t.name)
   );
 
@@ -214,12 +219,12 @@ function NodeDetailContent({
             {selectedNode.agent_slug}
           </h3>
           <span
-            className={`text-[10px] px-1.5 py-0.5 rounded capitalize shrink-0 ${statusBadgeClass(selectedNode.status)}`}
+            className={`text-xs px-1.5 py-0.5 rounded capitalize shrink-0 ${statusBadgeClass(selectedNode.status)}`}
           >
             {selectedNode.status}
           </span>
           {isBlocked && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex items-center gap-0.5 shrink-0">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex items-center gap-0.5 shrink-0">
               <Lock className="w-2.5 h-2.5" /> blocked
             </span>
           )}
@@ -227,28 +232,47 @@ function NodeDetailContent({
         <div className="flex items-center gap-2 mt-0.5">
           <CopyableId id={selectedNode.id} />
           {catalogAgent && (
-            <span className="text-[10px] text-ink-3 bg-gray-100 px-1.5 py-0.5 rounded">
+            <span className="text-xs text-ink-3 bg-gray-100 px-1.5 py-0.5 rounded">
               {catalogAgent.category.replace(/_/g, " ")}
             </span>
           )}
         </div>
       </div>
 
-      {/* Agent Swap — editable: pick a different agent for this step */}
-      {isEditable && catalogMap && (
-        <CollapsibleSection title="Change Agent" defaultOpen={false}>
-          <div className="space-y-2">
-            <p className="text-[10px] text-ink-3">
-              Swap this step to use a different agent from the catalog.
-            </p>
-            <AgentSwapSelector
-              currentSlug={selectedNode.agent_slug}
-              catalogMap={catalogMap}
-              currentCategory={catalogAgent?.category}
-              onSelect={(slug) => handleSaveField("agent_slug", slug)}
-            />
+      {/* Execution Mode Toggle — agent vs manual */}
+      {isEditable && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-ink-3 uppercase tracking-wider font-medium">Execution</span>
+          <div className="flex items-center rounded-lg border border-rim overflow-hidden">
+            <button
+              onClick={() => handleSaveField("execution_mode", "agent")}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 transition-colors ${
+                selectedNode.execution_mode !== "manual"
+                  ? "bg-blue-50 text-blue-700 font-medium"
+                  : "text-ink-3 hover:bg-gray-50"
+              }`}
+            >
+              <Bot className="w-3 h-3" /> Agent
+            </button>
+            <button
+              onClick={() => handleSaveField("execution_mode", "manual")}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 transition-colors ${
+                selectedNode.execution_mode === "manual"
+                  ? "bg-amber-50 text-amber-700 font-medium"
+                  : "text-ink-3 hover:bg-gray-50"
+              }`}
+            >
+              <User className="w-3 h-3" /> Manual
+            </button>
           </div>
-        </CollapsibleSection>
+        </div>
+      )}
+      {!isEditable && selectedNode.execution_mode === "manual" && (
+        <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200">
+          <User className="w-3 h-3" />
+          <span className="font-medium">Manual execution</span>
+          <span className="text-amber-600">— you&apos;ll complete this step</span>
+        </div>
       )}
 
       {/* Auth Status Banner */}
@@ -307,7 +331,7 @@ function NodeDetailContent({
               missing: "Not configured",
             };
             return (
-              <div key={slug} className="flex items-start gap-1.5 text-[10px] pl-5">
+              <div key={slug} className="flex items-start gap-1.5 text-xs pl-5">
                 <span className="font-medium shrink-0">{slug}</span>
                 <span className="px-1 py-0.5 rounded bg-red-100 text-red-700 font-medium shrink-0">
                   {statusLabels[p.status] ?? p.status}
@@ -348,13 +372,13 @@ function NodeDetailContent({
                 <button
                   onClick={handleSaveTask}
                   disabled={saving}
-                  className="text-[10px] px-2 py-1 bg-brand text-white rounded hover:bg-brand-hover disabled:opacity-50 flex items-center gap-1"
+                  className="text-xs px-2 py-1 bg-brand text-white rounded hover:bg-brand-hover disabled:opacity-50 flex items-center gap-1"
                 >
                   <Save className="w-2.5 h-2.5" /> {saving ? "Saving..." : "Save"}
                 </button>
                 <button
                   onClick={() => { setEditingTask(false); setTaskDraft(selectedNode.task_description); }}
-                  className="text-[10px] px-2 py-1 text-ink-3 hover:text-ink"
+                  className="text-xs px-2 py-1 text-ink-3 hover:text-ink"
                 >
                   Cancel
                 </button>
@@ -370,6 +394,7 @@ function NodeDetailContent({
                   onClick={() => { setTaskDraft(selectedNode.task_description); setEditingTask(true); }}
                   className="absolute top-0 right-0 text-ink-3 hover:text-brand opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Edit task description"
+                  aria-label="Edit task description"
                 >
                   <Pencil className="w-3 h-3" />
                 </button>
@@ -409,7 +434,7 @@ function NodeDetailContent({
             {selectedNode.description.technical_spec?.configuration && Object.keys(selectedNode.description.technical_spec.configuration).length > 0 && (
               <div>
                 <div className="text-ink-3 font-medium mb-0.5">Configuration</div>
-                <pre className="text-[10px] text-ink bg-surface-2 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                <pre className="text-xs text-ink bg-raised rounded p-2 overflow-x-auto whitespace-pre-wrap">
                   {JSON.stringify(selectedNode.description.technical_spec.configuration, null, 2)}
                 </pre>
               </div>
@@ -419,14 +444,14 @@ function NodeDetailContent({
                 <div className="text-ink-3 font-medium mb-0.5">I/O Contract</div>
                 <div className="space-y-1">
                   {selectedNode.description.io_contract.inputs?.map((inp, i) => (
-                    <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                    <div key={i} className="flex items-center gap-1.5 text-xs">
                       <span className="text-green-600 font-mono">IN</span>
                       <span className="text-ink">{inp.name}</span>
                       {inp.source && <span className="text-ink-3">from {inp.source}</span>}
                     </div>
                   ))}
                   {selectedNode.description.io_contract.outputs?.map((out, i) => (
-                    <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                    <div key={i} className="flex items-center gap-1.5 text-xs">
                       <span className="text-blue-600 font-mono">OUT</span>
                       <span className="text-ink">{out.name}</span>
                     </div>
@@ -438,7 +463,7 @@ function NodeDetailContent({
               <div>
                 <div className="text-ink-3 font-medium mb-0.5">Design Decisions</div>
                 {selectedNode.description.optionality.map((opt, i) => (
-                  <div key={i} className="text-[10px] mb-1">
+                  <div key={i} className="text-xs mb-1">
                     <span className="font-medium text-ink">{opt.decision}</span>
                     {opt.recommendation && <span className="text-ink-3"> — {opt.recommendation}</span>}
                   </div>
@@ -450,7 +475,7 @@ function NodeDetailContent({
                 <div className="text-ink-3 font-medium mb-0.5">Acceptance Criteria</div>
                 <ul className="space-y-0.5">
                   {selectedNode.acceptance_criteria.map((c, i) => (
-                    <li key={i} className="text-[10px] text-ink flex items-start gap-1">
+                    <li key={i} className="text-xs text-ink flex items-start gap-1">
                       <span className="text-ink-3 mt-0.5">☐</span> {c}
                     </li>
                   ))}
@@ -466,17 +491,22 @@ function NodeDetailContent({
         <div className="space-y-1.5">
           {isEditable ? (
             <>
-              <EditableConfigRow
-                label="Model"
-                value={selectedNode.model || ""}
-                type="select"
-                options={[
-                  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (default)" },
-                  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-                  { value: "claude-opus-4-6", label: "Opus 4.6" },
-                ]}
-                onSave={(v) => handleSaveField("model", v)}
-              />
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-ink-3 w-24 shrink-0">Model</span>
+                <ModelSelector
+                  models={[
+                    { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", cost: "low", provider: "anthropic" },
+                    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", cost: "high", provider: "anthropic" },
+                    { id: "claude-opus-4-6", name: "Claude Opus 4.6", cost: "very_high", provider: "anthropic" },
+                  ]}
+                  value={selectedNode.model || "claude-haiku-4-5-20251001"}
+                  onChange={(v) => handleSaveField("model", v)}
+                  defaultModel="claude-haiku-4-5-20251001"
+                  compact
+                  label=""
+                  className="flex-1"
+                />
+              </div>
               <EditableConfigRow
                 label="Max iterations"
                 value={String(selectedNode.max_iterations ?? 12)}
@@ -547,7 +577,7 @@ function NodeDetailContent({
                     {v.variant_label || v.agent_slug}
                   </span>
                   {v.variant_selected && (
-                    <span className="ml-auto text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">
+                    <span className="ml-auto text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">
                       selected
                     </span>
                   )}
@@ -557,67 +587,10 @@ function NodeDetailContent({
         </CollapsibleSection>
       )}
 
-      {/* Tools & Integrations — always shown */}
-      <CollapsibleSection title="Tools & Integrations" defaultOpen={true}>
-        {/* Tool list */}
-        {(credTools.length > 0 || catalogTools.length > 0) && (
-          <div className="space-y-1 mb-3">
-            <p className="text-[10px] text-ink-3 uppercase tracking-wider font-medium mb-1">
-              Tools ({(credTools.length || catalogTools.length)})
-            </p>
-            {(credTools.length > 0 ? credTools : catalogTools.map((t) => ({
-              name: t.name,
-              credential: t.credential,
-              credential_status: (t.credential ? "missing" : "not_required") as "connected" | "missing" | "not_required",
-              display_name: t.credential ?? undefined,
-              icon: t.credential ?? undefined,
-            }))).map((tool) => {
-              const credStatus = tool.credential_status ?? "not_required";
-              return (
-                <div key={tool.name} className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded border ${
-                  credStatus === "missing"
-                    ? "bg-amber-50 border-amber-200"
-                    : credStatus === "connected"
-                      ? "bg-green-50 border-green-200"
-                      : "bg-surface border-rim"
-                }`}>
-                  {tool.icon && tool.credential ? (
-                    <IntegrationIcon slug={tool.icon} size={14} />
-                  ) : (
-                    <KeyRound className="w-3.5 h-3.5 text-ink-3 shrink-0" />
-                  )}
-                  <span className="font-mono text-ink text-[11px]">{tool.name}</span>
-                  <span className="ml-auto flex items-center gap-1">
-                    {credStatus === "connected" && (
-                      <>
-                        <LockOpen className="w-3 h-3 text-green-600" />
-                        <span className="text-[10px] text-green-600">Connected</span>
-                      </>
-                    )}
-                    {credStatus === "missing" && (
-                      <>
-                        <Lock className="w-3 h-3 text-amber-600" />
-                        <span className="text-[10px] text-amber-600">
-                          needs {tool.display_name || tool.credential}
-                        </span>
-                      </>
-                    )}
-                    {credStatus === "not_required" && (
-                      <span className="text-[10px] text-ink-3">no auth</span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Required integrations with icons */}
+      {/* Integrations — dropdown selectors */}
+      <CollapsibleSection title="Integrations" defaultOpen={true}>
         {hasIntegrations && (
           <div className="space-y-1.5">
-            <p className="text-[10px] text-ink-3 uppercase tracking-wider font-medium">
-              Required Integrations
-            </p>
             {(credInfo?.integration_details ?? credInfo?.required_integrations.map((slug) => ({
               slug,
               display_name: slug,
@@ -628,6 +601,12 @@ function NodeDetailContent({
               const probeOk = probe?.ok === true;
               const probeFailed = probe && !probe.ok;
               const isMissing = detail.status === "missing" || probe?.status === "missing";
+              const nodeOverrides = selectedNode.integration_overrides;
+              const currentOverride = nodeOverrides?.[detail.slug];
+              const effectiveSlug = currentOverride || detail.slug;
+              const alternatives = integrationAlternatives?.[detail.slug] ?? [];
+              const allOptions = [detail.slug, ...alternatives];
+              const hasAlternatives = alternatives.length > 0;
 
               const statusLabels: Record<string, string> = {
                 verified: "Verified",
@@ -643,17 +622,17 @@ function NodeDetailContent({
 
               let rowClass = "bg-green-50 text-green-700 border border-green-200";
               let label = "Verified";
-              let Icon = LockOpen;
+              let StatusIcon = LockOpen;
               if (isMissing) {
                 rowClass = "bg-gray-50 text-gray-600 border border-gray-200";
                 label = "Not configured";
-                Icon = Lock;
+                StatusIcon = Lock;
               } else if (probeFailed) {
                 rowClass = probe.status === "config_missing"
                   ? "bg-amber-50 text-amber-700 border border-amber-200"
                   : "bg-red-50 text-red-700 border border-red-200";
                 label = statusLabels[probe.status] ?? "Failed";
-                Icon = Lock;
+                StatusIcon = Lock;
               } else if (probeOk) {
                 label = statusLabels[probe.status] ?? "Verified";
               } else if (detail.status === "connected" && !probe) {
@@ -667,10 +646,33 @@ function NodeDetailContent({
                   className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded ${rowClass}`}
                   title={probe?.hint || probe?.error || ""}
                 >
-                  <IntegrationIcon slug={detail.icon ?? detail.slug} size={14} />
-                  <Icon className="w-3 h-3 shrink-0" />
-                  <span className="font-medium">{detail.display_name}</span>
-                  <span className="ml-auto text-[10px]">{label}</span>
+                  <IntegrationIcon slug={effectiveSlug} size={14} />
+                  <StatusIcon className="w-3 h-3 shrink-0" />
+                  {isEditable && hasAlternatives ? (
+                    <select
+                      value={effectiveSlug}
+                      onChange={(e) => {
+                        const newSlug = e.target.value;
+                        const overrides = { ...(nodeOverrides ?? {}) };
+                        if (newSlug === detail.slug) {
+                          delete overrides[detail.slug];
+                        } else {
+                          overrides[detail.slug] = newSlug;
+                        }
+                        handleSaveField("integration_overrides", overrides);
+                      }}
+                      className="flex-1 text-xs font-medium bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer capitalize"
+                    >
+                      {allOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="font-medium capitalize">{effectiveSlug.replace(/_/g, " ")}</span>
+                  )}
+                  <span className="ml-auto text-xs shrink-0">{label}</span>
                   {probe?.latency_ms != null && probe.latency_ms > 0 && (
                     <span className="text-[9px] text-ink-3">{probe.latency_ms}ms</span>
                   )}
@@ -680,25 +682,24 @@ function NodeDetailContent({
             {(credInfo?.missing?.length ?? 0) > 0 && (
               <a
                 href={`/settings/integrations#${credInfo?.missing[0]}`}
-                className="flex items-center gap-1 text-[10px] text-brand hover:underline mt-1"
+                className="flex items-center gap-1 text-xs text-brand hover:underline mt-1"
               >
                 Configure integrations <ExternalLink className="w-2.5 h-2.5" />
               </a>
             )}
 
-            {/* Setup steps for connected integrations that need extra config */}
             {(credInfo?.integration_details ?? [])
-              .filter((d) => d.status === "connected" && d.setup_steps && d.setup_steps.length > 0)
+              .filter((d) => d.status === "connected" && d.setup_steps && d.setup_steps.some((s) => s.required))
               .map((detail) => (
                 <div
                   key={`setup-${detail.slug}`}
                   className="mt-2 border border-amber-200 bg-amber-50 rounded-lg px-2.5 py-2"
                 >
-                  <p className="text-[10px] font-semibold text-amber-800 mb-1">
+                  <p className="text-xs font-semibold text-amber-800 mb-1">
                     {detail.display_name} — additional setup needed
                   </p>
                   {detail.setup_steps!.filter((s) => s.required).map((step, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-[10px] text-amber-700 mt-1">
+                    <div key={i} className="flex items-start gap-1.5 text-xs text-amber-700 mt-1">
                       <span className="shrink-0 mt-px">&#9888;</span>
                       <span>
                         {step.label}
@@ -717,14 +718,15 @@ function NodeDetailContent({
           </div>
         )}
 
-        {!hasIntegrations && catalogTools.length === 0 && credTools.length === 0 && (
-          <p className="text-[10px] text-ink-3">No external tools or integrations required</p>
+        {!hasIntegrations && (
+          <p className="text-xs text-ink-3">No external integrations required</p>
         )}
       </CollapsibleSection>
     </div>
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function NodeChatContent({
   selectedNode,
   messages,
@@ -830,11 +832,12 @@ function NodeChatContent({
               disabled={!replyText.trim() || sending}
               className="shrink-0 p-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 transition-colors"
               title="Send reply"
+              aria-label="Send reply"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>
-          <p className="text-[10px] text-ink-3 mt-1.5">
+          <p className="text-xs text-ink-3 mt-1.5">
             Press Enter to send, Shift+Enter for new line
           </p>
         </div>
@@ -845,7 +848,7 @@ function NodeChatContent({
 
 function ChatBubble({ message }: { message: NodeMessage }) {
   const isUser = message.role === "user";
-  const isAssistant = message.role === "assistant";
+  const _isAssistant = message.role === "assistant";
   const isTool = message.role === "tool_use" || message.role === "tool_result";
   const isHumanReply = message.metadata && (message.metadata as Record<string, unknown>).source === "human_reply";
 
@@ -854,20 +857,20 @@ function ChatBubble({ message }: { message: NodeMessage }) {
     return (
       <div className="flex items-start gap-2 px-2">
         <Wrench className="w-3 h-3 text-ink-3 mt-0.5 shrink-0" />
-        <div className="text-[10px] text-ink-3 min-w-0">
+        <div className="text-xs text-ink-3 min-w-0">
           <span className="font-mono font-medium">
             {message.role === "tool_use" ? `${toolName}()` : `${toolName} result`}
           </span>
           {message.role === "tool_result" && message.content && (
             <div className="mt-0.5 bg-surface rounded p-1.5 max-h-[80px] overflow-y-auto">
-              <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+              <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                 {message.content.slice(0, 500)}
                 {message.content.length > 500 ? "..." : ""}
               </pre>
             </div>
           )}
         </div>
-        <span className="text-[9px] text-ink-3 ml-auto shrink-0">
+        <span className="text-xs text-ink-3 ml-auto shrink-0">
           {new Date(message.created_at).toLocaleTimeString()}
         </span>
       </div>
@@ -895,12 +898,12 @@ function ChatBubble({ message }: { message: NodeMessage }) {
           : "bg-surface border border-rim"
       }`}>
         {isHumanReply && (
-          <span className="text-[9px] text-brand font-medium block mb-0.5">You</span>
+          <span className="text-xs text-brand font-medium block mb-0.5">You</span>
         )}
         <p className="text-xs text-ink whitespace-pre-wrap leading-relaxed break-words">
           {message.content}
         </p>
-        <span className={`text-[9px] block mt-1 ${isUser ? "text-right" : ""} text-ink-3`}>
+        <span className={`text-xs block mt-1 ${isUser ? "text-right" : ""} text-ink-3`}>
           {new Date(message.created_at).toLocaleTimeString()}
         </span>
       </div>
@@ -908,20 +911,82 @@ function ChatBubble({ message }: { message: NodeMessage }) {
   );
 }
 
+const PLANNING_STEPS = [
+  "Analyzing request and loading agent catalog",
+  "Searching knowledge base for prior work",
+  "Designing system architecture",
+  "Specifying component I/O contracts",
+  "Selecting agents and tools",
+  "Generating acceptance criteria",
+];
+
 function PlanningProgress({ messages, error }: { messages: string[]; error?: string | null }) {
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  const [syntheticStep, setSyntheticStep] = React.useState(0);
+  React.useEffect(() => {
+    if (messages.length > 0) return;
+    const timer = setInterval(() => {
+      setSyntheticStep((s) => (s < PLANNING_STEPS.length - 1 ? s + 1 : s));
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [messages.length]);
+
+  const displayMessages = messages.length > 0 ? messages : PLANNING_STEPS.slice(0, syntheticStep + 1);
+
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [displayMessages.length]);
+
   return (
-    <div className="flex-1 flex flex-col justify-end px-4 py-3 space-y-2 overflow-y-auto">
-      {messages.map((msg, i) => (
-        <div key={i} className="flex items-center gap-2 text-sm text-ink-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shrink-0" />
-          {msg}
+    <div className="flex-1 flex flex-col px-4 py-3 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 pb-3 mb-3 border-b border-rim">
+        <div className="relative flex items-center justify-center w-6 h-6">
+          <span className="absolute w-6 h-6 rounded-full bg-brand/15 animate-ping" />
+          <Brain className="w-3.5 h-3.5 text-brand relative" />
         </div>
-      ))}
+        <div>
+          <div className="text-sm font-medium text-ink">Deep planning</div>
+          <div className="text-xs text-ink-3">Building your execution plan...</div>
+        </div>
+      </div>
+
+      {/* Action items (Perplexity-style step list) */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="pl-1 border-l-2 border-rim ml-[6px] space-y-0.5">
+          {displayMessages.map((msg, i) => {
+            const isLast = i === displayMessages.length - 1;
+            const isDone = !isLast;
+            return (
+              <div
+                key={i}
+                className="flex items-center gap-2 py-1 px-2.5 animate-fade-in-up"
+              >
+                {isDone ? (
+                  <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0 animate-check-pop" />
+                ) : (
+                  <Loader2 className="w-3 h-3 text-brand animate-spin shrink-0" />
+                )}
+                <span className={`text-xs ${isDone ? "text-ink-3" : "text-ink-2"} transition-colors`}>
+                  {msg.replace(/\.{3}$/, "")}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer */}
       {error ? (
-        <div className="text-sm text-red-600">{error}</div>
+        <div className="text-sm text-red-600 pt-2 border-t border-rim mt-2">{error}</div>
       ) : (
-        <div className="flex items-center gap-2 text-sm text-ink-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shrink-0" />
+        <div className="flex items-center gap-2 text-xs text-ink-3 pt-2 border-t border-rim mt-2">
+          <span className="thinking-dots flex gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-brand" />
+            <span className="w-1 h-1 rounded-full bg-brand" />
+            <span className="w-1 h-1 rounded-full bg-brand" />
+          </span>
           Planning...
         </div>
       )}
@@ -929,20 +994,21 @@ function PlanningProgress({ messages, error }: { messages: string[]; error?: str
   );
 }
 
-export function InspectorPanel({
+export const InspectorPanel = React.memo(function InspectorPanel({
   selectedNode,
   nodeEvents,
-  nodeEventsLoading,
+  nodeEventsLoading: _nodeEventsLoading,
   allNodes,
   credentialStatus,
   catalogMap,
+  integrationAlternatives,
   sessionStatus,
   onNodeUpdate,
-  thinkingBlocks = [],
-  thinkingBlocksLoading = false,
+  thinkingBlocks: _thinkingBlocks = [],
+  thinkingBlocksLoading: _thinkingBlocksLoading = false,
   liveThinkingChunks = {},
-  nodeMessages = [],
-  nodeMessagesLoading = false,
+  nodeMessages: _nodeMessages = [],
+  nodeMessagesLoading: _nodeMessagesLoading = false,
   onReply,
   streamEntries = [],
   streamLoading = false,
@@ -956,8 +1022,9 @@ export function InspectorPanel({
   masterLiveThinkingChunks = {},
   planningMessages = [],
   planningError,
+  chatPending = false,
 }: InspectorPanelProps) {
-  const [selectedEvent, setSelectedEvent] = useState<ExecutionEvent | null>(
+  const [_selectedEvent, _setSelectedEvent] = useState<ExecutionEvent | null>(
     null
   );
 
@@ -992,7 +1059,7 @@ export function InspectorPanel({
   }, [allNodes]);
 
   // Synthesize timeline from node data when no DB events exist
-  const synthesizedTimeline = useMemo(() => {
+  const _synthesizedTimeline = useMemo(() => {
     if (!selectedNode) return [];
     if (nodeEvents.length > 0) return []; // real events exist, don't synthesize
 
@@ -1090,7 +1157,7 @@ export function InspectorPanel({
           <TabsTrigger value="failures" className={tabClass}>
             Failures
             {failedCount > 0 && (
-              <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
+              <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 leading-4 inline-block min-w-[18px] text-center">
                 {failedCount}
               </span>
             )}
@@ -1106,6 +1173,7 @@ export function InspectorPanel({
                 allNodes={allNodes}
                 credentialStatus={credentialStatus}
                 catalogMap={catalogMap}
+                integrationAlternatives={integrationAlternatives}
                 sessionStatus={sessionStatus}
                 onNodeUpdate={onNodeUpdate}
               />
@@ -1213,7 +1281,7 @@ export function InspectorPanel({
                         />
                       )}
                     </div>
-                    <p className="text-[10px] text-ink-3 mt-1">
+                    <p className="text-xs text-ink-3 mt-1">
                       {sessionStats.passed + sessionStats.failed + sessionStats.skipped}/
                       {sessionStats.total} completed
                     </p>
@@ -1247,7 +1315,7 @@ export function InspectorPanel({
                           {n.status}
                         </span>
                         {n.judge_score != null && (
-                          <span className="text-[10px] font-mono text-green-600 shrink-0">
+                          <span className="text-xs font-mono text-green-600 shrink-0">
                             {Number(n.judge_score).toFixed(1)}
                           </span>
                         )}
@@ -1281,6 +1349,7 @@ export function InspectorPanel({
               onReply={onReply}
               liveThinkingChunks={masterLiveThinkingChunks}
               liveTextChunks={masterLiveTextChunks}
+              chatPending={chatPending}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-sm text-ink-3">
@@ -1328,7 +1397,7 @@ export function InspectorPanel({
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-medium text-ink truncate group-hover:text-blue-700">{artifact.title}</p>
-                              <p className="text-[10px] text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
+                              <p className="text-xs text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
                             </div>
                             <ExternalLink className="w-3.5 h-3.5 text-ink-3 group-hover:text-blue-500 flex-shrink-0" />
                           </a>
@@ -1394,15 +1463,15 @@ export function InspectorPanel({
                             {node.agent_slug}
                           </span>
                           {cat && (
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${categoryBadgeClass(cat)}`}>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${categoryBadgeClass(cat)}`}>
                               {cat.replace(/_/g, " ")}
                             </span>
                           )}
-                          <span className="text-[10px] text-ink-3 capitalize ml-auto">
+                          <span className="text-xs text-ink-3 capitalize ml-auto">
                             {node.status}
                           </span>
                           {(node.attempt_count ?? 0) > 1 && (
-                            <span className="text-[10px] text-amber-600 font-medium">
+                            <span className="text-xs text-amber-600 font-medium">
                               {node.attempt_count} attempts
                             </span>
                           )}
@@ -1426,7 +1495,7 @@ export function InspectorPanel({
                           </div>
                         )}
                         {node.judge_score != null && (
-                          <div className="text-[10px] text-ink-3">
+                          <div className="text-xs text-ink-3">
                             Judge score: {Number(node.judge_score).toFixed(1)}/10
                           </div>
                         )}
@@ -1449,23 +1518,15 @@ export function InspectorPanel({
       </Tabs>
     </div>
   );
-}
-
-const CATEGORY_BADGE_CLASSES: Record<string, string> = {
-  preflight_error: "bg-amber-100 text-amber-700",
-  auth_error: "bg-amber-100 text-amber-700",
-  validation_error: "bg-red-100 text-red-700",
-  timeout: "bg-orange-100 text-orange-700",
-  api_error: "bg-blue-100 text-blue-700",
-  internal_error: "bg-gray-100 text-gray-600",
-};
+});
 
 function categoryBadgeClass(category: string): string {
-  return CATEGORY_BADGE_CLASSES[category] ?? "bg-gray-100 text-gray-600";
+  return ERROR_CATEGORY_BADGE[category] ?? "bg-muted-subtle text-muted";
 }
 
 // ── Thinking components ──────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ThinkingCard({
   iteration,
   text,
@@ -1509,18 +1570,18 @@ function ThinkingCard({
           Iteration {iteration}
         </span>
         {isLive && (
-          <span className="text-[9px] font-medium text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded-full">
+          <span className="text-xs font-medium text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded-full">
             LIVE
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
           {tokenCount != null && (
-            <span className="text-[10px] text-violet-500/70 font-mono">
+            <span className="text-xs text-violet-500/70 font-mono">
               {tokenCount.toLocaleString()} tokens
             </span>
           )}
           {timestamp && (
-            <span className="text-[10px] text-ink-3">
+            <span className="text-xs text-ink-3">
               {new Date(timestamp).toLocaleTimeString()}
             </span>
           )}
@@ -1541,7 +1602,7 @@ function ThinkingCard({
             </pre>
           </div>
           <div className="flex items-center justify-between px-3 py-1.5 border-t border-violet-500/10 bg-violet-500/[0.02]">
-            <span className="text-[10px] text-ink-3">
+            <span className="text-xs text-ink-3">
               {text.length.toLocaleString()} chars
               {tokenCount != null && ` \u00B7 ${tokenCount.toLocaleString()} tokens`}
             </span>
@@ -1611,7 +1672,7 @@ function ScoreBar({ score }: { score: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[10px] text-ink-3">/10</span>
+      <span className="text-xs text-ink-3">/10</span>
     </div>
   );
 }
@@ -1656,6 +1717,7 @@ function ConfigRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AgentSwapSelector({
   currentSlug,
   catalogMap,
@@ -1682,7 +1744,7 @@ function AgentSwapSelector({
       <div className="flex items-center gap-2">
         <button
           onClick={() => setFilter("same_category")}
-          className={`text-[10px] px-2 py-0.5 rounded-full ${
+          className={`text-xs px-2 py-0.5 rounded-full ${
             filter === "same_category" ? "bg-brand text-white" : "bg-surface text-ink-3 border border-rim"
           }`}
         >
@@ -1690,7 +1752,7 @@ function AgentSwapSelector({
         </button>
         <button
           onClick={() => setFilter("all")}
-          className={`text-[10px] px-2 py-0.5 rounded-full ${
+          className={`text-xs px-2 py-0.5 rounded-full ${
             filter === "all" ? "bg-brand text-white" : "bg-surface text-ink-3 border border-rim"
           }`}
         >
@@ -1706,11 +1768,11 @@ function AgentSwapSelector({
           >
             <div className="min-w-0 flex-1">
               <div className="font-medium text-ink">{agent.name}</div>
-              <div className="text-[10px] text-ink-3 truncate">{agent.description}</div>
+              <div className="text-xs text-ink-3 truncate">{agent.description}</div>
               {agent.required_integrations.length > 0 && (
                 <div className="flex items-center gap-1 mt-0.5">
                   {agent.required_integrations.map((ri) => (
-                    <span key={ri} className="text-[8px] px-1 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                    <span key={ri} className="text-xs px-1 py-0.5 rounded-full bg-blue-50 text-blue-600">
                       {ri}
                     </span>
                   ))}
@@ -1720,7 +1782,7 @@ function AgentSwapSelector({
           </button>
         ))}
         {agents.length === 0 && (
-          <p className="text-[10px] text-ink-3 text-center py-2">No other agents in this category</p>
+          <p className="text-xs text-ink-3 text-center py-2">No other agents in this category</p>
         )}
       </div>
     </div>
@@ -1796,7 +1858,7 @@ function CopyableId({ id }: { id: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 mt-1 text-[10px] font-mono text-ink-3 hover:text-ink transition-colors"
+      className="flex items-center gap-1 mt-1 text-xs font-mono text-ink-3 hover:text-ink transition-colors"
     >
       {id.slice(0, 8)}...
       {copied ? (
@@ -1820,7 +1882,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="text-[10px] text-ink-3 hover:text-ink flex items-center gap-1 transition-colors"
+      className="text-xs text-ink-3 hover:text-ink flex items-center gap-1 transition-colors"
     >
       {copied ? (
         <>
@@ -1851,7 +1913,7 @@ function StatCard({
       {icon}
       <div>
         <div className={`text-lg font-bold font-mono ${color}`}>{value}</div>
-        <div className="text-[10px] text-ink-3 uppercase tracking-wider">
+        <div className="text-xs text-ink-3 uppercase tracking-wider">
           {label}
         </div>
       </div>
@@ -1861,9 +1923,10 @@ function StatCard({
 
 // ── Event rendering ──────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function EventRow({
   event,
-  index,
+  index: _index,
   onClick,
 }: {
   event: ExecutionEvent;
@@ -1892,13 +1955,13 @@ function EventRow({
             {formatEventType(eventType)}
           </span>
           {event.created_at && (
-            <span className="text-[10px] text-ink-3 ml-auto">
+            <span className="text-xs text-ink-3 ml-auto">
               {new Date(event.created_at).toLocaleTimeString()}
             </span>
           )}
         </div>
         {payload && Object.keys(payload).length > 0 && (
-          <div className="text-[10px] text-ink-3 font-mono mt-0.5 truncate max-w-full">
+          <div className="text-xs text-ink-3 font-mono mt-0.5 truncate max-w-full">
             {formatPayload(payload)}
           </div>
         )}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AlertTriangle, Clock, Pencil, Save, X } from "lucide-react";
 import type { ExecutionNode } from "@/components/execution-canvas";
+import { SESSION_STATUS_PILL, CHANGE_SOURCE_BADGE } from "@/lib/tokens";
 
 export interface ProjectDescriptionData {
   id: string;
@@ -70,7 +71,7 @@ export function DocumentHeader({
         {versions && versions.length > 0 && (
           <button
             onClick={() => setShowHistory((v) => !v)}
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
               showHistory
                 ? "bg-brand/10 text-brand"
                 : "text-ink-3 hover:text-ink hover:bg-gray-50"
@@ -90,22 +91,22 @@ export function DocumentHeader({
           {total} component{total !== 1 ? "s" : ""}
         </span>
         {passed > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 font-medium">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-600 font-medium">
             {passed} passed
           </span>
         )}
         {failed > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">
             {failed} failed
           </span>
         )}
         {running > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
             {running} running
           </span>
         )}
         {(openIssueCount ?? 0) > 0 && (
-          <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-medium">
             <AlertTriangle className="w-3 h-3" />
             {openIssueCount} issue{openIssueCount !== 1 ? "s" : ""}
           </span>
@@ -115,11 +116,11 @@ export function DocumentHeader({
       {/* Summary */}
       <div className="mt-3">
         <div className="flex items-center gap-1.5 mb-1">
-          <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+          <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
             Overview
           </span>
           {isEditable && !editingSummary && (
-            <button onClick={() => { setSummaryDraft(summary); setEditingSummary(true); }} className="text-ink-3 hover:text-ink">
+            <button onClick={() => { setSummaryDraft(summary); setEditingSummary(true); }} className="text-ink-3 hover:text-ink" aria-label="Edit summary">
               <Pencil className="w-3 h-3" />
             </button>
           )}
@@ -138,12 +139,14 @@ export function DocumentHeader({
                   setEditingSummary(false);
                 }}
                 className="p-1 text-green-600 hover:bg-green-50 rounded"
+                aria-label="Save summary"
               >
                 <Save className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => setEditingSummary(false)}
                 className="p-1 text-gray-400 hover:bg-gray-50 rounded"
+                aria-label="Cancel editing"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -157,14 +160,14 @@ export function DocumentHeader({
       {/* Data Flows */}
       {dataFlows.length > 0 && (
         <div className="mt-3">
-          <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+          <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
             Data Flows
           </span>
           <div className="flex flex-wrap gap-2 mt-1.5">
             {dataFlows.map((flow, i) => (
               <div
                 key={i}
-                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-rim bg-white"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-rim bg-white"
               >
                 <span className="font-mono text-purple-600">{flow.from}</span>
                 <span className="text-ink-3">&rarr;</span>
@@ -183,7 +186,7 @@ export function DocumentHeader({
         <div className="mt-3">
           {typeof projectDescription.architecture === "object" && "overview" in projectDescription.architecture && (
             <>
-              <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
                 Architecture
               </span>
               <p className="text-xs text-ink-2 mt-1">
@@ -198,10 +201,10 @@ export function DocumentHeader({
       {showHistory && versions && versions.length > 0 && (
         <div className="mt-3 border border-rim rounded-lg bg-white overflow-hidden">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-rim bg-gray-50/80">
-            <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
               Version History
             </span>
-            <button onClick={() => setShowHistory(false)} className="text-ink-3 hover:text-ink">
+            <button onClick={() => setShowHistory(false)} className="text-ink-3 hover:text-ink" aria-label="Close version history">
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -220,7 +223,7 @@ export function DocumentHeader({
                     <span className="text-ink-3 ml-1">by {v.changed_by}</span>
                   )}
                 </div>
-                <span className="shrink-0 font-mono text-[10px] text-ink-3 tabular-nums">
+                <span className="shrink-0 font-mono text-xs text-ink-3 tabular-nums">
                   {formatRelativeTime(v.created_at)}
                 </span>
               </div>
@@ -233,33 +236,18 @@ export function DocumentHeader({
 }
 
 function StatusPill({ label }: { label: string }) {
-  const colors: Record<string, string> = {
-    awaiting_approval: "bg-amber-50 text-amber-700 border-amber-200",
-    executing: "bg-blue-50 text-blue-700 border-blue-200",
-    completed: "bg-green-50 text-green-700 border-green-200",
-    failed: "bg-red-50 text-red-700 border-red-200",
-    planning: "bg-gray-50 text-gray-600 border-gray-200",
-    cancelled: "bg-gray-50 text-gray-500 border-gray-200",
-  };
-  const cls = colors[label] ?? colors.planning;
+  const cls = SESSION_STATUS_PILL[label] ?? SESSION_STATUS_PILL.planning;
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${cls}`}>
+    <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${cls}`}>
       {label.replace(/_/g, " ")}
     </span>
   );
 }
 
-const CHANGE_SOURCE_STYLES: Record<string, string> = {
-  planner: "bg-purple-50 text-purple-700 border-purple-200",
-  user_edit: "bg-blue-50 text-blue-700 border-blue-200",
-  chat_agent: "bg-green-50 text-green-700 border-green-200",
-  execution_result: "bg-amber-50 text-amber-700 border-amber-200",
-};
-
 function ChangeSourceBadge({ source }: { source: string }) {
-  const cls = CHANGE_SOURCE_STYLES[source] ?? "bg-gray-50 text-gray-600 border-gray-200";
+  const cls = CHANGE_SOURCE_BADGE[source] ?? "bg-muted-subtle text-muted border-muted-rim";
   return (
-    <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${cls}`}>
+    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded border font-medium ${cls}`}>
       {source.replace(/_/g, " ")}
     </span>
   );

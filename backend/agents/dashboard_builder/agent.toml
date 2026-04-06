@@ -5,6 +5,7 @@ description = "Builds dashboards end-to-end. Creates Supabase data layer (tables
 intents = ["dashboard", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "build dashboard", "create dashboard", "grafana", "lovable dashboard"]
 max_iterations = 20
 skip_judge = false
+automation_mode = "hybrid"
 
 expert_slug = "lele"
 required_integrations = ["supabase", "notion"]

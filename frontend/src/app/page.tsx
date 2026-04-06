@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Send,
 } from "lucide-react";
+import { ModelSelector, type ModelOption } from "@/components/ui/model-selector";
 
 const CATEGORIES = [
   { label: "Outbound", icon: Mail, template: "Run a cold outbound campaign to " },
@@ -48,6 +49,22 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [defaultModel, setDefaultModel] = useState<string>("");
+
+  useEffect(() => {
+    apiFetch("/api/models")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.models) {
+          setModels(data.models);
+          setDefaultModel(data.default ?? data.models[0]?.id ?? "");
+          setSelectedModel(data.default ?? data.models[0]?.id ?? "");
+        }
+      })
+      .catch(() => {});
+  }, [apiFetch]);
 
   useEffect(() => {
     apiFetch("/api/execute/sessions")
@@ -72,6 +89,7 @@ export default function HomePage() {
         body: JSON.stringify({
           request_text: request,
           client_slug: activeClient || undefined,
+          model: selectedModel || undefined,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -92,7 +110,7 @@ export default function HomePage() {
       {/* Workspace badge */}
       {activeClient && (
         <div className="flex items-center gap-2 mb-6">
-          <span className="w-6 h-6 rounded-full flex items-center justify-center bg-brand text-white text-[10px] font-bold">
+          <span className="w-6 h-6 rounded-full flex items-center justify-center bg-brand text-white text-xs font-bold">
             {user?.name?.charAt(0).toUpperCase() ?? "L"}
           </span>
           <span className="text-xs text-ink-3">{activeClient}</span>
@@ -121,11 +139,22 @@ export default function HomePage() {
             className="w-full bg-transparent px-5 pt-4 pb-12 text-sm text-ink placeholder-ink-3 resize-none focus:outline-none rounded-2xl"
           />
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {!authLoading && !activeClient && (
                 <span className="text-[11px] text-amber-600">
                   No workspace selected
                 </span>
+              )}
+              {models.length > 0 && (
+                <ModelSelector
+                  models={models}
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  defaultModel={defaultModel}
+                  compact
+                  openUpward
+                  label=""
+                />
               )}
             </div>
             <button
@@ -208,20 +237,20 @@ export default function HomePage() {
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span
-                    className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${
+                    className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${
                       STATUS_BADGE[session.status] ?? "bg-gray-100 text-gray-600"
                     }`}
                   >
                     {session.status.replace(/_/g, " ")}
                   </span>
-                  <span className="text-[10px] text-ink-3 ml-auto">
+                  <span className="text-xs text-ink-3 ml-auto">
                     {new Date(session.created_at).toLocaleDateString()}
                   </span>
                 </div>
                 <p className="text-sm text-ink line-clamp-2 group-hover:text-brand transition-colors">
                   {session.request_text}
                 </p>
-                <p className="text-[10px] text-ink-3 mt-2">
+                <p className="text-xs text-ink-3 mt-2">
                   {session.passed_count}/{session.node_count} steps passed
                 </p>
               </Link>

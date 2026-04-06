@@ -7,6 +7,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::pg::PgClient;
+use crate::pg_args;
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 
@@ -19,33 +20,25 @@ pub async fn create_client(
     metadata: Option<&Value>,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
-    let slug_escaped = slug.replace('\'', "''");
-    let name_escaped = name.replace('\'', "''");
-    let brief_val = brief
-        .map(|b| format!("'{}'", b.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let industry_val = industry
-        .map(|i| format!("'{}'", i.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let meta_val = metadata
-        .map(|m| format!("'{}'::jsonb", m.to_string().replace('\'', "''")))
-        .unwrap_or_else(|| "'{}'::jsonb".to_string());
+    let brief_owned = brief.map(|b| b.to_string());
+    let industry_owned = industry.map(|i| i.to_string());
+    let meta_val = metadata.cloned().unwrap_or_else(|| serde_json::json!({}));
 
-    let sql = format!(
-        r#"INSERT INTO clients (id, slug, name, brief, industry, metadata)
-           VALUES ('{id}', '{slug_escaped}', '{name_escaped}', {brief_val}, {industry_val}, {meta_val})"#
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO clients (id, slug, name, brief, industry, metadata) \
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
+        pg_args!(id, slug.to_string(), name.to_string(), brief_owned, industry_owned, meta_val),
+    ).await?;
     info!(client = %id, slug = slug, "created client");
     Ok(id)
 }
 
 pub async fn get_client(db: &PgClient, slug: &str) -> anyhow::Result<Option<Value>> {
-    let slug_escaped = slug.replace('\'', "''");
     let rows = db
-        .execute(&format!(
-            "SELECT * FROM clients WHERE slug = '{slug_escaped}'"
-        ))
+        .execute_with(
+            "SELECT * FROM clients WHERE slug = $1",
+            pg_args!(slug.to_string()),
+        )
         .await?;
     Ok(rows.into_iter().next())
 }
@@ -63,29 +56,23 @@ pub async fn add_contact(
     notes: Option<&str>,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
-    let name_escaped = name.replace('\'', "''");
-    let role_val = role
-        .map(|r| format!("'{}'", r.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let email_val = email
-        .map(|e| format!("'{}'", e.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let notes_val = notes
-        .map(|n| format!("'{}'", n.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
+    let role_owned = role.map(|r| r.to_string());
+    let email_owned = email.map(|e| e.to_string());
+    let notes_owned = notes.map(|n| n.to_string());
 
-    let sql = format!(
-        r#"INSERT INTO client_contacts (id, client_id, name, role, email, notes)
-           VALUES ('{id}', '{client_id}', '{name_escaped}', {role_val}, {email_val}, {notes_val})"#
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO client_contacts (id, client_id, name, role, email, notes) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        pg_args!(id, client_id, name.to_string(), role_owned, email_owned, notes_owned),
+    ).await?;
     Ok(id)
 }
 
 pub async fn get_contacts(db: &PgClient, client_id: Uuid) -> anyhow::Result<Vec<Value>> {
-    db.execute(&format!(
-        "SELECT * FROM client_contacts WHERE client_id = '{client_id}' ORDER BY name"
-    ))
+    db.execute_with(
+        "SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY name",
+        pg_args!(client_id),
+    )
     .await
 }
 
@@ -97,16 +84,14 @@ pub async fn get_state(
     workflow_slug: Option<&str>,
     state_key: &str,
 ) -> anyhow::Result<Option<Value>> {
-    let key_escaped = state_key.replace('\'', "''");
-    let wf_clause = workflow_slug
-        .map(|w| format!("workflow_slug = '{}'", w.replace('\'', "''")))
-        .unwrap_or_else(|| "workflow_slug IS NULL".to_string());
+    let wf = workflow_slug.map(|w| w.to_string());
 
     let rows = db
-        .execute(&format!(
+        .execute_with(
             "SELECT state_value FROM client_state \
-             WHERE client_id = '{client_id}' AND {wf_clause} AND state_key = '{key_escaped}'"
-        ))
+             WHERE client_id = $1 AND workflow_slug IS NOT DISTINCT FROM $2 AND state_key = $3",
+            pg_args!(client_id, wf, state_key.to_string()),
+        )
         .await?;
 
     Ok(rows
@@ -121,19 +106,15 @@ pub async fn set_state(
     state_key: &str,
     state_value: &Value,
 ) -> anyhow::Result<()> {
-    let key_escaped = state_key.replace('\'', "''");
-    let value_json = state_value.to_string().replace('\'', "''");
-    let wf_val = workflow_slug
-        .map(|w| format!("'{}'", w.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
+    let wf = workflow_slug.map(|w| w.to_string());
 
-    let sql = format!(
-        r#"INSERT INTO client_state (client_id, workflow_slug, state_key, state_value)
-           VALUES ('{client_id}', {wf_val}, '{key_escaped}', '{value_json}'::jsonb)
-           ON CONFLICT (client_id, workflow_slug, state_key)
-           DO UPDATE SET state_value = '{value_json}'::jsonb, updated_at = NOW()"#
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO client_state (client_id, workflow_slug, state_key, state_value) \
+         VALUES ($1, $2, $3, $4::jsonb) \
+         ON CONFLICT (client_id, workflow_slug, state_key) \
+         DO UPDATE SET state_value = $4::jsonb, updated_at = NOW()",
+        pg_args!(client_id, wf, state_key.to_string(), state_value.clone()),
+    ).await?;
     Ok(())
 }
 
@@ -142,14 +123,15 @@ pub async fn list_state(
     client_id: Uuid,
     workflow_slug: Option<&str>,
 ) -> anyhow::Result<Vec<Value>> {
-    let wf_clause = workflow_slug
-        .map(|w| format!("AND workflow_slug = '{}'", w.replace('\'', "''")))
-        .unwrap_or_default();
+    let wf = workflow_slug.map(|w| w.to_string());
 
-    db.execute(&format!(
+    db.execute_with(
         "SELECT state_key, state_value, workflow_slug, updated_at \
-         FROM client_state WHERE client_id = '{client_id}' {wf_clause} ORDER BY state_key"
-    ))
+         FROM client_state WHERE client_id = $1 \
+         AND workflow_slug IS NOT DISTINCT FROM $2 \
+         ORDER BY state_key",
+        pg_args!(client_id, wf),
+    )
     .await
 }
 
@@ -160,9 +142,10 @@ pub async fn build_client_context(
     workflow_slug: Option<&str>,
 ) -> anyhow::Result<String> {
     let client_rows = db
-        .execute(&format!(
-            "SELECT name, brief, industry FROM clients WHERE id = '{client_id}'"
-        ))
+        .execute_with(
+            "SELECT name, brief, industry FROM clients WHERE id = $1",
+            pg_args!(client_id),
+        )
         .await?;
 
     let mut context = String::new();
@@ -210,10 +193,10 @@ pub async fn build_expert_context(
     expert_id: Uuid,
 ) -> anyhow::Result<String> {
     let rows = db
-        .execute(&format!(
-            "SELECT name, identity, voice, methodology FROM experts WHERE id = '{}'",
-            expert_id
-        ))
+        .execute_with(
+            "SELECT name, identity, voice, methodology FROM experts WHERE id = $1",
+            pg_args!(expert_id),
+        )
         .await?;
 
     let mut context = String::new();

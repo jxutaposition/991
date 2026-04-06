@@ -5,4 +5,5 @@ description = "Operates the Notion API: creates pages, queries databases, update
 intents = ["notion", "notion page", "notion database", "add to notion", "create notion page", "update notion", "notion api", "meeting notes", "project plan"]
 max_iterations = 12
 skip_judge = false
+automation_mode = "full"
 required_integrations = ["notion"]

@@ -122,7 +122,7 @@ export default function TestingPage() {
           })}
         </div>
 
-        <span className="text-[10px] text-ink-3">{MODE_CONFIG[mode].description}</span>
+        <span className="text-xs text-ink-3">{MODE_CONFIG[mode].description}</span>
 
         <div className="flex-1" />
 

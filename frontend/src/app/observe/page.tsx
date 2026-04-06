@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/utils";
+import { OBSERVE_STATUS_BADGE } from "@/lib/tokens";
 
 interface ObservationSession {
   id: string;
@@ -12,13 +13,6 @@ interface ObservationSession {
   distillation_count: number;
   coverage_score: number | null;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  recording:  "bg-red-100 text-red-700",
-  completed:  "bg-green-100 text-green-700",
-  flagged:    "bg-amber-100 text-amber-700",
-  archived:   "bg-surface text-ink-3",
-};
 
 export default function ObservePage() {
   const [sessions, setSessions] = useState<ObservationSession[]>([]);
@@ -57,7 +51,7 @@ export default function ObservePage() {
                 href={`/observe/${session.id}`}
                 className="flex items-center gap-4 border border-rim rounded-xl px-5 py-4 hover:border-rim-strong transition-colors bg-page"
               >
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[session.status] ?? "bg-surface text-ink-2"}`}>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${OBSERVE_STATUS_BADGE[session.status] ?? "bg-surface text-ink-2"}`}>
                   {session.status}
                 </span>
                 <span className="text-sm text-ink flex-1">

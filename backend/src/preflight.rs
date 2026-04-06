@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use futures_util::future::join_all;
 use serde_json::Value;
+use tracing::{debug, info, warn};
 
 use crate::credentials::DecryptedCredential;
 
@@ -239,8 +240,48 @@ pub async fn probe_one(
             }
         }
 
-        // Clay: no probe — the clay_operator has no API access and no required
-        // credential. It provides instructions for the user to build in Clay's UI.
+        // Clay: merged credential — JSON with api_key + optional session_cookie.
+        // Clay v1 has no reliable health endpoint, so we only validate the v3
+        // session cookie via GET /v3/me. If only an API key is present we
+        // optimistically mark it as verified (the key will fail at tool-call
+        // time if it's actually invalid).
+        "clay" => {
+            let parsed: Value = serde_json::from_str(value).unwrap_or(serde_json::json!({}));
+            let has_api_key = parsed.get("api_key").and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .is_some();
+            let session_cookie = parsed
+                .get("session_cookie")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    if s.starts_with("claysession=") {
+                        s.to_string()
+                    } else {
+                        format!("claysession={}", s)
+                    }
+                });
+
+            if let Some(cookie) = session_cookie {
+                Some(
+                    http.get("https://api.clay.com/v3/me")
+                        .header("Cookie", &cookie)
+                        .send()
+                        .await,
+                )
+            } else if has_api_key {
+                return Some(ProbeResult {
+                    integration_slug: "clay".to_string(),
+                    status: ProbeStatus::Verified,
+                    http_status: Some(200),
+                    error: String::new(),
+                    hint: String::new(),
+                    latency_ms: start.elapsed().as_millis() as u64,
+                });
+            } else {
+                None
+            }
+        }
 
         // n8n: GET /api/v1/workflows?limit=1 — requires base URL
         "n8n" => {
@@ -386,10 +427,18 @@ pub async fn probe_one(
     let result = result?;
     let latency_ms = start.elapsed().as_millis() as u64;
 
-    Some(match result {
+    let probe_result = match result {
         Ok(r) => classify_response(slug, &r, latency_ms),
         Err(e) => classify_network_error(slug, &e, latency_ms),
-    })
+    };
+
+    if probe_result.success() {
+        debug!(integration = %slug, latency_ms = probe_result.latency_ms, "probe passed");
+    } else {
+        warn!(integration = %slug, status = %probe_result.status.as_str(), error = %probe_result.error, "probe failed");
+    }
+
+    Some(probe_result)
 }
 
 /// Run live probes for a set of integrations using decrypted credential values.
@@ -398,12 +447,18 @@ pub async fn probe_integrations(
     needed: &HashMap<String, DecryptedCredential>,
     settings: Option<&crate::config::Settings>,
 ) -> Vec<ProbeResult> {
+    info!(count = needed.len(), "running preflight probes");
+
     let futures: Vec<_> = needed
         .iter()
         .map(|(slug, cred)| async move { probe_one(slug, cred, settings).await })
         .collect();
 
-    join_all(futures).await.into_iter().flatten().collect()
+    let results: Vec<ProbeResult> = join_all(futures).await.into_iter().flatten().collect();
+    let passed = results.iter().filter(|r| r.success()).count();
+    let failed = results.len() - passed;
+    info!(total = results.len(), passed = passed, failed = failed, "preflight probes complete");
+    results
 }
 
 /// Collect the set of required integration slugs for an agent (combining

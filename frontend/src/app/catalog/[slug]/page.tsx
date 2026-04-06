@@ -10,6 +10,7 @@ import {
   ExternalLink, Copy, Check,
 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
+import { RESULT_STATUS_BADGE, PR_STATUS_BADGE } from "@/lib/tokens";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,14 +139,7 @@ const TAB_CONFIG: { id: Tab; label: string; icon: React.ElementType }[] = [
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    passed: "bg-green-100 text-green-700",
-    failed: "bg-red-100 text-red-700",
-    skipped: "bg-yellow-100 text-yellow-700",
-    open: "bg-blue-100 text-blue-700",
-    merged: "bg-purple-100 text-purple-700",
-    rejected: "bg-red-100 text-red-700",
-  };
+  const styles = { ...RESULT_STATUS_BADGE, ...PR_STATUS_BADGE };
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles[status] ?? "bg-surface text-ink-3"}`}>
       {status}
@@ -154,9 +148,9 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function StatusIcon({ status }: { status: string }) {
-  if (status === "passed") return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-  if (status === "failed") return <XCircle className="w-4 h-4 text-red-500" />;
-  if (status === "skipped") return <SkipForward className="w-4 h-4 text-yellow-500" />;
+  if (status === "passed") return <CheckCircle2 className="w-4 h-4 text-success" />;
+  if (status === "failed") return <XCircle className="w-4 h-4 text-danger" />;
+  if (status === "skipped") return <SkipForward className="w-4 h-4 text-warning" />;
   return <Clock className="w-4 h-4 text-ink-3" />;
 }
 
@@ -176,7 +170,7 @@ function CopyButton({ text }: { text: string }) {
 function MetaChip({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex flex-col gap-0.5 bg-surface border border-rim rounded-lg px-3 py-2">
-      <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">{label}</span>
+      <span className="text-xs font-medium text-ink-3 uppercase tracking-wider">{label}</span>
       <span className="text-sm font-semibold text-ink">{value}</span>
     </div>
   );
@@ -301,7 +295,7 @@ export default function AgentDetailPage() {
             <Icon className="w-3.5 h-3.5" />
             {label}
             {tabCounts[id] != null && tabCounts[id] > 0 && (
-              <span className="text-[10px] bg-surface text-ink-3 px-1.5 py-0.5 rounded-full ml-0.5">{tabCounts[id]}</span>
+              <span className="text-xs bg-surface text-ink-3 px-1.5 py-0.5 rounded-full ml-0.5">{tabCounts[id]}</span>
             )}
           </button>
         ))}
@@ -421,7 +415,7 @@ function extractTitle(markdown: string): string | null {
 
 function KnowledgeTab({ docs }: { docs: KnowledgeDoc[] }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const toggle = (i: number) => setExpanded((prev) => { const s = new Set(prev); s.has(i) ? s.delete(i) : s.add(i); return s; });
+  const toggle = (i: number) => setExpanded((prev) => { const s = new Set(prev); if (s.has(i)) { s.delete(i); } else { s.add(i); } return s; });
   const expandAll = () => setExpanded(new Set(docs.map((d) => d.index)));
   const collapseAll = () => setExpanded(new Set());
 
@@ -474,7 +468,7 @@ function KnowledgeTab({ docs }: { docs: KnowledgeDoc[] }) {
 
 function ExamplesTab({ examples }: { examples: AgentExample[] }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const toggle = (i: number) => setExpanded((prev) => { const s = new Set(prev); s.has(i) ? s.delete(i) : s.add(i); return s; });
+  const toggle = (i: number) => setExpanded((prev) => { const s = new Set(prev); if (s.has(i)) { s.delete(i); } else { s.add(i); } return s; });
 
   if (examples.length === 0) {
     return (
@@ -501,13 +495,13 @@ function ExamplesTab({ examples }: { examples: AgentExample[] }) {
           {expanded.has(ex.index) && (
             <div className="border-t border-rim divide-y divide-rim">
               <div className="px-4 py-3">
-                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider mb-1 block">Input</span>
+                <span className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-1 block">Input</span>
                 <pre className="text-xs text-ink-2 whitespace-pre-wrap bg-surface rounded p-2 max-h-60 overflow-auto">
                   {JSON.stringify(ex.input, null, 2)}
                 </pre>
               </div>
               <div className="px-4 py-3">
-                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider mb-1 block">Expected Output</span>
+                <span className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-1 block">Expected Output</span>
                 <pre className="text-xs text-ink-2 whitespace-pre-wrap bg-surface rounded p-2 max-h-60 overflow-auto">
                   {ex.output}
                 </pre>
@@ -580,7 +574,7 @@ function RubricTab({ config, skipJudge }: { config: JudgeConfig; skipJudge: bool
 
 function RunsTab({ runs }: { runs: RunRecord[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => setExpanded((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggle = (id: string) => setExpanded((prev) => { const s = new Set(prev); if (s.has(id)) { s.delete(id); } else { s.add(id); } return s; });
 
   if (runs.length === 0) {
     return (
@@ -631,7 +625,7 @@ function RunsTab({ runs }: { runs: RunRecord[] }) {
 
                 {run.judge_feedback && (
                   <div>
-                    <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider block mb-1">Judge Feedback</span>
+                    <span className="text-xs font-medium text-ink-3 uppercase tracking-wider block mb-1">Judge Feedback</span>
                     <p className="text-xs text-ink-2 bg-surface rounded-lg p-3 border border-rim whitespace-pre-wrap leading-relaxed">{run.judge_feedback}</p>
                   </div>
                 )}
@@ -680,7 +674,7 @@ function VersionsTab({ versions }: { versions: { version: number; change_summary
 
 function FeedbackTab({ feedback, prs }: { feedback: FeedbackSignal[]; prs: AgentPR[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => setExpanded((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggle = (id: string) => setExpanded((prev) => { const s = new Set(prev); if (s.has(id)) { s.delete(id); } else { s.add(id); } return s; });
 
   const impactStyles: Record<string, string> = {
     prompt: "bg-purple-100 text-purple-700",
@@ -746,7 +740,7 @@ function FeedbackTab({ feedback, prs }: { feedback: FeedbackSignal[]; prs: Agent
                     <div className="border-t border-rim bg-surface/50">
                       {/* Full description */}
                       <div className="px-4 py-3 border-b border-rim">
-                        <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider block mb-1">Description</span>
+                        <span className="text-xs font-medium text-ink-3 uppercase tracking-wider block mb-1">Description</span>
                         <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">{f.description}</p>
                       </div>
 
@@ -755,13 +749,13 @@ function FeedbackTab({ feedback, prs }: { feedback: FeedbackSignal[]; prs: Agent
                         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-rim">
                           {f.expert_approach && (
                             <div className="px-4 py-3">
-                              <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider block mb-1">Expert Approach</span>
+                              <span className="text-xs font-medium text-green-600 uppercase tracking-wider block mb-1">Expert Approach</span>
                               <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap">{f.expert_approach}</p>
                             </div>
                           )}
                           {f.agent_approach && (
                             <div className="px-4 py-3">
-                              <span className="text-[10px] font-medium text-amber-600 uppercase tracking-wider block mb-1">Agent Approach (Current)</span>
+                              <span className="text-xs font-medium text-amber-600 uppercase tracking-wider block mb-1">Agent Approach (Current)</span>
                               <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap">{f.agent_approach}</p>
                             </div>
                           )}
@@ -809,7 +803,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div className="bg-surface border border-rim rounded-lg px-3 py-2">
-      <p className="text-[10px] text-ink-3 uppercase tracking-wider">{label}</p>
+      <p className="text-xs text-ink-3 uppercase tracking-wider">{label}</p>
       <p className={`text-lg font-bold ${color ?? "text-ink"}`}>{value}</p>
     </div>
   );

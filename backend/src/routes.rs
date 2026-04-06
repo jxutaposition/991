@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::agent_catalog::MASTER_ORCHESTRATOR_SLUG;
 use crate::client as client_mod;
+use crate::error::InternalError;
 use crate::pg_args;
 use crate::feedback;
 use crate::narrator::{self, CapturedEvent};
@@ -44,9 +45,9 @@ pub async fn models_list(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({
         "default": state.settings.anthropic_model,
         "models": [
-            {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "description": "Fastest, lowest cost. Good for most tasks."},
-            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Balanced speed and quality."},
-            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Highest quality, slowest. Best for complex planning."},
+            {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "description": "Fastest, lowest cost. Good for most tasks.", "cost": "low", "provider": "anthropic"},
+            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "description": "Balanced speed and quality.", "cost": "high", "provider": "anthropic"},
+            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "description": "Highest quality, slowest. Best for complex planning.", "cost": "very_high", "provider": "anthropic"},
         ]
     }))
 }
@@ -100,6 +101,7 @@ pub async fn catalog_list(
                 "intents": a.intents,
                 "tools": tool_details,
                 "required_integrations": a.required_integrations,
+                "automation_mode": a.automation_mode.as_deref().unwrap_or("full"),
                 "version": a.version,
                 "expert_id": a.expert_id.map(|id| id.to_string()),
             })
@@ -116,14 +118,16 @@ pub async fn catalog_list(
         cats
     };
 
+    let integration_alternatives = crate::agent_catalog::AgentCatalog::integration_alternatives();
+
     let count = agents.len();
-    Json(json!({"agents": agents, "count": count, "categories": categories}))
+    Json(json!({"agents": agents, "count": count, "categories": categories, "integration_alternatives": integration_alternatives}))
 }
 
 pub async fn catalog_get(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let agent = state
         .catalog
         .get(&slug)
@@ -189,7 +193,7 @@ pub async fn catalog_get(
 pub async fn catalog_agent_stats(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     // Aggregate stats from execution_nodes
     let stats = state.db.execute_with(
         r#"SELECT
@@ -454,8 +458,29 @@ pub async fn execution_create(
 
             bg_state.event_bus.send(
                 &bg_session_id.to_string(),
-                json!({"type": "planner_progress", "message": "Designing system architecture and component specifications..."}),
+                json!({"type": "planner_progress", "message": "Searching knowledge base for prior work and project context..."}),
             ).await;
+
+            // Pre-gather context so the user sees progress during knowledge search
+            let gathered_context = planner::gather_planner_context(
+                &bg_state.db,
+                &bg_request_text,
+                bg_client_id,
+                bg_project_id,
+                bg_state.settings.openai_api_key.as_deref(),
+            ).await;
+
+            if !gathered_context.is_empty() {
+                bg_state.event_bus.send(
+                    &bg_session_id.to_string(),
+                    json!({"type": "planner_progress", "message": "Found relevant context. Designing system architecture..."}),
+                ).await;
+            } else {
+                bg_state.event_bus.send(
+                    &bg_session_id.to_string(),
+                    json!({"type": "planner_progress", "message": "Designing system architecture and component specifications..."}),
+                ).await;
+            }
 
             // Use the RICH planner to generate detailed component descriptions,
             // architecture, data flows, acceptance criteria — not just agent slugs.
@@ -464,6 +489,7 @@ pub async fn execution_create(
                 &catalog_summary,
                 &bg_state.settings.anthropic_api_key,
                 &bg_model,
+                &gathered_context,
             ).await {
                 Ok(plan) => plan,
                 Err(e) => {
@@ -519,9 +545,15 @@ pub async fn execution_create(
 
             for (i, component) in rich_plan.components.iter().enumerate() {
                 let child_uid = Uuid::new_v4();
-                let child_jc_val = bg_state.catalog.get(&component.agent_slug)
+                let agent_def = bg_state.catalog.get(&component.agent_slug);
+                let child_jc_val = agent_def.as_ref()
                     .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
                     .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+
+                let exec_mode = match agent_def.as_ref().and_then(|a| a.automation_mode.as_deref()) {
+                    Some("guided") => "manual",
+                    _ => "agent",
+                };
 
                 let description_json = &component.description;
                 let acceptance_criteria = description_json
@@ -534,14 +566,15 @@ pub async fn execution_create(
                         (id, session_id, agent_slug, agent_git_sha, task_description, status,
                          requires, attempt_count, parent_uid, judge_config, max_iterations,
                          model, skip_judge, client_id, depth, description, step_index,
-                         acceptance_criteria)
+                         acceptance_criteria, execution_mode, integration_overrides)
                        VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, $10, 1,
-                               $11, $12, $13)"#,
+                               $11, $12, $13, $14, '{}'::jsonb)"#,
                     pg_args!(
                         child_uid, bg_session_id, component.agent_slug.clone(), "preview".to_string(),
                         component.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uid,
                         child_jc_val, bg_node_model.clone(), bg_client_id,
-                        description_json.clone(), (i as i32) + 1, acceptance_criteria
+                        description_json.clone(), (i as i32) + 1, acceptance_criteria,
+                        exec_mode.to_string()
                     ),
                 ).await;
 
@@ -553,6 +586,7 @@ pub async fn execution_create(
                     "parent_uid": bg_master_uid.to_string(),
                     "preview": true,
                     "description": description_json,
+                    "execution_mode": exec_mode,
                 }));
             }
 
@@ -660,7 +694,7 @@ pub async fn execution_create(
 pub async fn execution_approve(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -754,7 +788,7 @@ pub async fn execution_approve(
                     return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
                         "error": "Credential preflight check failed",
                         "preflight_failures": all_issues,
-                    }))));
+                    }))).into());
                 }
 
                 info!(session = %session_id, probes = probes.len(), "preflight checks passed");
@@ -818,13 +852,11 @@ pub async fn execution_approve(
                         );
 
                         // Insert mapping so clarification thread replies route back
-                        let _ = state.db.execute(&format!(
+                        let _ = state.db.execute_with(
                             "INSERT INTO slack_channel_mappings (slack_team_id, slack_channel_id, session_id, thread_ts) \
-                             VALUES ('auto', '{}', '{}', '{}')",
-                            channel_id.replace('\'', "''"),
-                            session_id,
-                            resp.ts.replace('\'', "''"),
-                        )).await;
+                             VALUES ('auto', $1, $2, $3)",
+                            crate::pg_args!(channel_id.clone(), session_id.to_string(), resp.ts.clone()),
+                        ).await;
 
                         info!(session = %session_id, channel = %channel_id, "Slack notifier started for project/client channel");
                     }
@@ -850,9 +882,10 @@ async fn resolve_slack_channel(
 ) -> Option<String> {
     // Check project first
     if let Some(pid) = project_id {
-        let rows = db.execute(&format!(
-            "SELECT slack_channel_id FROM projects WHERE id = '{pid}'"
-        )).await.ok()?;
+        let rows = db.execute_with(
+            "SELECT slack_channel_id FROM projects WHERE id = $1",
+            crate::pg_args!(pid),
+        ).await.ok()?;
         if let Some(ch) = rows.first()
             .and_then(|r| r.get("slack_channel_id"))
             .and_then(Value::as_str)
@@ -863,9 +896,10 @@ async fn resolve_slack_channel(
     }
     // Fall back to client
     if let Some(cid) = client_id {
-        let rows = db.execute(&format!(
-            "SELECT slack_channel_id FROM clients WHERE id = '{cid}'"
-        )).await.ok()?;
+        let rows = db.execute_with(
+            "SELECT slack_channel_id FROM clients WHERE id = $1",
+            crate::pg_args!(cid),
+        ).await.ok()?;
         if let Some(ch) = rows.first()
             .and_then(|r| r.get("slack_channel_id"))
             .and_then(Value::as_str)
@@ -882,7 +916,7 @@ async fn resolve_slack_channel(
 pub async fn execution_stop(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -910,7 +944,7 @@ pub async fn execution_stop(
 pub async fn execution_get(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let rows = state.db.execute_with(
@@ -930,7 +964,7 @@ pub async fn execution_get(
                workflow_id, workflow_step_id, client_id, \
                depth, spawn_context, acceptance_criteria, \
                artifacts, step_index, error_category, description, \
-               started_at, completed_at \
+               started_at, completed_at, execution_mode, integration_overrides \
          FROM execution_nodes WHERE session_id = $1 \
          ORDER BY created_at",
         pg_args!(session_uuid),
@@ -946,7 +980,7 @@ pub async fn execution_get(
 pub async fn execution_failures(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let nodes = state.db.execute_with(
@@ -966,7 +1000,7 @@ pub async fn execution_failures(
 pub async fn execution_node_events(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -984,7 +1018,7 @@ pub async fn execution_node_events(
 pub async fn execution_node_thinking(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -1003,7 +1037,7 @@ pub async fn execution_node_thinking(
 pub async fn execution_node_stream(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -1112,14 +1146,15 @@ async fn persist_session(
             r#"INSERT INTO execution_nodes
               (id, session_id, agent_slug, agent_git_sha, task_description, status,
                requires, attempt_count, judge_config, max_iterations, model, skip_judge,
-               computed_tier, client_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13)"#,
+               computed_tier, client_id, execution_mode, integration_overrides)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13, $14, $15)"#,
             pg_args!(
                 node.uid, session_id, node.agent_slug.clone(), node.agent_git_sha.clone(),
                 node.task_description.clone(), node.status.as_str().to_string(),
                 &node.requires as &[Uuid], judge_config_val,
                 node.max_iterations as i32, node.model.clone(), node.skip_judge,
-                computed_tier, node.client_id
+                computed_tier, node.client_id,
+                node.execution_mode.clone(), node.integration_overrides.clone()
             ),
         ).await?;
     }
@@ -1138,7 +1173,7 @@ pub struct StartSessionRequest {
 pub async fn observe_session_start(
     State(state): State<Arc<AppState>>,
     Json(body): Json<StartSessionRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_id = Uuid::new_v4();
 
     state.db.execute_with(
@@ -1174,7 +1209,7 @@ pub async fn observe_session_events(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<EventBatchRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     if body.events.is_empty() && body.screenshots.as_ref().map_or(true, |s| s.is_empty()) {
         return Ok(Json(json!({"received": 0, "screenshots_stored": 0, "gaps_detected": []})));
     }
@@ -1369,7 +1404,7 @@ pub async fn observe_correction(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<CorrectionRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -1415,7 +1450,7 @@ pub async fn observe_correction(
 pub async fn observe_session_end(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -1436,9 +1471,10 @@ pub async fn observe_session_end(
 
     // Look up expert_id from the observation session
     let expert_id_for_extraction = {
-        let rows = state.db.execute(&format!(
-            "SELECT expert_id FROM observation_sessions WHERE id = '{}'", session_id
-        )).await.unwrap_or_default();
+        let rows = state.db.execute_with(
+            "SELECT expert_id FROM observation_sessions WHERE id = $1",
+            crate::pg_args!(session_id.to_string()),
+        ).await.unwrap_or_default();
         rows.first()
             .and_then(|r| r.get("expert_id").and_then(serde_json::Value::as_str))
             .and_then(|s| s.parse::<Uuid>().ok())
@@ -1504,7 +1540,7 @@ pub async fn observe_sessions_list(
 pub async fn observe_session_get(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let sql = format!(
         "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count FROM observation_sessions WHERE id = '{session_id}'"
     );
@@ -1553,20 +1589,16 @@ pub async fn agent_prs_list(
     axum::extract::Query(query): axum::extract::Query<AgentPrsQuery>,
 ) -> Json<Value> {
     let status_filter = query.status.unwrap_or_else(|| "open".to_string());
-    let status_escaped = status_filter.replace('\'', "''");
 
-    let sql = format!(
-        r#"
-        SELECT id, pr_type, target_agent_slug, proposed_slug, gap_summary,
-               confidence, evidence_count, status, created_at
-        FROM agent_prs
-        WHERE status = '{status_escaped}'
-        ORDER BY created_at DESC
-        LIMIT 100
-        "#
-    );
-
-    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    let rows = state.db.execute_with(
+        "SELECT id, pr_type, target_agent_slug, proposed_slug, gap_summary, \
+               confidence, evidence_count, status, created_at \
+         FROM agent_prs \
+         WHERE status = $1 \
+         ORDER BY created_at DESC \
+         LIMIT 100",
+        crate::pg_args!(status_filter),
+    ).await.unwrap_or_default();
     Json(json!({"prs": rows}))
 }
 
@@ -1575,20 +1607,17 @@ pub async fn agent_prs_list(
 pub async fn agent_pr_get(
     State(state): State<Arc<AppState>>,
     Path(pr_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, pr_type, target_agent_slug, proposed_slug, file_diffs,
-               proposed_changes, reasoning, gap_summary, confidence, evidence_count,
-               status, created_at
-        FROM agent_prs
-        WHERE id = '{pr_uuid}'
-        "#
-    );
-
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT id, pr_type, target_agent_slug, proposed_slug, file_diffs, \
+               proposed_changes, reasoning, gap_summary, confidence, evidence_count, \
+               status, created_at \
+         FROM agent_prs \
+         WHERE id = $1",
+        crate::pg_args!(pr_uuid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let pr = rows.first().ok_or(StatusCode::NOT_FOUND)?;
 
     let slug = pr.get("target_agent_slug").and_then(Value::as_str)
@@ -1645,7 +1674,7 @@ pub async fn agent_pr_get(
 pub async fn agent_pr_approve(
     State(state): State<Arc<AppState>>,
     Path(pr_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
     })?;
@@ -1665,7 +1694,7 @@ pub async fn agent_pr_approve(
 pub async fn agent_pr_reject(
     State(state): State<Arc<AppState>>,
     Path(pr_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let pr_uuid = pr_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
     })?;
@@ -1719,7 +1748,7 @@ pub struct QueryRequest {
 pub async fn data_query(
     State(state): State<Arc<AppState>>,
     Json(body): Json<QueryRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let trimmed = body.sql.trim();
 
     // Validate read-only: check first keyword AND reject DML keywords anywhere
@@ -1734,7 +1763,7 @@ pub async fn data_query(
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({"error": "Only SELECT, WITH, and EXPLAIN queries are allowed"})),
-        ));
+        ).into());
     }
 
     let upper = trimmed.to_uppercase();
@@ -1745,7 +1774,7 @@ pub async fn data_query(
             return Err((
                 StatusCode::FORBIDDEN,
                 Json(json!({"error": format!("Query contains forbidden keyword: {keyword}")})),
-            ));
+            ).into());
         }
     }
 
@@ -1766,12 +1795,12 @@ pub async fn data_query(
                 "sql": trimmed,
             })))
         }
-        Err(e) => Ok(Json(json!({
+        Err(_e) => Ok(Json(json!({
             "columns": [],
             "rows": [],
             "row_count": 0,
             "sql": trimmed,
-            "error": format!("{e}"),
+            "error": "Query execution failed",
         }))),
     }
 }
@@ -1787,22 +1816,23 @@ pub async fn data_table_rows(
     State(state): State<Arc<AppState>>,
     Path(table): Path<String>,
     axum::extract::Query(query): axum::extract::Query<TableRowsQuery>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     // Validate table name (alphanumeric + underscore only)
     if !table.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid table name"})),
-        ));
+        ).into());
     }
 
     let limit = query.limit.unwrap_or(100).min(10000);
     let offset = query.offset.unwrap_or(0);
 
     // Check if table has created_at for ordering
-    let has_created_at = state.db.execute(&format!(
-        "SELECT 1 FROM information_schema.columns WHERE table_name = '{table}' AND column_name = 'created_at' LIMIT 1"
-    )).await.map(|r| !r.is_empty()).unwrap_or(false);
+    let has_created_at = state.db.execute_with(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'created_at' LIMIT 1",
+        crate::pg_args!(table.clone()),
+    ).await.map(|r| !r.is_empty()).unwrap_or(false);
 
     let order = if has_created_at { "ORDER BY created_at DESC" } else { "" };
 
@@ -1831,7 +1861,7 @@ pub async fn data_table_rows(
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("{e}")})),
-        )),
+        ).into()),
     }
 }
 
@@ -1906,9 +1936,10 @@ pub async fn demo_run(
 
         // End session + trigger extraction
         let coverage = crate::narrator::compute_coverage_score(&db, &sid).await;
-        let _ = db.execute(&format!(
-            "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = {coverage} WHERE id = '{sid}'"
-        )).await;
+        let _ = db.execute_with(
+            "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = $1 WHERE id = $2",
+            crate::pg_args!(coverage, sid.to_string()),
+        ).await;
 
         info!(session = %sid, "demo session ended, starting extraction");
 
@@ -1932,20 +1963,22 @@ async fn ingest_demo_events(db: &crate::pg::PgClient, session_id: &str, events: 
         None => return,
     };
     for event in events_arr {
-        let url = event.get("url").and_then(Value::as_str).unwrap_or("").replace('\'', "''");
+        let url = event.get("url").and_then(Value::as_str).unwrap_or("").to_string();
         let domain = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
-        let dom_ctx = event.get("dom_context").map(|v| v.to_string().replace('\'', "''")).unwrap_or_else(|| "null".to_string());
-        let event_type = event.get("event_type").and_then(Value::as_str).unwrap_or("").replace('\'', "''");
-        let seq = event.get("sequence_number").and_then(Value::as_i64).unwrap_or(0);
+        let dom_ctx = event.get("dom_context").cloned().unwrap_or(Value::Null);
+        let event_type = event.get("event_type").and_then(Value::as_str).unwrap_or("").to_string();
+        let seq = event.get("sequence_number").and_then(Value::as_i64).unwrap_or(0) as i32;
 
-        let sql = format!(
-            "INSERT INTO action_events (session_id, sequence_number, event_type, url, domain, dom_context, created_at) VALUES ('{session_id}', {seq}, '{event_type}', '{url}', '{domain}', '{dom_ctx}'::jsonb, NOW()) ON CONFLICT (session_id, sequence_number) DO NOTHING"
-        );
-        let _ = db.execute(&sql).await;
+        let _ = db.execute_with(
+            "INSERT INTO action_events (session_id, sequence_number, event_type, url, domain, dom_context, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (session_id, sequence_number) DO NOTHING",
+            crate::pg_args!(session_id.to_string(), seq, event_type, url, domain, dom_ctx),
+        ).await;
     }
-    let _ = db.execute(&format!(
-        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = '{session_id}') WHERE id = '{session_id}'"
-    )).await;
+    let _ = db.execute_with(
+        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = $1) WHERE id = $1",
+        crate::pg_args!(session_id.to_string()),
+    ).await;
 }
 
 /// Run narrator on a batch of events.
@@ -2014,7 +2047,7 @@ pub struct CreateWorkflowStepRequest {
 pub async fn workflow_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateWorkflowRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client_uuid = body.client_id
         .as_deref()
         .and_then(|s| s.parse::<Uuid>().ok());
@@ -2059,7 +2092,7 @@ pub async fn workflow_create(
 pub async fn workflow_get(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let workflow = workflow_mod::get_workflow(&state.db, &slug)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -2082,7 +2115,7 @@ pub async fn workflow_run(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
     Json(body): Json<RunWorkflowRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_id = workflow_mod::instantiate_workflow(
         &state.db, &state.catalog, &slug, &body.request_text,
     )
@@ -2104,7 +2137,7 @@ pub async fn execution_save_as_workflow(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<SaveAsWorkflowRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -2140,7 +2173,7 @@ pub struct CreateClientRequest {
 pub async fn client_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateClientRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let id = client_mod::create_client(
         &state.db, &body.slug, &body.name, body.brief.as_deref(), body.industry.as_deref(), None,
     )
@@ -2154,7 +2187,7 @@ pub async fn client_create(
 pub async fn client_get(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -2188,31 +2221,43 @@ pub async fn client_update(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
     Json(body): Json<UpdateClientRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
 
-    let client_id = client.get("id").and_then(Value::as_str)
+    let client_id: Uuid = client.get("id").and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Missing client id"}))))?;
 
     let mut sets = Vec::new();
+    let mut param_idx = 1u32;
+    let mut args = sqlx::postgres::PgArguments::default();
+    use sqlx::Arguments as _;
+
     if let Some(ref name) = body.name {
-        sets.push(format!("name = '{}'", name.replace('\'', "''")));
+        sets.push(format!("name = ${param_idx}"));
+        param_idx += 1;
+        args.add(name.clone()).expect("encode");
     }
     if let Some(ref brief) = body.brief {
-        sets.push(format!("brief = '{}'", brief.replace('\'', "''")));
+        sets.push(format!("brief = ${param_idx}"));
+        param_idx += 1;
+        args.add(brief.clone()).expect("encode");
     }
     if let Some(ref industry) = body.industry {
-        sets.push(format!("industry = '{}'", industry.replace('\'', "''")));
+        sets.push(format!("industry = ${param_idx}"));
+        param_idx += 1;
+        args.add(industry.clone()).expect("encode");
     }
     if body.slack_channel_id.is_some() {
         let val = body.slack_channel_id.as_deref()
             .filter(|s| !s.is_empty())
-            .map(|s| format!("'{}'", s.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".to_string());
-        sets.push(format!("slack_channel_id = {val}"));
+            .map(|s| s.to_string());
+        sets.push(format!("slack_channel_id = ${param_idx}"));
+        param_idx += 1;
+        args.add(val).expect("encode");
     }
 
     if sets.is_empty() {
@@ -2220,12 +2265,13 @@ pub async fn client_update(
     }
 
     sets.push("updated_at = NOW()".to_string());
+    args.add(client_id).expect("encode");
 
     let sql = format!(
-        "UPDATE clients SET {} WHERE id = '{client_id}'",
+        "UPDATE clients SET {} WHERE id = ${param_idx}",
         sets.join(", ")
     );
-    state.db.execute(&sql).await
+    state.db.execute_with(&sql, args).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"updated": true})))
@@ -2243,7 +2289,7 @@ pub async fn client_set_state(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
     Json(body): Json<SetClientStateRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
@@ -2387,25 +2433,13 @@ pub struct CreateExpertRequest {
 pub async fn expert_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateExpertRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let id = Uuid::new_v4();
-    let slug = body.slug.replace('\'', "''");
-    let name = body.name.replace('\'', "''");
-    let identity = body.identity.as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let voice = body.voice.as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let methodology = body.methodology.as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
 
-    let sql = format!(
-        "INSERT INTO experts (id, slug, name, identity, voice, methodology) VALUES ('{id}', '{slug}', '{name}', {identity}, {voice}, {methodology})"
-    );
-    state.db.execute(&sql).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    state.db.execute_with(
+        "INSERT INTO experts (id, slug, name, identity, voice, methodology) VALUES ($1, $2, $3, $4, $5, $6)",
+        crate::pg_args!(id, body.slug.clone(), body.name.clone(), body.identity.clone(), body.voice.clone(), body.methodology.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"expert_id": id.to_string()})))
 }
@@ -2414,22 +2448,25 @@ pub async fn expert_create(
 pub async fn expert_get(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
-    let slug_escaped = slug.replace('\'', "''");
-    let rows = state.db.execute(&format!(
-        "SELECT * FROM experts WHERE slug = '{slug_escaped}'"
-    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<Value>, InternalError> {
+    let rows = state.db.execute_with(
+        "SELECT * FROM experts WHERE slug = $1",
+        crate::pg_args!(slug),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let expert = rows.into_iter().next().ok_or(StatusCode::NOT_FOUND)?;
 
-    let expert_id = expert.get("id").and_then(Value::as_str).unwrap_or("");
-    let agents = state.db.execute(&format!(
-        "SELECT slug, name, category, description FROM agent_definitions WHERE expert_id = '{expert_id}' ORDER BY slug"
-    )).await.unwrap_or_default();
+    let expert_id: Uuid = expert.get("id").and_then(Value::as_str)
+        .and_then(|s| s.parse().ok()).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let agents = state.db.execute_with(
+        "SELECT slug, name, category, description FROM agent_definitions WHERE expert_id = $1 ORDER BY slug",
+        crate::pg_args!(expert_id),
+    ).await.unwrap_or_default();
 
-    let engagements = state.db.execute(&format!(
-        "SELECT e.*, c.name as client_name FROM engagements e JOIN clients c ON e.client_id = c.id WHERE e.expert_id = '{expert_id}' ORDER BY e.created_at DESC"
-    )).await.unwrap_or_default();
+    let engagements = state.db.execute_with(
+        "SELECT e.*, c.name as client_name FROM engagements e JOIN clients c ON e.client_id = c.id WHERE e.expert_id = $1 ORDER BY e.created_at DESC",
+        crate::pg_args!(expert_id),
+    ).await.unwrap_or_default();
 
     Ok(Json(json!({
         "expert": expert,
@@ -2461,36 +2498,32 @@ pub struct CreateEngagementRequest {
 pub async fn engagement_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateEngagementRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let expert_slug = body.expert_slug.replace('\'', "''");
-    let client_slug = body.client_slug.replace('\'', "''");
-
-    let expert_rows = state.db.execute(&format!(
-        "SELECT id FROM experts WHERE slug = '{expert_slug}'"
-    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-    let expert_id = expert_rows.first()
+) -> Result<Json<Value>, InternalError> {
+    let expert_rows = state.db.execute_with(
+        "SELECT id FROM experts WHERE slug = $1",
+        crate::pg_args!(body.expert_slug.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let expert_id: Uuid = expert_rows.first()
         .and_then(|r| r.get("id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Expert not found"}))))?;
 
-    let client_rows = state.db.execute(&format!(
-        "SELECT id FROM clients WHERE slug = '{client_slug}'"
-    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-    let client_id = client_rows.first()
+    let client_rows = state.db.execute_with(
+        "SELECT id FROM clients WHERE slug = $1",
+        crate::pg_args!(body.client_slug.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let client_id: Uuid = client_rows.first()
         .and_then(|r| r.get("id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
 
     let id = Uuid::new_v4();
-    let slug = body.slug.replace('\'', "''");
-    let name = body.name.replace('\'', "''");
-    let scope = body.scope.as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
+    let scope: Option<String> = body.scope.clone();
 
-    let sql = format!(
-        "INSERT INTO engagements (id, slug, name, expert_id, client_id, scope) VALUES ('{id}', '{slug}', '{name}', '{expert_id}', '{client_id}', {scope})"
-    );
-    state.db.execute(&sql).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    state.db.execute_with(
+        "INSERT INTO engagements (id, slug, name, expert_id, client_id, scope) VALUES ($1, $2, $3, $4, $5, $6)",
+        crate::pg_args!(id, body.slug.clone(), body.name.clone(), expert_id, client_id, scope),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"engagement_id": id.to_string()})))
 }
@@ -2505,7 +2538,7 @@ pub struct FeedbackQuery {
 /// Ground truth PRs with sufficient weight are auto-applied to the agent definitions.
 pub async fn feedback_synthesize(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let result = crate::feedback_pipeline::run_feedback_pipeline(
         &state.db,
         &state.settings.anthropic_api_key,
@@ -2534,6 +2567,8 @@ pub struct UpdateNodeRequest {
     pub model: Option<String>,
     pub max_iterations: Option<u32>,
     pub skip_judge: Option<bool>,
+    pub execution_mode: Option<String>,
+    pub integration_overrides: Option<Value>,
 }
 
 /// PATCH /api/execute/:session_id/nodes/:node_id — update a node (DAG editor).
@@ -2541,7 +2576,7 @@ pub async fn execution_node_update(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
     Json(body): Json<UpdateNodeRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -2589,13 +2624,26 @@ pub async fn execution_node_update(
         args.add(sj).expect("encode");
         idx += 1;
     }
+    if let Some(em) = &body.execution_mode {
+        if em != "agent" && em != "manual" {
+            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "execution_mode must be 'agent' or 'manual'"}))).into());
+        }
+        set_clauses.push(format!("execution_mode = ${idx}"));
+        args.add(em.clone()).expect("encode");
+        idx += 1;
+    }
+    if let Some(io) = &body.integration_overrides {
+        set_clauses.push(format!("integration_overrides = ${idx}"));
+        args.add(io.clone()).expect("encode");
+        idx += 1;
+    }
 
     if set_clauses.is_empty() {
         return Ok(Json(json!({"ok": true, "updated": false})));
     }
 
     let sql = format!(
-        "UPDATE execution_nodes SET {} WHERE id = ${} AND session_id = ${} AND status IN ('pending', 'waiting', 'ready')",
+        "UPDATE execution_nodes SET {} WHERE id = ${} AND session_id = ${} AND status IN ('pending', 'waiting', 'ready', 'preview')",
         set_clauses.join(", "), idx, idx + 1
     );
     args.add(node_uuid).expect("encode");
@@ -2622,7 +2670,7 @@ pub async fn execution_node_add(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<AddNodeRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -2632,7 +2680,7 @@ pub async fn execution_node_add(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("Unknown agent slug: {}", body.agent_slug)})),
-        ));
+        ).into());
     }
 
     let node_id = Uuid::new_v4();
@@ -2675,7 +2723,7 @@ pub async fn execution_node_add(
 pub async fn execution_session_delete(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -2700,7 +2748,7 @@ pub async fn execution_session_delete(
 pub async fn execution_node_delete(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -2722,7 +2770,7 @@ pub async fn execution_node_delete(
 pub async fn execution_node_release(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -2746,7 +2794,7 @@ pub async fn execution_node_release(
 pub async fn execution_node_messages(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -2773,7 +2821,7 @@ pub async fn execution_node_reply(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
     Json(body): Json<NodeReplyRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -2796,7 +2844,7 @@ pub async fn execution_node_reply(
     if !has_conv && (node_status == "pending" || node_status == "ready" || node_status == "preview") {
         return Err((StatusCode::CONFLICT, Json(json!({
             "error": "Cannot send a message to a node that has not started executing yet. Use the session chat instead."
-        }))));
+        }))).into());
     }
 
     // Mark node as running
@@ -2881,7 +2929,7 @@ pub async fn execution_session_chat(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<SessionChatRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -2906,7 +2954,7 @@ pub async fn execution_session_chat(
     if session_status != "awaiting_approval" && session_status != "planning" {
         return Err((StatusCode::CONFLICT, Json(json!({
             "error": "Chat is only available before execution starts"
-        }))));
+        }))).into());
     }
 
     // Find master node (no parent_uid)
@@ -3340,7 +3388,7 @@ agent_slug, task_description, and depends_on fields. The system will detect this
 pub async fn catalog_versions(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let rows = state.db.execute_with(
         r#"SELECT av.id, av.version, av.change_summary, av.change_source, av.created_at
            FROM agent_versions av
@@ -3358,7 +3406,7 @@ pub async fn catalog_versions(
 pub async fn client_credentials_list(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -3383,7 +3431,7 @@ pub struct SetCredentialRequest {
 enum ValidationResult {
     Validated,
     Skipped,
-    Failed(String),
+    Failed,
 }
 
 /// Validate an API key by making a lightweight read-only call to the service.
@@ -3399,18 +3447,8 @@ async fn validate_credential(slug: &str, value: &str) -> ValidationResult {
     };
 
     match preflight::probe_one(slug, &cred, None).await {
-        Some(result) => {
-            if result.success() {
-                ValidationResult::Validated
-            } else {
-                let msg = if result.error.is_empty() {
-                    format!("{slug} probe failed")
-                } else {
-                    result.error
-                };
-                ValidationResult::Failed(msg)
-            }
-        }
+        Some(result) if result.success() => ValidationResult::Validated,
+        Some(_) => ValidationResult::Failed,
         None => ValidationResult::Skipped,
     }
 }
@@ -3420,7 +3458,7 @@ pub async fn client_credential_set(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
     Json(body): Json<SetCredentialRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
@@ -3428,16 +3466,6 @@ pub async fn client_credential_set(
     let client_id: uuid::Uuid = client.get("id").and_then(Value::as_str)
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
-
-    let validation = validate_credential(&body.integration_slug, &body.value).await;
-    if let ValidationResult::Failed(ref msg) = validation {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-            "error": msg,
-            "validated": false,
-        }))));
-    }
-
-    let validated = matches!(validation, ValidationResult::Validated);
 
     let master_key = state.settings.credential_master_key.as_deref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "Credential encryption not configured (CREDENTIAL_MASTER_KEY missing)"}))))?;
@@ -3449,6 +3477,14 @@ pub async fn client_credential_set(
     crate::credentials::upsert_credential(&state.db, client_id, &body.integration_slug, cred_type, &encrypted, body.metadata.as_ref())
         .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
+    // Probe is informational — never blocks saving the credential.
+    let validation = validate_credential(&body.integration_slug, &body.value).await;
+    let validated = match validation {
+        ValidationResult::Validated => Some(true),
+        ValidationResult::Failed => Some(false),
+        ValidationResult::Skipped => None,
+    };
+
     Ok(Json(json!({"ok": true, "integration_slug": body.integration_slug, "validated": validated})))
 }
 
@@ -3456,7 +3492,7 @@ pub async fn client_credential_set(
 pub async fn client_credential_delete(
     State(state): State<Arc<AppState>>,
     Path((slug, integration_slug)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
@@ -3484,7 +3520,7 @@ pub async fn oauth_authorize(
     State(state): State<Arc<AppState>>,
     Path(provider): Path<String>,
     axum::extract::Query(params): axum::extract::Query<OAuthAuthorizeParams>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &params.client_slug)
         .await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
@@ -3529,7 +3565,7 @@ pub struct GoogleAuthRequest {
 pub async fn auth_google(
     State(state): State<Arc<AppState>>,
     Json(body): Json<GoogleAuthRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let jwt_secret = state.settings.jwt_secret.as_deref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "JWT_SECRET not configured"}))))?;
 
@@ -3550,21 +3586,20 @@ pub async fn auth_google(
 pub async fn auth_me(
     State(state): State<Arc<AppState>>,
     request: axum::extract::Request,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let user = request.extensions().get::<crate::auth::AuthenticatedUser>()
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let sql = format!(
-        "SELECT u.id, u.email, u.name, u.avatar_url FROM users u WHERE u.id = '{}'", user.user_id
-    );
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT u.id, u.email, u.name, u.avatar_url FROM users u WHERE u.id = $1",
+        crate::pg_args!(user.user_id),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let user_data = rows.first().cloned().unwrap_or(json!({}));
 
-    let roles_sql = format!(
-        "SELECT c.slug, c.name, ucr.role FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id WHERE ucr.user_id = '{}'",
-        user.user_id
-    );
-    let clients = state.db.execute(&roles_sql).await.unwrap_or_default();
+    let clients = state.db.execute_with(
+        "SELECT c.slug, c.name, ucr.role FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id WHERE ucr.user_id = $1",
+        crate::pg_args!(user.user_id),
+    ).await.unwrap_or_default();
 
     Ok(Json(json!({"user": user_data, "clients": clients})))
 }
@@ -3583,7 +3618,7 @@ pub struct CreateWorkspaceRequest {
 pub async fn auth_create_workspace(
     State(state): State<Arc<AppState>>,
     request: axum::extract::Request,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let user = request.extensions().get::<crate::auth::AuthenticatedUser>()
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({"error": "Not authenticated"}))))?
         .clone();
@@ -3636,8 +3671,14 @@ fn integration_metadata() -> Vec<Value> {
                "key_url": "https://app.tavily.com/home",    "key_help": "Copy your API key from the Tavily dashboard"}),
         json!({"slug": "apollo",     "name": "Apollo",      "auth_type": "oauth2",  "icon": "apollo",     "description": "Contact & company enrichment for prospecting",
                "key_url": "https://developer.apollo.io/keys/", "key_help": "Create an API key in the Apollo developer portal"}),
-        json!({"slug": "clay",       "name": "Clay",        "auth_type": "api_key", "icon": "clay",       "description": "Data enrichment and social listening",
-               "key_url": "https://app.clay.com/settings",   "key_help": "Find your API key under Settings → API Keys"}),
+        json!({"slug": "clay",       "name": "Clay",        "auth_type": "api_key", "icon": "clay",
+               "description": "Data enrichment — table creation, schema management, row operations, and enrichment triggers",
+               "key_url": "https://app.clay.com/settings",   "key_help": "Find your API key under Settings → API Keys at app.clay.com/settings",
+               "extra_fields": ["session_cookie", "workspace_id"],
+               "setup_steps": [
+                   {"label": "Get session cookie (enables full table & column automation)", "help": "In Chrome, open app.clay.com (logged in) → press F12 → go to Application tab → Cookies in the left sidebar → click on https://api.clay.com (NOT app.clay.com) → find the cookie named 'claysession' → copy its Value (starts with s%3A…). Paste just the raw value — do NOT include 'claysession=' as a prefix. The cookie lasts ~7 days before you need to refresh it.", "required": false},
+                   {"label": "Get workspace ID", "help": "Your workspace ID is the number in the Clay URL: app.clay.com/workspaces/<ID>/… You can find it by navigating to any page inside your Clay workspace.", "required": false}
+               ]}),
         json!({"slug": "n8n",        "name": "n8n",         "auth_type": "api_key", "icon": "n8n",        "description": "Workflow automation",                 "extra_fields": ["base_url"],
                "key_help": "In your n8n instance go to Settings → n8n API → Create API key"}),
         json!({"slug": "tolt",       "name": "Tolt",        "auth_type": "api_key", "icon": "tolt",       "description": "Referral and affiliate tracking",
@@ -3698,7 +3739,7 @@ pub async fn client_credential_check(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
     axum::extract::Query(query): axum::extract::Query<CredentialCheckQuery>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let client = client_mod::get_client(&state.db, &slug)
         .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -3852,7 +3893,8 @@ pub async fn client_credential_check(
             for slug in &all_required {
                 if probe_results_json.get(slug).is_none() {
                     if needed.contains_key(slug.as_str()) {
-                        probe_results_json[slug] = json!({ "status": "skipped", "ok": false });
+                        // Credential exists but no probe is defined — trust the stored key
+                        probe_results_json[slug] = json!({ "status": "skipped", "ok": true });
                     } else {
                         probe_results_json[slug] = json!({
                             "status": "missing",
@@ -3888,7 +3930,7 @@ pub struct RecordLessonRequest {
 pub async fn feedback_record_lesson(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RecordLessonRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = body.session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session_id"})))
     })?;
@@ -3984,7 +4026,7 @@ pub struct OverlaysQuery {
 /// POST /api/overlays/promote — trigger a manual promotion scan.
 pub async fn overlays_promote(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let count = crate::pattern_promoter::run_promotion_scan(
         &state.db,
         &state.settings.anthropic_api_key,
@@ -4033,12 +4075,18 @@ pub async fn projects_list(
     axum::extract::Query(query): axum::extract::Query<ProjectsQuery>,
 ) -> Json<Value> {
     let mut clauses = vec!["1=1".to_string()];
+    let mut args = sqlx::postgres::PgArguments::default();
+    use sqlx::Arguments as _;
+    let mut pi = 1u32;
     if let Some(ref client_id) = query.client_id {
-        clauses.push(format!("p.client_id = '{}'", client_id.replace('\'', "''")));
+        clauses.push(format!("p.client_id = ${pi}::uuid"));
+        pi += 1;
+        args.add(client_id.clone()).expect("encode");
     }
     if let Some(ref client_slug) = query.client_slug {
-        let slug_esc = client_slug.replace('\'', "''");
-        clauses.push(format!("c.slug = '{slug_esc}'"));
+        clauses.push(format!("c.slug = ${pi}"));
+        pi += 1;
+        args.add(client_slug.clone()).expect("encode");
     }
 
     let sql = format!(
@@ -4047,7 +4095,8 @@ pub async fn projects_list(
          WHERE {} ORDER BY p.created_at DESC LIMIT 100",
         clauses.join(" AND ")
     );
-    let rows = state.db.execute(&sql).await.unwrap_or_default();
+    let _ = pi; // suppress unused warning
+    let rows = state.db.execute_with(&sql, args).await.unwrap_or_default();
     Json(json!({"projects": rows}))
 }
 
@@ -4071,44 +4120,35 @@ pub struct CreateProjectRequest {
 pub async fn project_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateProjectRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let client_slug_escaped = body.client_slug.replace('\'', "''");
-    let client_rows = state.db.execute(&format!(
-        "SELECT id FROM clients WHERE slug = '{client_slug_escaped}'"
-    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-    let client_id = client_rows.first()
+) -> Result<Json<Value>, InternalError> {
+    let client_rows = state.db.execute_with(
+        "SELECT id FROM clients WHERE slug = $1",
+        crate::pg_args!(body.client_slug.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let client_id: Uuid = client_rows.first()
         .and_then(|r| r.get("id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
 
-    let expert_id_val = if let Some(ref es) = body.expert_slug {
-        let es_escaped = es.replace('\'', "''");
-        let rows = state.db.execute(&format!(
-            "SELECT id FROM experts WHERE slug = '{es_escaped}'"
-        )).await.unwrap_or_default();
+    let expert_id: Option<Uuid> = if let Some(ref es) = body.expert_slug {
+        let rows = state.db.execute_with(
+            "SELECT id FROM experts WHERE slug = $1",
+            crate::pg_args!(es.clone()),
+        ).await.unwrap_or_default();
         rows.first()
             .and_then(|r| r.get("id").and_then(Value::as_str))
-            .map(|id| format!("'{}'", id))
-            .unwrap_or_else(|| "NULL".to_string())
+            .and_then(|id| id.parse().ok())
     } else {
-        "NULL".to_string()
+        None
     };
 
     let id = Uuid::new_v4();
-    let slug_escaped = body.slug.replace('\'', "''");
-    let name_escaped = body.name.replace('\'', "''");
-    let desc_val = body.description.as_deref()
-        .map(|d| format!("'{}'", d.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let slack_val = body.slack_channel_id.as_deref()
-        .map(|s| format!("'{}'", s.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
 
-    let sql = format!(
+    state.db.execute_with(
         "INSERT INTO projects (id, slug, name, client_id, expert_id, description, slack_channel_id) \
-         VALUES ('{id}', '{slug_escaped}', '{name_escaped}', '{client_id}', {expert_id_val}, {desc_val}, {slack_val})"
-    );
-    state.db.execute(&sql).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        crate::pg_args!(id, body.slug.clone(), body.name.clone(), client_id, expert_id, body.description.clone(), body.slack_channel_id.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"project_id": id.to_string()})))
 }
@@ -4125,25 +4165,35 @@ pub async fn project_update(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<UpdateProjectRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let pid: Uuid = project_id.parse().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
 
+    // Build SET clauses and corresponding parameters dynamically
     let mut sets = Vec::new();
+    let mut param_idx = 1u32;
+    let mut args = sqlx::postgres::PgArguments::default();
+    use sqlx::Arguments as _;
+
     if let Some(ref name) = body.name {
-        sets.push(format!("name = '{}'", name.replace('\'', "''")));
+        sets.push(format!("name = ${param_idx}"));
+        param_idx += 1;
+        args.add(name.clone()).expect("pg_args: encode failed");
     }
     if let Some(ref desc) = body.description {
-        sets.push(format!("description = '{}'", desc.replace('\'', "''")));
+        sets.push(format!("description = ${param_idx}"));
+        param_idx += 1;
+        args.add(desc.clone()).expect("pg_args: encode failed");
     }
     // Allow explicit null to clear slack_channel_id
     if body.slack_channel_id.is_some() {
         let val = body.slack_channel_id.as_deref()
             .filter(|s| !s.is_empty())
-            .map(|s| format!("'{}'", s.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".to_string());
-        sets.push(format!("slack_channel_id = {val}"));
+            .map(|s| s.to_string());
+        sets.push(format!("slack_channel_id = ${param_idx}"));
+        param_idx += 1;
+        args.add(val).expect("pg_args: encode failed");
     }
 
     if sets.is_empty() {
@@ -4151,12 +4201,13 @@ pub async fn project_update(
     }
 
     sets.push("updated_at = NOW()".to_string());
+    args.add(pid).expect("pg_args: encode failed");
 
     let sql = format!(
-        "UPDATE projects SET {} WHERE id = '{pid}'",
+        "UPDATE projects SET {} WHERE id = ${param_idx}",
         sets.join(", ")
     );
-    state.db.execute(&sql).await
+    state.db.execute_with(&sql, args).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"updated": true})))
@@ -4168,13 +4219,14 @@ pub async fn project_update(
 pub async fn project_credentials_list(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // Get client_id for this project
-    let rows = state.db.execute(&format!(
-        "SELECT client_id FROM projects WHERE id = '{pid}'"
-    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT client_id FROM projects WHERE id = $1",
+        crate::pg_args!(pid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let client_id: uuid::Uuid = rows.first()
         .and_then(|r| r.get("client_id").and_then(Value::as_str))
         .and_then(|s| s.parse().ok())
@@ -4213,7 +4265,7 @@ pub async fn project_credential_set(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse()
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"}))))?;
 
@@ -4251,7 +4303,7 @@ pub async fn project_credential_set(
 pub async fn project_credential_delete(
     State(state): State<Arc<AppState>>,
     Path((project_id, integration_slug)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
     crate::credentials::delete_project_credential(&state.db, pid, &integration_slug)
         .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -4263,12 +4315,13 @@ pub async fn project_credential_check(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<CredentialCheckQuery>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let rows = state.db.execute(&format!(
-        "SELECT client_id FROM projects WHERE id = '{pid}'"
-    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT client_id FROM projects WHERE id = $1",
+        crate::pg_args!(pid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let client_id: uuid::Uuid = rows.first()
         .and_then(|r| r.get("client_id").and_then(Value::as_str))
         .and_then(|s| s.parse().ok())
@@ -4323,29 +4376,30 @@ pub async fn project_credential_check(
 pub async fn project_members_list(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
+    let rows = state.db.execute_with(
         "SELECT pm.id, pm.role, pm.created_at, \
                 u.id as user_id, u.email, u.name, u.avatar_url \
          FROM project_members pm \
          JOIN users u ON pm.user_id = u.id \
-         WHERE pm.project_id = '{pid}' \
-         ORDER BY pm.created_at"
-    );
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+         WHERE pm.project_id = $1 \
+         ORDER BY pm.created_at",
+        crate::pg_args!(pid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Also include client-level members (inherited)
-    let client_rows = state.db.execute(&format!(
+    let client_rows = state.db.execute_with(
         "SELECT ucr.role, ucr.created_at, \
                 u.id as user_id, u.email, u.name, u.avatar_url \
          FROM user_client_roles ucr \
          JOIN users u ON ucr.user_id = u.id \
          JOIN projects p ON p.client_id = ucr.client_id \
-         WHERE p.id = '{pid}' \
-         ORDER BY ucr.created_at"
-    )).await.unwrap_or_default();
+         WHERE p.id = $1 \
+         ORDER BY ucr.created_at",
+        crate::pg_args!(pid),
+    ).await.unwrap_or_default();
 
     let project_user_ids: Vec<String> = rows.iter()
         .filter_map(|r| r.get("user_id").and_then(Value::as_str).map(String::from))
@@ -4380,29 +4434,31 @@ pub async fn project_member_invite(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<InviteMemberRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse()
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"}))))?;
     let role = body.role.as_deref().unwrap_or("member");
-    let email_esc = body.email.trim().to_lowercase().replace('\'', "''");
+    let email = body.email.trim().to_lowercase();
 
     // Find or create user by email (they'll complete signup on first Google login)
-    let user_rows = state.db.execute(&format!(
-        "INSERT INTO users (email, name) VALUES ('{email_esc}', '{email_esc}') \
+    let user_rows = state.db.execute_with(
+        "INSERT INTO users (email, name) VALUES ($1, $1) \
          ON CONFLICT (email) DO UPDATE SET updated_at = NOW() \
-         RETURNING id"
-    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+         RETURNING id",
+        crate::pg_args!(email.clone()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
-    let user_id = user_rows.first()
+    let user_id: Uuid = user_rows.first()
         .and_then(|r| r.get("id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to find/create user"}))))?;
 
-    let role_esc = role.replace('\'', "''");
-    state.db.execute(&format!(
+    state.db.execute_with(
         "INSERT INTO project_members (project_id, user_id, role) \
-         VALUES ('{pid}', '{user_id}', '{role_esc}') \
-         ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role"
-    )).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+         VALUES ($1, $2, $3) \
+         ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role",
+        crate::pg_args!(pid, user_id, role.to_string()),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({ "invited": true, "user_id": user_id, "email": body.email.trim() })))
 }
@@ -4411,12 +4467,13 @@ pub async fn project_member_invite(
 pub async fn project_member_remove(
     State(state): State<Arc<AppState>>,
     Path((project_id, user_id)): Path<(String, String)>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, InternalError> {
     let pid: uuid::Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
     let uid: uuid::Uuid = user_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-    state.db.execute(&format!(
-        "DELETE FROM project_members WHERE project_id = '{pid}' AND user_id = '{uid}'"
-    )).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.db.execute_with(
+        "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
+        crate::pg_args!(pid, uid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({"removed": true})))
 }
 
@@ -4509,7 +4566,7 @@ async fn resolve_tenant_id(raw: &str, db: &crate::pg::PgClient) -> Result<Uuid, 
                 (StatusCode::BAD_REQUEST, Json(json!({"error": "Could not resolve tenant"})))
             })
         }
-        _ => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Unknown workspace: {raw}")})))),
+        _ => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Unknown workspace: {raw}")}))).into()),
     }
 }
 
@@ -5252,7 +5309,7 @@ pub async fn project_description_create(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let project_uuid = project_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
@@ -5279,7 +5336,7 @@ pub async fn project_description_create(
 pub async fn project_description_get(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let project_uuid = project_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
@@ -5309,7 +5366,7 @@ pub async fn project_description_update(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let project_uuid = project_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
@@ -5347,7 +5404,7 @@ pub async fn project_execute_rich(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let project_uuid = project_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
@@ -5358,12 +5415,33 @@ pub async fn project_execute_rich(
 
     let catalog_summary = state.catalog.catalog_summary();
 
-    // Run rich description planner
+    // Resolve client_id from project for knowledge search
+    let client_id: Option<Uuid> = {
+        let rows = state.db.execute_with(
+            "SELECT client_id FROM projects WHERE id = $1",
+            pg_args!(project_uuid),
+        ).await.ok().unwrap_or_default();
+        rows.first()
+            .and_then(|r| r.get("client_id").and_then(Value::as_str))
+            .and_then(|s| s.parse::<Uuid>().ok())
+    };
+
+    // Gather context from knowledge corpus + client data
+    let gathered_context = planner::gather_planner_context(
+        &state.db,
+        request_text,
+        client_id,
+        Some(project_uuid),
+        state.settings.openai_api_key.as_deref(),
+    ).await;
+
+    // Run rich description planner with gathered context
     let rich_plan = planner::plan_rich_description(
         request_text,
         &catalog_summary,
         &state.settings.anthropic_api_key,
         model,
+        &gathered_context,
     ).await.map_err(|e| {
         error!(error = %e, "rich planner failed");
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Planning failed: {e}")})))
@@ -5494,7 +5572,7 @@ pub async fn execution_node_description_update(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let _session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5522,7 +5600,7 @@ pub async fn execution_node_description_update(
 pub async fn execution_session_issues(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5539,7 +5617,7 @@ pub async fn execution_node_issue_create(
     State(state): State<Arc<AppState>>,
     Path((session_id, node_id)): Path<(String, String)>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5568,7 +5646,7 @@ pub async fn execution_issue_update(
     State(state): State<Arc<AppState>>,
     Path((_session_id, issue_id)): Path<(String, String)>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let issue_uuid = issue_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid issue ID"})))
     })?;
@@ -5588,7 +5666,7 @@ pub async fn execution_issue_update(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
         }
         _ => {
-            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "action must be 'resolve' or 'dismiss'"}))));
+            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "action must be 'resolve' or 'dismiss'"}))).into());
         }
     }
 
@@ -5602,7 +5680,7 @@ pub async fn thread_create(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5630,7 +5708,7 @@ pub async fn thread_create(
 pub async fn thread_list(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5647,7 +5725,7 @@ pub async fn thread_message_create(
     State(state): State<Arc<AppState>>,
     Path((session_id, thread_id)): Path<(String, String)>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let _session_uuid = session_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
@@ -5733,7 +5811,7 @@ pub async fn thread_message_create(
 pub async fn thread_get(
     State(state): State<Arc<AppState>>,
     Path((_session_id, thread_id)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let thread_uuid = thread_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid thread ID"})))
     })?;
@@ -5751,7 +5829,7 @@ pub async fn thread_update(
     State(state): State<Arc<AppState>>,
     Path((_session_id, thread_id)): Path<(String, String)>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, InternalError> {
     let thread_uuid = thread_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid thread ID"})))
     })?;

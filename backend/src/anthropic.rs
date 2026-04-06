@@ -6,6 +6,7 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::time::Instant;
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -207,6 +208,7 @@ impl AnthropicClient {
 
         let max_retries = 3u32;
         let mut last_error = String::new();
+        let started_at = Instant::now();
 
         for attempt in 0..=max_retries {
             let resp = self
@@ -230,6 +232,18 @@ impl AnthropicClient {
                         &text[..text.len().min(500)]
                     )
                 })?;
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                tracing::debug!(
+                    model = %model,
+                    duration_ms = duration_ms,
+                    input_tokens = ?parsed.input_tokens(),
+                    output_tokens = ?parsed.output_tokens(),
+                    cache_creation = ?parsed.cache_creation_input_tokens(),
+                    cache_read = ?parsed.cache_read_input_tokens(),
+                    thinking_tokens = ?parsed.thinking_tokens(),
+                    stop_reason = ?parsed.stop_reason,
+                    "LLM response received"
+                );
                 return Ok(parsed);
             }
 

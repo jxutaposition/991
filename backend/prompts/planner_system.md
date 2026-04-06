@@ -24,7 +24,7 @@ Plan:
 [
   {"agent_slug": "notion_operator", "task_description": "Create expert program wiki: tier structure, scoring rules, documentation", "depends_on": []},
   {"agent_slug": "n8n_operator", "task_description": "Build scoring pipeline from Clay/Tolt sources to Supabase", "depends_on": [0]},
-  {"agent_slug": "clay_operator", "task_description": "Build Clay expert table with enrichment and scoring formulas", "depends_on": [0]},
+  {"agent_slug": "clay_operator", "task_description": "Design Clay workbook: engagement tracking, expert registry, scoring, and webhook routing tables", "depends_on": [0]},
   {"agent_slug": "dashboard_builder", "task_description": "Build leaderboard with internal and public views in Supabase + Lovable", "depends_on": [1, 2]},
   {"agent_slug": "lovable_operator", "task_description": "Build expert-facing leaderboard UI with scores and tiers", "depends_on": [3]}
 ]
@@ -51,7 +51,7 @@ Plan:
 When building the DAG, follow this execution order strictly:
 1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
 2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
-3. **Enrichment / data third**: clay_operator (Clay tables, enrichment columns, formulas) — depends on pipeline design and data sources.
+3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
 4. **UI / dashboard / app last**: dashboard_builder, lovable_operator — these reference data from Clay tables and upstream pipelines.
 
 Infer depends_on automatically: if agent B reads from or references a system that agent A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), agent B MUST depend on agent A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.

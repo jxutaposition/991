@@ -1,0 +1,51 @@
+---
+description: Mandatory verification steps after editing any frontend file
+globs: frontend/src/**
+alwaysApply: false
+---
+
+# Frontend Verification Checklist
+
+After editing **any** file under `frontend/src/`, complete **all** of these steps before reporting the task as done.
+
+## 1. TypeScript Compilation
+
+```bash
+cd frontend && npx tsc --noEmit
+```
+
+Fix every error. Do not skip warnings that indicate missing imports or type mismatches.
+
+## 2. Dev Server Health Check
+
+If the Next.js dev server is running, verify it is still alive:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+```
+
+- **200** → healthy.
+- **000 / 500 / connection refused** → the `.next` cache is likely corrupted. Fix it:
+
+```bash
+cd frontend && rm -rf .next && npx next dev --port 3000
+```
+
+## 3. Check Terminal for Runtime Errors
+
+Read the dev-server terminal output after your changes compile. Look for:
+
+- `Cannot find module` — stale `.next` cache. Run `rm -rf .next` and restart.
+- `MODULE_NOT_FOUND` — same fix as above.
+- `EADDRINUSE` — kill the old process: `fuser -k 3000/tcp`, then restart.
+- `Error: Failed to collect page data` — usually a bad import; check the stack trace.
+
+If any of these appear, **do not** report the task as done — fix the issue first.
+
+## 4. Lint Check
+
+```bash
+cd frontend && npx next lint
+```
+
+Fix any errors you introduced. Pre-existing warnings can be left alone.

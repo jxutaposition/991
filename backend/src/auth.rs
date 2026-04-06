@@ -9,6 +9,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::pg::PgClient;
@@ -99,6 +100,8 @@ pub async fn google_sign_in(
         crate::pg_args!(user_id, token_hash, expires_at),
     ).await?;
 
+    info!(email = %email, user_id = %user_id, "Google sign-in successful");
+
     Ok((
         token,
         AuthenticatedUser {
@@ -116,7 +119,10 @@ pub async fn auth_middleware(
 ) -> Result<Response, StatusCode> {
     let jwt_secret = match state.settings.jwt_secret.as_deref() {
         Some(s) => s,
-        None => return Ok(next.run(request).await), // No JWT secret = auth disabled
+        None => {
+            debug!("auth middleware bypassed — no JWT_SECRET configured");
+            return Ok(next.run(request).await);
+        }
     };
 
     let auth_header = request
@@ -132,7 +138,10 @@ pub async fn auth_middleware(
                 &DecodingKey::from_secret(jwt_secret.as_bytes()),
                 &Validation::default(),
             )
-            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+            .map_err(|_| {
+                warn!("auth rejected — invalid JWT");
+                StatusCode::UNAUTHORIZED
+            })?;
 
             // Verify session exists and hasn't been revoked
             let token_hash = hex::encode(sha2::Sha256::digest(token.as_bytes()));
@@ -141,6 +150,7 @@ pub async fn auth_middleware(
                 crate::pg_args!(token_hash),
             ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             if session_rows.is_empty() {
+                warn!("auth rejected — session expired or revoked");
                 return Err(StatusCode::UNAUTHORIZED);
             }
 
@@ -157,7 +167,10 @@ pub async fn auth_middleware(
             request.extensions_mut().insert(user);
             Ok(next.run(request).await)
         }
-        None => Err(StatusCode::UNAUTHORIZED),
+        None => {
+            debug!("auth rejected — no Bearer token in request");
+            Err(StatusCode::UNAUTHORIZED)
+        }
     }
 }
 

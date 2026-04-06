@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -q 'frontend/src/'; then cd frontend && npx tsc --noEmit 2>&1 | head -30; fi"
+      },
+      {
+        "matcher": "Edit|Write",
+        "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -q 'backend/src/'; then cd backend && cargo check 2>&1 | tail -20; fi"
+      }
+    ]
+  }
+}

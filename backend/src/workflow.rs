@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::agent_catalog::AgentCatalog;
 use crate::pg::PgClient;
+use crate::pg_args;
 use crate::tier;
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -50,20 +51,13 @@ pub async fn create_workflow(
     client_id: Option<Uuid>,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
-    let slug_escaped = slug.replace('\'', "''");
-    let name_escaped = name.replace('\'', "''");
-    let desc_val = description
-        .map(|d| format!("'{}'", d.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let client_val = client_id
-        .map(|c| format!("'{c}'::uuid"))
-        .unwrap_or_else(|| "NULL".to_string());
+    let desc_owned = description.map(|d| d.to_string());
 
-    let sql = format!(
-        r#"INSERT INTO workflows (id, slug, name, description, client_id)
-           VALUES ('{id}', '{slug_escaped}', '{name_escaped}', {desc_val}, {client_val})"#
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO workflows (id, slug, name, description, client_id) \
+         VALUES ($1, $2, $3, $4, $5)",
+        pg_args!(id, slug.to_string(), name.to_string(), desc_owned, client_id),
+    ).await?;
     info!(workflow = %id, slug = slug, "created workflow");
     Ok(id)
 }
@@ -80,43 +74,29 @@ pub async fn add_step(
     config: Option<&Value>,
 ) -> anyhow::Result<Uuid> {
     let step_id = Uuid::new_v4();
-    let slug_escaped = agent_slug.replace('\'', "''");
-    let template_val = task_description_template
-        .map(|t| format!("'{}'", t.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let tier_val = tier_override
-        .map(|t| format!("'{}'", t.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-    let config_val = config
-        .map(|c| format!("'{}'::jsonb", c.to_string().replace('\'', "''")))
-        .unwrap_or_else(|| "'{}'::jsonb".to_string());
+    let template_owned = task_description_template.map(|t| t.to_string());
+    let tier_owned = tier_override.map(|t| t.to_string());
+    let config_val = config.cloned().unwrap_or(json!({}));
+    let requires_vec = requires.to_vec();
 
-    let requires_arr = if requires.is_empty() {
-        "'{}'::uuid[]".to_string()
-    } else {
-        let items: Vec<String> = requires.iter().map(|u| format!("\"{u}\"")).collect();
-        format!("'{{{}}}'::uuid[]", items.join(","))
-    };
-
-    let sql = format!(
-        r#"INSERT INTO workflow_steps
-            (id, workflow_id, step_number, agent_slug, task_description_template,
-             requires, tier_override, breakpoint, config)
-           VALUES
-            ('{step_id}', '{workflow_id}', {step_number}, '{slug_escaped}',
-             {template_val}, {requires_arr}, {tier_val}, {breakpoint}, {config_val})"#
-    );
-    db.execute(&sql).await?;
+    db.execute_with(
+        "INSERT INTO workflow_steps \
+            (id, workflow_id, step_number, agent_slug, task_description_template, \
+             requires, tier_override, breakpoint, config) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)",
+        pg_args!(step_id, workflow_id, step_number, agent_slug.to_string(),
+                 template_owned, requires_vec, tier_owned, breakpoint, config_val),
+    ).await?;
     Ok(step_id)
 }
 
 pub async fn get_workflow(db: &PgClient, slug: &str) -> anyhow::Result<Option<Workflow>> {
-    let slug_escaped = slug.replace('\'', "''");
     let rows = db
-        .execute(&format!(
+        .execute_with(
             "SELECT id, slug, name, description, client_id, version, schedule, next_run_at \
-             FROM workflows WHERE slug = '{slug_escaped}'"
-        ))
+             FROM workflows WHERE slug = $1",
+            pg_args!(slug.to_string()),
+        )
         .await?;
 
     Ok(rows.first().and_then(parse_workflow_row))
@@ -127,11 +107,12 @@ pub async fn get_workflow_steps(
     workflow_id: Uuid,
 ) -> anyhow::Result<Vec<WorkflowStep>> {
     let rows = db
-        .execute(&format!(
+        .execute_with(
             "SELECT id, workflow_id, step_number, agent_slug, task_description_template, \
              requires, tier_override, breakpoint, config \
-             FROM workflow_steps WHERE workflow_id = '{workflow_id}' ORDER BY step_number"
-        ))
+             FROM workflow_steps WHERE workflow_id = $1 ORDER BY step_number",
+            pg_args!(workflow_id),
+        )
         .await?;
 
     Ok(rows.iter().filter_map(parse_step_row).collect())
@@ -168,21 +149,12 @@ pub async fn instantiate_workflow(
     }
 
     let session_id = Uuid::new_v4();
-    let request_escaped = request_text.replace('\'', "''");
-    let client_val = workflow
-        .client_id
-        .map(|c| format!("'{c}'::uuid"))
-        .unwrap_or_else(|| "NULL".to_string());
 
-    let session_sql = format!(
-        r#"INSERT INTO execution_sessions
-            (id, request_text, status, workflow_id, client_id)
-           VALUES
-            ('{session_id}', '{request_escaped}', 'awaiting_approval',
-             '{wf_id}'::uuid, {client_val})"#,
-        wf_id = workflow.id,
-    );
-    db.execute(&session_sql).await?;
+    db.execute_with(
+        "INSERT INTO execution_sessions (id, request_text, status, workflow_id, client_id) \
+         VALUES ($1, $2, 'awaiting_approval', $3, $4)",
+        pg_args!(session_id, request_text.to_string(), workflow.id, workflow.client_id),
+    ).await?;
 
     let mut step_to_node: std::collections::HashMap<Uuid, Uuid> = std::collections::HashMap::new();
 
@@ -194,23 +166,13 @@ pub async fn instantiate_workflow(
             .task_description_template
             .as_deref()
             .unwrap_or("")
-            .replace("{{request}}", request_text)
-            .replace('\'', "''");
-
-        let agent_slug_escaped = step.agent_slug.replace('\'', "''");
+            .replace("{{request}}", request_text);
 
         let requires: Vec<Uuid> = step
             .requires
             .iter()
             .filter_map(|req_step_id| step_to_node.get(req_step_id).copied())
             .collect();
-
-        let requires_arr = if requires.is_empty() {
-            "'{}'::uuid[]".to_string()
-        } else {
-            let items: Vec<String> = requires.iter().map(|u| format!("\"{u}\"")).collect();
-            format!("'{{{}}}'::uuid[]", items.join(","))
-        };
 
         let status = if requires.is_empty() {
             "pending"
@@ -220,42 +182,34 @@ pub async fn instantiate_workflow(
 
         let computed_tier = tier::compute_tier(db, &step.agent_slug, &task_desc).await;
 
-        let tier_override_val = step
-            .tier_override
-            .as_deref()
-            .map(|t| format!("'{}'", t.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".to_string());
-
         let agent = catalog.get(&step.agent_slug);
         let model = agent
             .as_ref()
             .and_then(|a| a.model.as_deref())
-            .unwrap_or("claude-haiku-4-5-20251001");
-        let max_iterations = agent.as_ref().map(|a| a.max_iterations).unwrap_or(15);
+            .unwrap_or("claude-haiku-4-5-20251001")
+            .to_string();
+        let max_iterations = agent.as_ref().map(|a| a.max_iterations).unwrap_or(15) as i32;
         let skip_judge = agent.as_ref().map(|a| a.skip_judge).unwrap_or(false);
         let judge_config = agent
             .as_ref()
-            .map(|a| serde_json::to_string(&a.judge_config).unwrap_or_default())
-            .unwrap_or_else(|| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string())
-            .replace('\'', "''");
+            .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
+            .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+        let tier_override_owned = step.tier_override.clone();
+        let version_str = format!("db-v{}", workflow.version);
 
-        let node_sql = format!(
-            r#"INSERT INTO execution_nodes
-                (id, session_id, agent_slug, agent_git_sha, task_description, status,
-                 requires, model, max_iterations, skip_judge, judge_config,
-                 computed_tier, tier_override, breakpoint, workflow_id, workflow_step_id, client_id)
-               VALUES
-                ('{node_id}', '{session_id}', '{agent_slug_escaped}', 'db-v{version}',
-                 '{task_desc}', '{status}', {requires_arr}, '{model}', {max_iterations},
-                 {skip_judge}, '{judge_config}'::jsonb,
-                 '{computed_tier}', {tier_override_val}, {breakpoint},
-                 '{wf_id}'::uuid, '{step_id}'::uuid, {client_val})"#,
-            version = workflow.version,
-            breakpoint = step.breakpoint,
-            wf_id = workflow.id,
-            step_id = step.id,
-        );
-        db.execute(&node_sql).await?;
+        db.execute_with(
+            "INSERT INTO execution_nodes \
+                (id, session_id, agent_slug, agent_git_sha, task_description, status, \
+                 requires, model, max_iterations, skip_judge, judge_config, \
+                 computed_tier, tier_override, breakpoint, workflow_id, workflow_step_id, client_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17)",
+            pg_args!(
+                node_id, session_id, step.agent_slug.clone(), version_str,
+                task_desc, status.to_string(), requires, model, max_iterations,
+                skip_judge, judge_config, computed_tier, tier_override_owned,
+                step.breakpoint, workflow.id, step.id, workflow.client_id
+            ),
+        ).await?;
     }
 
     info!(
@@ -276,11 +230,11 @@ pub async fn save_session_as_workflow(
     name: &str,
     description: Option<&str>,
 ) -> anyhow::Result<Uuid> {
-    let nodes_sql = format!(
+    let nodes = db.execute_with(
         "SELECT id, agent_slug, task_description, requires, tier_override, breakpoint, client_id \
-         FROM execution_nodes WHERE session_id = '{session_id}' ORDER BY created_at"
-    );
-    let nodes = db.execute(&nodes_sql).await?;
+         FROM execution_nodes WHERE session_id = $1 ORDER BY created_at",
+        pg_args!(session_id),
+    ).await?;
 
     if nodes.is_empty() {
         return Err(anyhow::anyhow!("session has no nodes"));
@@ -351,10 +305,10 @@ pub async fn save_session_as_workflow(
         node_id_to_step_id.insert(node_id_str, step_id);
     }
 
-    let update_sql = format!(
-        "UPDATE workflows SET created_from_session = '{session_id}'::uuid WHERE id = '{workflow_id}'"
-    );
-    let _ = db.execute(&update_sql).await;
+    let _ = db.execute_with(
+        "UPDATE workflows SET created_from_session = $1 WHERE id = $2",
+        pg_args!(session_id, workflow_id),
+    ).await;
 
     info!(workflow = %workflow_id, slug = slug, steps = nodes.len(), "saved session as workflow");
     Ok(workflow_id)
@@ -452,25 +406,23 @@ async fn poll_scheduled_workflows(
     db: &PgClient,
     catalog: &AgentCatalog,
 ) -> anyhow::Result<()> {
-    let due_sql = r#"
-        SELECT id, slug, schedule
-        FROM workflows
-        WHERE schedule IS NOT NULL
-          AND next_run_at IS NOT NULL
-          AND next_run_at <= NOW()
-        ORDER BY next_run_at
-        LIMIT 5
-    "#;
-
-    let due = db.execute(due_sql).await?;
+    let due = db.execute(
+        "SELECT id, slug, schedule \
+         FROM workflows \
+         WHERE schedule IS NOT NULL \
+           AND next_run_at IS NOT NULL \
+           AND next_run_at <= NOW() \
+         ORDER BY next_run_at \
+         LIMIT 5",
+    ).await?;
 
     for row in &due {
         let slug = match row.get("slug").and_then(Value::as_str) {
             Some(s) => s,
             None => continue,
         };
-        let workflow_id = match row.get("id").and_then(Value::as_str) {
-            Some(s) => s,
+        let workflow_id = match row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
+            Some(id) => id,
             None => continue,
         };
         let schedule = row.get("schedule").and_then(Value::as_str).unwrap_or("");
@@ -483,15 +435,15 @@ async fn poll_scheduled_workflows(
                 info!(workflow = slug, session = %session_id, "scheduled workflow instantiated");
 
                 // Auto-approve the session so the work queue picks it up
-                let approve_sql = format!(
-                    "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = '{session_id}'"
-                );
-                let _ = db.execute(&approve_sql).await;
+                let _ = db.execute_with(
+                    "UPDATE execution_sessions SET status = 'executing', plan_approved_at = NOW() WHERE id = $1",
+                    pg_args!(session_id),
+                ).await;
 
-                let unblock_sql = format!(
-                    "UPDATE execution_nodes SET status = 'ready' WHERE session_id = '{session_id}' AND status = 'pending' AND requires = '{{}}'"
-                );
-                let _ = db.execute(&unblock_sql).await;
+                let _ = db.execute_with(
+                    "UPDATE execution_nodes SET status = 'ready' WHERE session_id = $1 AND status = 'pending' AND requires = '{}'",
+                    pg_args!(session_id),
+                ).await;
             }
             Err(e) => {
                 warn!(workflow = slug, error = %e, "failed to instantiate scheduled workflow");
@@ -499,36 +451,36 @@ async fn poll_scheduled_workflows(
         }
 
         // Advance next_run_at based on schedule interval
-        let next_interval = parse_schedule_interval(schedule);
-        let advance_sql = format!(
-            "UPDATE workflows SET next_run_at = NOW() + INTERVAL '{next_interval}' WHERE id = '{workflow_id}'::uuid"
-        );
-        let _ = db.execute(&advance_sql).await;
+        let interval_secs = parse_schedule_interval_secs(schedule);
+        let _ = db.execute_with(
+            "UPDATE workflows SET next_run_at = NOW() + make_interval(secs => $1) WHERE id = $2",
+            pg_args!(interval_secs as f64, workflow_id),
+        ).await;
     }
 
     Ok(())
 }
 
-/// Parse a simple schedule string into a PostgreSQL interval.
+/// Parse a simple schedule string into seconds.
 /// Supports: "hourly", "daily", "weekly", "30m", "1h", "6h", "12h", "24h", etc.
-fn parse_schedule_interval(schedule: &str) -> String {
+fn parse_schedule_interval_secs(schedule: &str) -> u64 {
     match schedule.to_lowercase().trim() {
-        "hourly" => "1 hour".to_string(),
-        "daily" => "1 day".to_string(),
-        "weekly" => "7 days".to_string(),
-        "monthly" => "30 days".to_string(),
+        "hourly" => 3600,
+        "daily" => 86400,
+        "weekly" => 604800,
+        "monthly" => 2592000,
         s if s.ends_with('m') => {
             let mins: u64 = s.trim_end_matches('m').parse().unwrap_or(60);
-            format!("{mins} minutes")
+            mins * 60
         }
         s if s.ends_with('h') => {
             let hours: u64 = s.trim_end_matches('h').parse().unwrap_or(1);
-            format!("{hours} hours")
+            hours * 3600
         }
         s if s.ends_with('d') => {
             let days: u64 = s.trim_end_matches('d').parse().unwrap_or(1);
-            format!("{days} days")
+            days * 86400
         }
-        _ => "1 day".to_string(),
+        _ => 86400,
     }
 }

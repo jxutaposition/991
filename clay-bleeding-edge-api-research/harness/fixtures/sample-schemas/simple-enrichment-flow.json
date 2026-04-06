@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "exportedAt": "2026-04-05T00:00:00.000Z",
+  "columnCount": 4,
+  "columns": [
+    {
+      "index": 0,
+      "name": "Website",
+      "type": "text",
+      "typeSettings": {
+        "dataTypeSettings": { "type": "url" }
+      }
+    },
+    {
+      "index": 1,
+      "name": "Domain",
+      "type": "formula",
+      "typeSettings": {
+        "formulaText": "DOMAIN({{@Website}})",
+        "formulaType": "text",
+        "dataTypeSettings": { "type": "text" }
+      }
+    },
+    {
+      "index": 2,
+      "name": "Company Enrichment",
+      "type": "action",
+      "typeSettings": {
+        "dataTypeSettings": { "type": "json" },
+        "actionKey": "placeholder-enrichment-action",
+        "actionVersion": 1,
+        "actionPackageId": "placeholder-package-id",
+        "inputsBinding": [
+          { "name": "domain", "formulaText": "{{@Domain}}" }
+        ],
+        "authAccountId": "aa_replace_with_yours"
+      }
+    },
+    {
+      "index": 3,
+      "name": "Company Name",
+      "type": "formula",
+      "typeSettings": {
+        "formulaText": "{{@Company Enrichment}}?.name",
+        "formulaType": "text",
+        "dataTypeSettings": { "type": "text" }
+      }
+    }
+  ]
+}

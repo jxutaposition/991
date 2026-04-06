@@ -11,6 +11,7 @@ use crate::agent_catalog::AgentCatalog;
 use crate::anthropic::{user_message, AnthropicClient};
 use crate::feedback::{self, FeedbackSignal};
 use crate::pg::PgClient;
+use crate::pg_args;
 
 /// Run the reasoning agent for a completed observation session.
 pub async fn run_reasoning(
@@ -23,11 +24,12 @@ pub async fn run_reasoning(
 ) -> anyhow::Result<Vec<Uuid>> {
     info!(session = session_id, "starting post-session reasoning");
 
-    let dist_sql = format!(
+    let session_uuid: Uuid = session_id.parse().map_err(|e| anyhow::anyhow!("invalid session_id: {e}"))?;
+    let distillations = db.execute_with(
         "SELECT narrator_text, expert_correction, sequence_ref \
-         FROM distillations WHERE session_id = '{session_id}' ORDER BY sequence_ref"
-    );
-    let distillations = db.execute(&dist_sql).await?;
+         FROM distillations WHERE session_id = $1 ORDER BY sequence_ref",
+        pg_args!(session_uuid),
+    ).await?;
 
     if distillations.is_empty() {
         info!(session = session_id, "no distillations — skipping reasoning");

@@ -66,10 +66,38 @@ Route rows to other Clay tables based on conditions. Configure: destination tabl
 
 ## API Access
 
-Clay has **no public API** for table/column creation. The API supports:
+Clay has two API layers. Use the dedicated Clay tools whenever possible — they handle auth and rate limiting automatically.
+
+### v1 API (API key — auto-injected)
 - `GET /api/v1/tables/{id}/rows` — read rows
 - `POST /api/v1/tables/{id}/rows` — add rows
 - `POST /api/v1/tables/{id}/trigger` — trigger enrichment runs
 - `GET /api/v1/tables/{id}` — read table metadata
 
-All structural changes (create tables, add columns, configure enrichments, set up webhooks) must be done manually in Clay's UI via `request_user_action`.
+### v3 API (session cookie — auto-injected)
+
+**Table lifecycle:**
+- `POST /v3/tables` — create table (`{workspaceId, type, name}`)
+- `DELETE /v3/tables/{id}` — delete table
+- `GET /v3/workspaces/{id}/tables` — list tables in workspace
+- `PATCH /v3/tables/{id}` — update table (rename, etc.)
+
+**Schema management:**
+- `GET /v3/tables/{tableId}` — full schema with fields, formulas, enrichment configs, gridViews
+- `POST /v3/tables/{tableId}/fields` — create column
+- `PATCH /v3/tables/{tableId}/fields/{fieldId}` — update column
+- `DELETE /v3/tables/{tableId}/fields/{fieldId}` — delete column
+
+**Sources:**
+- `POST /v3/sources` — create webhook source
+- `GET /v3/sources/{sourceId}` — read source details
+- `PATCH /v3/sources/{sourceId}` — update source
+- `DELETE /v3/sources/{sourceId}` — delete source
+
+**Other:**
+- `PATCH /v3/tables/{id}/run` — trigger enrichment/action runs (v3 variant)
+- `GET /v3/me` — current user info (used for session validation)
+
+### Still requires `request_user_action`
+- Connecting enrichment provider accounts (authAccountId values)
+- Getting webhook URLs after source creation (not yet programmatic)

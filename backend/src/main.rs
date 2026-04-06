@@ -6,7 +6,9 @@ use axum::{
     Router,
 };
 use tokio::sync::watch;
+use axum::http::HeaderValue;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -40,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let settings = Arc::new(Settings::from_env());
+    settings.validate();
 
     let db = PgClient::new(&settings.database_url).await?;
 
@@ -126,10 +129,16 @@ async fn main() -> anyhow::Result<()> {
         shutdown_rx,
     );
 
-    // Build router
-    let app = Router::new()
-        // Health & config
+    // Build router — public routes (no auth required)
+    let public_routes = Router::new()
         .route("/health", get(routes::health))
+        .route("/api/auth/google", post(routes::auth_google))
+        .route("/api/oauth/:provider/callback", get(routes::oauth_callback))
+        .route("/api/demo/run", post(routes::demo_run));
+
+    // Protected routes (auth middleware applied)
+    let protected_routes = Router::new()
+        // Config
         .route("/api/models", get(routes::models_list))
         // Agent catalog
         .route("/api/catalog", get(routes::catalog_list))
@@ -163,8 +172,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/data/schemas", get(routes::data_schemas))
         .route("/api/data/query", post(routes::data_query))
         .route("/api/data/tables/:table/rows", get(routes::data_table_rows))
-        // Demo
-        .route("/api/demo/run", post(routes::demo_run))
         // Workflows
         .route("/api/workflows", get(routes::workflows_list))
         .route("/api/workflows", post(routes::workflow_create))
@@ -197,15 +204,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/clients/:slug/credentials/:integration_slug", axum::routing::delete(routes::client_credential_delete))
         // OAuth
         .route("/api/oauth/:provider/authorize", get(routes::oauth_authorize))
-        .route("/api/oauth/:provider/callback", get(routes::oauth_callback))
         // Auth
-        .route("/api/auth/google", post(routes::auth_google))
-        .merge(
-            Router::new()
-                .route("/api/auth/me", get(routes::auth_me))
-                .route("/api/auth/workspaces", post(routes::auth_create_workspace))
-                .layer(middleware::from_fn_with_state(state.clone(), lele2_backend::auth::auth_middleware))
-        )
+        .route("/api/auth/me", get(routes::auth_me))
+        .route("/api/auth/workspaces", post(routes::auth_create_workspace))
         // DAG editor
         .route("/api/execute/:session_id/nodes", post(routes::execution_node_add))
         .route("/api/execute/:session_id/nodes/:node_id", axum::routing::patch(routes::execution_node_update))
@@ -271,7 +272,10 @@ async fn main() -> anyhow::Result<()> {
         // Description Threads (conversational editing)
         .route("/api/execute/:session_id/threads", get(routes::thread_list).post(routes::thread_create))
         .route("/api/execute/:session_id/threads/:thread_id/messages", post(routes::thread_message_create))
-        .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update));
+        .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
+        .layer(middleware::from_fn_with_state(state.clone(), lele2_backend::auth::auth_middleware));
+
+    let app = public_routes.merge(protected_routes);
 
     // Mount Slack routes when the feature is enabled
     #[cfg(feature = "slack")]
@@ -285,13 +289,15 @@ async fn main() -> anyhow::Result<()> {
             .route("/api/slack/events", post(slack_routes::events_handler))
     };
 
-    let cors = if settings.cors_origins.iter().any(|o| o == "*") {
+    let cors = if cfg!(debug_assertions) && settings.cors_origins.iter().any(|o| o == "*") {
+        tracing::warn!("CORS permissive mode enabled — debug build only");
         CorsLayer::permissive()
     } else {
         use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin};
         let origins: Vec<_> = settings
             .cors_origins
             .iter()
+            .filter(|o| *o != "*")
             .filter_map(|o| o.parse().ok())
             .collect();
         CorsLayer::new()
@@ -313,6 +319,18 @@ async fn main() -> anyhow::Result<()> {
     let app = app
         .with_state(state)
         .layer(cors)
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        ))
         .layer(TraceLayer::new_for_http());
 
     let bind_addr = settings.bind_addr;

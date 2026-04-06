@@ -1,0 +1,25 @@
+---
+description: Detect and fix Next.js .next cache corruption (MODULE_NOT_FOUND errors)
+alwaysApply: true
+---
+
+# Next.js Cache Corruption — Detection & Recovery
+
+The `.next` build cache frequently becomes corrupted, producing errors like:
+
+```
+Cannot find module './vendor-chunks/next.js'
+Cannot find module './627.js'
+MODULE_NOT_FOUND
+```
+
+## When You See These Errors
+
+1. Stop the dev server (kill the process or `fuser -k 3000/tcp`).
+2. Delete the cache: `cd frontend && rm -rf .next`
+3. Restart: `npx next dev --port 3000`
+4. Verify: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000` returns 200.
+
+## Proactive Prevention
+
+After making changes to `frontend/src/`, always check the dev-server terminal output for `MODULE_NOT_FOUND` or `Cannot find module` errors before reporting success. These errors are **not** TypeScript compilation errors — they only show up at runtime in the terminal.

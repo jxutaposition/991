@@ -19,6 +19,7 @@ import { SystemDescriptionView } from "@/components/system-description-view";
 import type { ProjectDescriptionData, DescriptionVersion } from "@/components/document-header";
 import type { NodeIssue } from "@/components/issue-card";
 import { CommentSidebar, type CommentThread } from "@/components/comment-sidebar";
+import { SESSION_STATUS_TEXT } from "@/lib/tokens";
 
 interface ExecutionSession {
   id: string;
@@ -106,13 +107,6 @@ export interface CatalogAgent {
 
 export type CatalogMap = Record<string, CatalogAgent>;
 
-const STATUS_COLORS: Record<string, string> = {
-  planning: "text-ink-3",
-  awaiting_approval: "text-amber-600",
-  executing: "text-brand",
-  completed: "text-green-600",
-  failed: "text-danger",
-};
 
 export default function SessionPage() {
   const { session_id } = useParams();
@@ -127,6 +121,7 @@ export default function SessionPage() {
   const [nodeEventsLoading, setNodeEventsLoading] = useState(false);
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
   const [catalogMap, setCatalogMap] = useState<CatalogMap>({});
+  const [integrationAlternatives, setIntegrationAlternatives] = useState<Record<string, string[]>>({});
   const canvasRef = useRef<CanvasHandle>(null);
   
   const [liveThinkingChunks, setLiveThinkingChunks] = useState<Record<string, string>>({});
@@ -149,6 +144,7 @@ export default function SessionPage() {
   const pendingMasterText = useRef<Record<string, string>>({});
   const pendingMasterThinking = useRef<Record<string, string>>({});
   const masterFetchSeq = useRef(0);
+  const [chatPending, setChatPending] = useState(false);
 
   // Planning progress (streamed via SSE while status === 'planning')
   const [planningMessages, setPlanningMessages] = useState<string[]>([]);
@@ -265,6 +261,14 @@ export default function SessionPage() {
     fetchProjectDescription();
   }, [fetchProjectDescription]);
 
+  // Poll during planning phase — planner_progress SSE events are broadcast
+  // before the frontend subscribes, so we poll to catch the transition.
+  useEffect(() => {
+    if (!session || session.status !== "planning") return;
+    const timer = setInterval(() => fetchSession(), 4000);
+    return () => clearInterval(timer);
+  }, [session?.status, fetchSession]);
+
   // Fetch credential status for agents in this session
   useEffect(() => {
     if (!session || !activeClient) return;
@@ -285,6 +289,9 @@ export default function SessionPage() {
         const map: CatalogMap = {};
         for (const a of data.agents ?? []) map[a.slug] = a;
         setCatalogMap(map);
+        if (data.integration_alternatives) {
+          setIntegrationAlternatives(data.integration_alternatives);
+        }
       })
       .catch(() => {});
   }, [apiFetch]);
@@ -402,7 +409,9 @@ export default function SessionPage() {
 
         // Debug: trace SSE events for session chat
         if (streamEntry?.stream_type === "message" || streamEntry?.stream_type === "message_stop") {
-          console.log("[SSE]", streamEntry.stream_type, streamEntry.sub_type, { isMasterNode, nodeUid, masterRef: masterNodeIdRef.current });
+          if (process.env.NODE_ENV === "development") {
+            console.log("[SSE]", streamEntry.stream_type, streamEntry.sub_type, { isMasterNode, nodeUid, masterRef: masterNodeIdRef.current });
+          }
         }
 
         // Handle planning phase events
@@ -456,19 +465,21 @@ export default function SessionPage() {
           if (st === "text_delta") {
             const key = String(streamEntry.block_index ?? 0);
             pendingMasterText.current[key] = (pendingMasterText.current[key] || "") + (streamEntry.content || "");
+            setChatPending(false);
             scheduleRaf();
           } else if (st === "thinking_delta") {
             const key = String(streamEntry.block_index ?? 0);
             pendingMasterThinking.current[key] = (pendingMasterThinking.current[key] || "") + (streamEntry.content || "");
+            setChatPending(false);
             scheduleRaf();
           } else if (st === "message_stop") {
             pendingMasterText.current = {};
             pendingMasterThinking.current = {};
             setMasterLiveTextChunks({});
             setMasterLiveThinkingChunks({});
+            setChatPending(false);
             fetchMasterStream();
-          } else if (st === "message") {
-            // Append finalized messages (user chat, assistant replies) immediately
+          } else if (st !== "content_block_start" && st !== "content_block_stop") {
             setMasterStreamEntries((prev) => [...prev, streamEntry as StreamEntry]);
           }
         }
@@ -556,6 +567,7 @@ export default function SessionPage() {
 
   const handleSessionChat = useCallback(
     async (_nodeId: string, message: string) => {
+      setChatPending(true);
       await apiFetch(`/api/execute/${session_id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -563,13 +575,17 @@ export default function SessionPage() {
       });
       fetchMasterStream();
 
-      // Poll for the assistant response — the background LLM task takes seconds.
+      // Poll for the assistant response with exponential backoff.
       // SSE should also deliver it, but polling guarantees it appears regardless.
       const poll = async () => {
         const nid = masterNodeIdRef.current;
         if (!nid) return;
-        for (let i = 0; i < 30; i++) {
-          await new Promise((r) => setTimeout(r, 2000));
+        let delay = 1000;
+        const maxDelay = 8000;
+        const maxAttempts = 15;
+        for (let i = 0; i < maxAttempts; i++) {
+          await new Promise((r) => setTimeout(r, delay));
+          delay = Math.min(delay * 1.5, maxDelay);
           try {
             const r = await apiFetch(
               `/api/execute/${session_id}/nodes/${nid}/stream`
@@ -584,12 +600,15 @@ export default function SessionPage() {
               (last.sub_type === "assistant" || last.role === "assistant")
             ) {
               setMasterStreamEntries(entries);
+              setChatPending(false);
               break;
             }
           } catch {
             // ignore
           }
         }
+        // If poll exhausted without finding a response, clear pending anyway
+        setChatPending(false);
       };
       poll();
     },
@@ -732,7 +751,7 @@ export default function SessionPage() {
       {/* Unified top bar: status + progress + view toggles + actions */}
       <div className="border-b border-rim px-3 h-10 flex items-center gap-3 bg-page shrink-0">
         {/* Status badge */}
-        <span className={`text-[11px] font-semibold uppercase tracking-wide shrink-0 ${STATUS_COLORS[session.status] ?? "text-ink-3"}`}>
+        <span className={`text-[11px] font-semibold uppercase tracking-wide shrink-0 ${SESSION_STATUS_TEXT[session.status] ?? "text-ink-3"}`}>
           {session.status.replace(/_/g, " ")}
         </span>
 
@@ -793,7 +812,7 @@ export default function SessionPage() {
         >
           <MessageSquare className="w-3.5 h-3.5" />
           {commentThreads.filter((t) => t.status === "open").length > 0 && (
-            <span className="text-[9px] px-1 rounded-full bg-brand text-white leading-4 min-w-[14px] text-center">
+            <span className="text-xs px-1 rounded-full bg-brand text-white leading-4 min-w-[14px] text-center">
               {commentThreads.filter((t) => t.status === "open").length}
             </span>
           )}
@@ -942,6 +961,7 @@ export default function SessionPage() {
                       credentialStatus={credentialStatus}
                       catalogMap={catalogMap}
                       livePreviewMap={livePreviewMap}
+                      planningMessages={planningMessages}
                     />
                   </div>
                 }
@@ -986,6 +1006,7 @@ export default function SessionPage() {
                   credentialStatus={credentialStatus}
                   catalogMap={catalogMap}
                   livePreviewMap={livePreviewMap}
+                  planningMessages={planningMessages}
                 />
               </div>
             ) : (
@@ -1002,6 +1023,7 @@ export default function SessionPage() {
                     allNodes={session.nodes}
                     credentialStatus={credentialStatus}
                     catalogMap={catalogMap}
+                    integrationAlternatives={integrationAlternatives}
                     sessionStatus={session.status}
                     onNodeUpdate={handleNodeUpdate}
                     liveThinkingChunks={liveThinkingChunks}
@@ -1018,6 +1040,7 @@ export default function SessionPage() {
                     masterLiveThinkingChunks={masterLiveThinkingChunks}
                     planningMessages={planningMessages}
                     planningError={planningError}
+                    chatPending={chatPending}
                   />
                 }
                 right={
@@ -1038,6 +1061,7 @@ export default function SessionPage() {
                       credentialStatus={credentialStatus}
                       catalogMap={catalogMap}
                       livePreviewMap={livePreviewMap}
+                      planningMessages={planningMessages}
                     />
                   </div>
                 }

@@ -92,7 +92,7 @@ export function EventDetailsPopup({ event, onClose }: EventDetailsPopupProps) {
                 </h2>
                 <Badge
                   variant="outline"
-                  className="text-[10px] font-mono bg-surface border-rim text-ink-2 shrink-0"
+                  className="text-xs font-mono bg-surface border-rim text-ink-2 shrink-0"
                 >
                   {event.event_type}
                 </Badge>
@@ -119,14 +119,14 @@ export function EventDetailsPopup({ event, onClose }: EventDetailsPopupProps) {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="bg-surface border border-rim rounded p-2">
                 <p className="text-ink-3">Event ID</p>
-                <p className="text-ink font-mono text-[10px] flex items-center gap-1">
+                <p className="text-ink font-mono text-xs flex items-center gap-1">
                   {event.id?.slice(0, 18)}\u2026
                   <CopyButton text={event.id} />
                 </p>
               </div>
               <div className="bg-surface border border-rim rounded p-2">
                 <p className="text-ink-3">Node ID</p>
-                <p className="text-ink font-mono text-[10px] flex items-center gap-1">
+                <p className="text-ink font-mono text-xs flex items-center gap-1">
                   {event.node_id?.slice(0, 18)}\u2026
                   <CopyButton text={event.node_id} />
                 </p>

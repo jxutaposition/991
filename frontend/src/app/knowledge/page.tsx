@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
+import { SCOPE_BADGE } from "@/lib/tokens";
 
 interface Toast {
   id: number;
@@ -116,25 +117,25 @@ function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case "ready":
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
           <CheckCircle2 className="w-3 h-3" /> Ready
         </span>
       );
     case "processing":
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
           <Loader2 className="w-3 h-3 animate-spin" /> Processing
         </span>
       );
     case "error":
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
           <AlertCircle className="w-3 h-3" /> Error
         </span>
       );
     default:
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
           <Clock className="w-3 h-3" /> Pending
         </span>
       );
@@ -143,16 +144,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function ScopeBadge({ scope }: { scope: string | null }) {
   if (!scope) return null;
-  const colors: Record<string, string> = {
-    expert: "bg-purple-100 text-purple-700",
-    client: "bg-blue-100 text-blue-700",
-    project: "bg-green-100 text-green-700",
-  };
   return (
     <span
       className={clsx(
-        "text-[10px] px-1.5 py-0.5 rounded-full",
-        colors[scope] || "bg-gray-100 text-gray-700"
+        "text-xs px-1.5 py-0.5 rounded-full",
+        SCOPE_BADGE[scope] || "bg-muted-subtle text-muted"
       )}
     >
       {scope}
@@ -251,7 +247,7 @@ function FolderNode({
           <FolderOpen className="w-3.5 h-3.5 shrink-0 text-ink-3" />
           <span className="truncate flex-1 text-left">{node.name}</span>
           {node.fileCount > 0 && (
-            <span className="text-[10px] text-ink-3">{node.fileCount}</span>
+            <span className="text-xs text-ink-3">{node.fileCount}</span>
           )}
         </button>
         {hovered && node.path && (
@@ -355,7 +351,7 @@ function IngestionTracker({
               />
             </div>
           </div>
-          <span className="text-[10px] text-ink-3 tabular-nums">{pct}%</span>
+          <span className="text-xs text-ink-3 tabular-nums">{pct}%</span>
         </>
       )}
     </div>
@@ -371,6 +367,7 @@ export default function KnowledgePage() {
   const [selectedDoc, setSelectedDoc] = useState<KnowledgeDoc | null>(null);
   const [chunks, setChunks] = useState<ChunkInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -418,7 +415,7 @@ export default function KnowledgePage() {
     loadFolders();
   }, [loadDocuments, loadFolders]);
 
-  const [showChunks, setShowChunks] = useState(false);
+  const [, setShowChunks] = useState(false);
   const [docDetail, setDocDetail] = useState<KnowledgeDoc | null>(null);
   const [detailTab, setDetailTab] = useState<"markdown" | "chunks">("markdown");
 
@@ -596,7 +593,7 @@ export default function KnowledgePage() {
     [activeClient, uploadPath, token, loadDocuments, loadFolders, startPolling, addToast]
   );
 
-  const handleUploadText = async () => {
+  const _handleUploadText = async () => {
     if (!activeClient || !uploadPath || !uploadContent) return;
     setUploading(true);
     try {
@@ -711,7 +708,7 @@ export default function KnowledgePage() {
           >
             <FolderOpen className="w-3.5 h-3.5" />
             All files
-            <span className="ml-auto text-[10px] text-ink-3">
+            <span className="ml-auto text-xs text-ink-3">
               {documents.length}
             </span>
           </button>
@@ -854,6 +851,7 @@ export default function KnowledgePage() {
                 <h3 className="text-sm font-semibold mb-3">
                   Search Results
                 </h3>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {searchResults.map((r: any, i: number) => (
                   <div
                     key={i}
@@ -864,11 +862,11 @@ export default function KnowledgePage() {
                         {r.source_path || r.source_filename}
                       </span>
                       {r.section_title && (
-                        <span className="text-[10px] text-ink-3">
+                        <span className="text-xs text-ink-3">
                           {r.section_title}
                         </span>
                       )}
-                      <span className="text-[10px] text-ink-3 ml-auto">
+                      <span className="text-xs text-ink-3 ml-auto">
                         {(Number(r.similarity) * 100).toFixed(1)}%
                       </span>
                     </div>
@@ -985,7 +983,7 @@ export default function KnowledgePage() {
                             className="p-3 border border-rim rounded bg-surface"
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[10px] text-ink-3 font-mono">
+                              <span className="text-xs text-ink-3 font-mono">
                                 #{chunk.chunk_index}
                               </span>
                               {chunk.section_title && (
@@ -994,7 +992,7 @@ export default function KnowledgePage() {
                                 </span>
                               )}
                               {chunk.token_count && (
-                                <span className="text-[10px] text-ink-3 ml-auto">
+                                <span className="text-xs text-ink-3 ml-auto">
                                   ~{chunk.token_count} tokens
                                 </span>
                               )}

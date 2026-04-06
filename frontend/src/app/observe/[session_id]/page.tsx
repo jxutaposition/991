@@ -104,15 +104,24 @@ export default function ObserveSessionPage() {
           { icon: Brain, label: "Narrations", count: distillations.length, color: "purple" },
           { icon: Layers, label: "Tasks", count: tasks.length, color: "green" },
           { icon: GitPullRequest, label: "PRs", count: prs.length, color: "amber" },
-        ].map(({ icon: Icon, label, count, color }) => (
-          <div key={label} className={`border border-rim rounded-lg px-4 py-3 bg-${color}-50`}>
-            <div className="flex items-center gap-2 mb-1">
-              <Icon className={`w-3.5 h-3.5 text-${color}-600`} />
-              <span className={`text-xs font-semibold text-${color}-700`}>{label}</span>
+        ].map(({ icon: Icon, label, count, color }) => {
+          const colorMap: Record<string, { bg: string; icon: string; label: string; count: string }> = {
+            blue:   { bg: "bg-blue-50",   icon: "text-blue-600",   label: "text-blue-700",   count: "text-blue-800" },
+            purple: { bg: "bg-purple-50", icon: "text-purple-600", label: "text-purple-700", count: "text-purple-800" },
+            green:  { bg: "bg-green-50",  icon: "text-green-600",  label: "text-green-700",  count: "text-green-800" },
+            amber:  { bg: "bg-amber-50",  icon: "text-amber-600",  label: "text-amber-700",  count: "text-amber-800" },
+          };
+          const c = colorMap[color] ?? colorMap.blue;
+          return (
+            <div key={label} className={`border border-rim rounded-lg px-4 py-3 ${c.bg}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <Icon className={`w-3.5 h-3.5 ${c.icon}`} />
+                <span className={`text-xs font-semibold ${c.label}`}>{label}</span>
+              </div>
+              <span className={`text-2xl font-bold ${c.count}`}>{count}</span>
             </div>
-            <span className={`text-2xl font-bold text-${color}-800`}>{count}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Events */}
@@ -130,7 +139,7 @@ export default function ObserveSessionPage() {
                   </span>
                   <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded shrink-0">{ev.event_type}</span>
                   <span className="text-ink-2 truncate flex-1">
-                    {(ev.dom_context as any)?.element_text || ev.url || ""}
+                    {(ev.dom_context as Record<string, unknown>)?.element_text as string || ev.url || ""}
                   </span>
                   {ev.domain && <span className="text-ink-3 shrink-0">{ev.domain}</span>}
                 </div>
@@ -184,7 +193,7 @@ export default function ObserveSessionPage() {
                         {t.match_confidence != null ? `${(t.match_confidence * 100).toFixed(0)}%` : "?"}
                       </span>
                       <span className="text-xs font-medium text-green-800">{t.matched_agent_slug}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                         t.status === "matched" ? "bg-green-200 text-green-800" : "bg-surface text-ink-3"
                       }`}>{t.status}</span>
                     </div>
@@ -198,7 +207,7 @@ export default function ObserveSessionPage() {
                 {unmatchedTasks.map((t) => (
                   <div key={t.id} className="border border-rim rounded-lg px-4 py-3 bg-page">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{t.status}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{t.status}</span>
                     </div>
                     <p className="text-sm text-ink-2 leading-relaxed">{t.description}</p>
                   </div>
@@ -220,10 +229,10 @@ export default function ObserveSessionPage() {
               <Link key={pr.id} href={`/agent-prs/${pr.id}`} className="block border border-amber-200 bg-amber-50 rounded-lg px-4 py-3 hover:border-amber-300 transition-colors">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-mono font-semibold text-amber-700">{pr.target_agent_slug}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800">{pr.pr_type}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800">{pr.pr_type}</span>
                   <span className="text-xs text-amber-500">{(pr.confidence * 100).toFixed(0)}% confidence</span>
                   <div className="flex-1" />
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                     pr.status === "open" ? "bg-blue-100 text-blue-700" :
                     pr.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                   }`}>{pr.status}</span>

@@ -213,10 +213,10 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-ink">{c.name}</p>
-                  <p className="text-[10px] text-ink-3 capitalize">{c.role}</p>
+                  <p className="text-xs text-ink-3 capitalize">{c.role}</p>
                 </div>
                 {activeClient === c.slug && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-brand text-white font-medium">
                     Active
                   </span>
                 )}

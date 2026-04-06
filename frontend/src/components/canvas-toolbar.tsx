@@ -69,7 +69,7 @@ export function CanvasToolbar({
 
         <div className="h-px bg-rim my-0.5" />
 
-        <div className="px-1 py-0.5 text-[10px] text-ink-3 text-center font-mono">
+        <div className="px-1 py-0.5 text-xs text-ink-3 text-center font-mono">
           {Math.round(zoomLevel * 100)}%
         </div>
       </div>

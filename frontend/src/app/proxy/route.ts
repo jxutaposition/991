@@ -99,7 +99,11 @@ export async function GET(req: NextRequest) {
       // Determine the final URL (after redirects) for the <base> tag
       const baseOrigin = parsed.origin;
       const basePath = parsed.pathname.replace(/\/[^/]*$/, "/");
-      const baseHref = `${baseOrigin}${basePath}`;
+      const baseHref = `${baseOrigin}${basePath}`
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 
       // Inject <base> tag so relative URLs resolve correctly
       if (/<head[^>]*>/i.test(html)) {
@@ -118,7 +122,7 @@ export async function GET(req: NextRequest) {
 
       // Rewrite any absolute URLs in links/forms that point to the same origin
       // so navigation stays within the proxy
-      const proxyBase = `/proxy?url=`;
+      const _proxyBase = `/proxy?url=`;
       // Intercept link clicks and form submissions via a small inline script
       const interceptScript = `
         <script>

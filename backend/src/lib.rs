@@ -5,6 +5,7 @@ pub mod auth;
 pub mod client;
 pub mod credentials;
 pub mod config;
+pub mod error;
 pub mod embeddings;
 pub mod extraction;
 pub mod feedback;

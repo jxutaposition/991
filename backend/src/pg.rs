@@ -13,12 +13,17 @@ pub struct PgClient {
 
 impl PgClient {
     pub async fn new(database_url: &str) -> anyhow::Result<Self> {
+        let max_conn: u32 = std::env::var("POOL_SIZE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(25);
         let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .max_connections(max_conn)
+            .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(database_url)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to connect to Postgres: {}", e))?;
+        tracing::info!(max_connections = max_conn, "PostgreSQL pool initialized");
         Ok(Self { pool })
     }
 

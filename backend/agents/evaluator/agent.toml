@@ -5,3 +5,4 @@ description = "Detail-level validation agent that verifies built artifacts again
 intents = ["validate", "evaluate", "verify", "check", "inspect"]
 max_iterations = 20
 skip_judge = true
+automation_mode = "full"

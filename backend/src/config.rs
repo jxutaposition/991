@@ -83,6 +83,20 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Validate that critical settings are present. Call after `from_env()`.
+    /// Panics on missing required values so the server fails fast on startup
+    /// rather than surfacing cryptic errors later.
+    pub fn validate(&self) {
+        assert!(
+            !self.database_url.is_empty(),
+            "DATABASE_URL is required but not set"
+        );
+        assert!(
+            !self.anthropic_api_key.is_empty(),
+            "ANTHROPIC_API_KEY is required but not set"
+        );
+    }
+
     pub fn from_env() -> Self {
         let bind = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3001".to_string());
         let bind_addr = bind
@@ -93,7 +107,7 @@ impl Settings {
             env::var("AGENTS_DIR").unwrap_or_else(|_| "./agents".to_string()),
         );
 
-        Self {
+        let s = Self {
             bind_addr,
             database_url: env::var("DATABASE_URL").unwrap_or_default(),
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
@@ -151,6 +165,16 @@ impl Settings {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-        }
+        };
+
+        tracing::info!(
+            model = %s.anthropic_model,
+            thinking_budget = s.thinking_budget_tokens,
+            skip_judge = s.skip_judge,
+            bind = %s.bind_addr,
+            "settings loaded"
+        );
+
+        s
     }
 }

@@ -33,7 +33,7 @@ export function InlineChatInput({ onSubmit, onCancel, position }: InlineChatInpu
       style={position ? { top: position.top, left: position.left } : undefined}
     >
       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-rim">
-        <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider flex-1">
+        <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider flex-1">
           Edit with AI
         </span>
         <button onClick={onCancel} className="text-ink-3 hover:text-ink">

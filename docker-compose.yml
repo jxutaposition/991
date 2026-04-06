@@ -9,7 +9,7 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-a-default-dev-encryption-key-change-in-prod}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY must be set}
       - DB_TYPE=sqlite
     volumes:
       - n8n_data:/home/node/.n8n

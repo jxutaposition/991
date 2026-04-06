@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::{json, Value};
-use tracing::{info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::agent_catalog::{AgentCatalog, ExecutionPlanNode, JudgeConfig, NodeStatus, MASTER_ORCHESTRATOR_SLUG};
 use crate::pg_args;
@@ -33,6 +33,7 @@ async fn persist_message(
     content: &str,
     metadata: &Value,
 ) {
+    trace!(node_id = %node_id, role = %role, "persisting message");
     if let (Ok(sid), Ok(nid)) = (
         session_id.parse::<uuid::Uuid>(),
         node_id.parse::<uuid::Uuid>(),
@@ -97,6 +98,7 @@ async fn forward_stream_delta(
     iteration: usize,
     event: &StreamEvent,
 ) {
+    trace!(node_id = %node_id, iteration = iteration, "forwarding stream delta");
     let payload = match event {
         StreamEvent::ContentBlockDelta { index, delta } => {
             match delta {
@@ -234,6 +236,10 @@ impl AgentRunner {
         &self.event_bus
     }
 
+    #[tracing::instrument(
+        skip(self, upstream_outputs),
+        fields(session_id = %plan_node.session_id, node_uid = %plan_node.uid, agent = %plan_node.agent_slug)
+    )]
     pub async fn run(
         &self,
         plan_node: &ExecutionPlanNode,
@@ -269,16 +275,23 @@ impl AgentRunner {
         // Build system prompt with upstream context and client context injected
         let upstream_context = build_upstream_context(upstream_outputs);
 
-        let client_context = if let Some(client_id) = plan_node.client_id {
-            crate::client::build_client_context(&self.db, client_id, None)
-                .await
-                .unwrap_or_default()
-        } else {
-            String::new()
+        // Parallelize independent DB loads: client_context, project_id, spawn_fields
+        let client_context_fut = async {
+            if let Some(client_id) = plan_node.client_id {
+                crate::client::build_client_context(&self.db, client_id, None)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            }
         };
+        let project_id_fut = load_project_id(&self.db, plan_node.session_id);
+        let spawn_fields_fut = load_spawn_fields(&self.db, plan_node.uid);
+
+        let (client_context, project_id, (node_spawn_context, node_criteria, node_examples, node_description)) =
+            tokio::join!(client_context_fut, project_id_fut, spawn_fields_fut);
 
         // Load credentials: project-level overrides → client-level → global env
-        let project_id = load_project_id(&self.db, plan_node.session_id).await;
         let mut credentials = if let Some(client_id) = plan_node.client_id {
             if let Some(ref master_key) = self.settings.credential_master_key {
                 let creds = if let Some(pid) = project_id {
@@ -291,7 +304,7 @@ impl AgentRunner {
                         .unwrap_or_default()
                 };
                 let slugs: Vec<&str> = creds.keys().map(|s| s.as_str()).collect();
-                tracing::info!(
+                debug!(
                     agent = %plan_node.agent_slug,
                     %client_id,
                     project_id = ?project_id,
@@ -410,8 +423,7 @@ impl AgentRunner {
             String::new()
         };
 
-        // Check for enriched spawn context and rich description on the node (from DB)
-        let (node_spawn_context, node_criteria, node_examples, node_description) = load_spawn_fields(&self.db, plan_node.uid).await;
+        // node_spawn_context, node_criteria, node_examples, node_description already loaded above via tokio::join!
 
         // Resolve skill overlays if we have a skill match
         let skill_overlays = if let Some(skill) = self.skill_catalog.get(&plan_node.agent_slug) {
@@ -420,7 +432,7 @@ impl AgentRunner {
                 skill.id,
                 agent.expert_id,
                 plan_node.client_id,
-                load_project_id(&self.db, plan_node.session_id).await,
+                project_id,
             ).await
         } else {
             String::new()
@@ -522,7 +534,7 @@ impl AgentRunner {
                         p.push_str(gotchas);
                     }
                 }
-                tracing::info!(agent = %plan_node.agent_slug, tool = %tool_id, "injected tool knowledge into prompt");
+                debug!(agent = %plan_node.agent_slug, tool = %tool_id, "injected tool knowledge into prompt");
                 p
             } else {
                 tracing::warn!(agent = %plan_node.agent_slug, tool = %tool_id, "tool_id set but tool not found in catalog");
@@ -574,10 +586,22 @@ impl AgentRunner {
             (system_prompt, vec![])
         };
 
+        debug!(
+            uid = %uid_str,
+            prompt_chars = system_prompt.len(),
+            "system prompt assembled"
+        );
+
         // Build tool list for this agent
         let agent_tools = actions::actions_for_agent(
             &agent.tools,
             plan_node.parent_uid.is_none(), // allow spawn_agent only for top-level nodes
+        );
+
+        debug!(
+            uid = %uid_str,
+            tool_count = agent_tools.len(),
+            "agent tools resolved"
         );
 
         // Plan-driven execution: if we have a pre-built plan, the system follows it
@@ -612,6 +636,8 @@ impl AgentRunner {
         }
 
         // ── Stage 1: Executor ────────────────────────────────────────────────
+        info!(uid = %uid_str, agent = %plan_node.agent_slug, "entering executor stage");
+
         // Upstream context is already in the system prompt — don't duplicate in user message.
         let executor_question = format!("Task: {}", plan_node.task_description);
 
@@ -737,6 +763,7 @@ impl AgentRunner {
             }
 
             // ── Stage 2: Critic (rubric check) ──────────────────────────────
+            info!(uid = %uid_str, attempt = attempt, rubric_items = effective_judge_config.rubric.len(), "entering critic stage");
             if !effective_judge_config.rubric.is_empty() {
                 emit_event(&self.db, &self.event_bus, &sid, &nid, "critic_start", &json!({
                     "attempt": attempt,
@@ -786,6 +813,7 @@ impl AgentRunner {
             }
 
             // ── Stage 3: Judge ───────────────────────────────────────────────
+            info!(uid = %uid_str, attempt = attempt, threshold = effective_judge_config.threshold, "entering judge stage");
             emit_event(&self.db, &self.event_bus, &sid, &nid, "judge_start", &json!({
                 "attempt": attempt,
             })).await;
@@ -899,6 +927,7 @@ impl AgentRunner {
     }
 
     /// Run the executor: LLM tool loop until write_output is called or max_iterations reached.
+    #[tracing::instrument(skip(self, question, system_prompt, tool_defs, upstream_outputs, credentials), fields(node_id = %node_id, model = %model))]
     async fn executor_run(
         &self,
         question: &str,
@@ -1066,11 +1095,13 @@ impl AgentRunner {
             }
 
             if response.is_end_turn() {
+                info!(node_id = %node_id, iterations = iteration + 1, "executor finished (end_turn)");
                 final_summary = response.text();
                 break;
             }
 
             if !response.is_tool_use() {
+                info!(node_id = %node_id, iterations = iteration + 1, "executor finished (no tool use)");
                 final_summary = response.text();
                 break;
             }
@@ -1123,6 +1154,8 @@ impl AgentRunner {
                         variant_selected: None,
                         client_id: None,
                         tool_id: None,
+                        execution_mode: "agent".to_string(),
+                        integration_overrides: serde_json::json!({}),
                     };
 
                     // Look up client_id from the parent node in DB
@@ -1224,6 +1257,7 @@ impl AgentRunner {
                     break;
                 }
 
+                info!(node_id = %node_id, tool = %tool_name, iteration = iteration + 1, "executing tool");
                 let tool_started_at = Instant::now();
                 let result = if tool_name == "search_knowledge" {
                     let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
@@ -1238,6 +1272,7 @@ impl AgentRunner {
                     actions::execute_action(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings, &self.http_client).await
                 };
                 let tool_duration_ms = tool_started_at.elapsed().as_millis() as u64;
+                info!(node_id = %node_id, tool = %tool_name, duration_ms = tool_duration_ms, result_chars = result.len(), "tool complete");
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
                     "tool": tool_name,
@@ -1303,6 +1338,7 @@ impl AgentRunner {
     }
 
     /// Critic: check rubric items against the executor's output.
+    #[tracing::instrument(skip(self, narrative), fields(stage = "critic"))]
     async fn critic_run(
         &self,
         narrative: &str,
@@ -1310,8 +1346,10 @@ impl AgentRunner {
         model: &str,
     ) -> Value {
         if judge_config.rubric.is_empty() {
+            debug!("critic skipped — empty rubric");
             return json!({"overall_pass": true, "items": [], "summary": ""});
         }
+        info!(rubric_items = judge_config.rubric.len(), "running critic");
 
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
@@ -1350,13 +1388,17 @@ impl AgentRunner {
             .trim_end_matches("```")
             .trim();
 
-        serde_json::from_str(cleaned).unwrap_or_else(|_| {
+        let result: Value = serde_json::from_str(cleaned).unwrap_or_else(|_| {
             warn!("critic returned unparseable JSON — treating as fail");
             json!({"overall_pass": false, "items": [], "summary": "critic parse error — could not validate output"})
-        })
+        });
+        let passed = result.get("overall_pass").and_then(Value::as_bool).unwrap_or(false);
+        info!(passed = passed, "critic finished");
+        result
     }
 
     /// Judge: score the output 0-10 and decide pass/fail/reject.
+    #[tracing::instrument(skip(self, question, narrative), fields(stage = "judge"))]
     async fn judge_run(
         &self,
         question: &str,
@@ -1364,6 +1406,7 @@ impl AgentRunner {
         judge_config: &JudgeConfig,
         model: &str,
     ) -> Value {
+        info!(threshold = judge_config.threshold, "running judge");
         let client = AnthropicClient::new(
             self.settings.anthropic_api_key.clone(),
             model.to_string(),
@@ -1421,6 +1464,7 @@ impl AgentRunner {
     /// to spawn, the system iterates through the planned steps in order. The
     /// orchestrator LLM is used only to enrich each step with detailed context,
     /// acceptance criteria, and examples before execution.
+    #[tracing::instrument(skip(self, system_prompt, _credentials, preview_children), fields(session_id = %plan_node.session_id, node_uid = %plan_node.uid))]
     async fn run_orchestrated_plan(
         &self,
         plan_node: &ExecutionPlanNode,
@@ -1429,6 +1473,7 @@ impl AgentRunner {
         _credentials: &crate::credentials::CredentialMap,
         preview_children: &[(uuid::Uuid, String, String)],
     ) -> AgentResult {
+        info!(model = %model, steps = preview_children.len(), "entering orchestrated plan execution");
         let sid = plan_node.session_id.to_string();
         let nid = plan_node.uid.to_string();
         let started_at = Instant::now();
@@ -1849,12 +1894,16 @@ Respond with ONLY the JSON object:
             embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
         );
 
-        let project_clause = project_id
-            .map(|p| format!("AND (c.project_id IS NULL OR c.project_id = '{p}')"))
-            .unwrap_or_default();
+        // project_clause uses a parameter ($3) when project_id is present
+        let project_clause = if project_id.is_some() {
+            "AND (c.project_id IS NULL OR c.project_id = $3)"
+        } else {
+            ""
+        };
 
         // Step 2: Hybrid search — vector + BM25 merged via Reciprocal Rank Fusion
-        let query_escaped = query.replace('\'', "''");
+        // Note: embedding_str is generated from API float values, not user input,
+        // and pgvector literals can't be parameterized easily, so they stay as format.
         let sql = format!(
             "WITH vector_results AS ( \
                 SELECT c.id, c.content, c.context_prefix, c.section_title, \
@@ -1864,7 +1913,7 @@ Respond with ONLY the JSON object:
                        ROW_NUMBER() OVER (ORDER BY c.embedding <=> '{embedding_str}'::vector) AS rank_v \
                 FROM knowledge_chunks c \
                 JOIN knowledge_documents d ON c.document_id = d.id \
-                WHERE c.tenant_id = '{tenant_id}' \
+                WHERE c.tenant_id = $1 \
                   AND d.status = 'ready' \
                   {project_clause} \
                   AND 1 - (c.embedding <=> '{embedding_str}'::vector) > 0.25 \
@@ -1875,14 +1924,14 @@ Respond with ONLY the JSON object:
                 SELECT c.id, c.content, c.context_prefix, c.section_title, \
                        c.chunk_index, c.document_id, c.metadata, \
                        d.source_path, d.source_filename, \
-                       ts_rank_cd(c.search_vector, websearch_to_tsquery('english', '{query_escaped}')) AS bm25_score, \
-                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.search_vector, websearch_to_tsquery('english', '{query_escaped}')) DESC) AS rank_b \
+                       ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $2)) AS bm25_score, \
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $2)) DESC) AS rank_b \
                 FROM knowledge_chunks c \
                 JOIN knowledge_documents d ON c.document_id = d.id \
-                WHERE c.tenant_id = '{tenant_id}' \
+                WHERE c.tenant_id = $1 \
                   AND d.status = 'ready' \
                   {project_clause} \
-                  AND c.search_vector @@ websearch_to_tsquery('english', '{query_escaped}') \
+                  AND c.search_vector @@ websearch_to_tsquery('english', $2) \
                 ORDER BY bm25_score DESC \
                 LIMIT 20 \
             ) \
@@ -1902,7 +1951,13 @@ Respond with ONLY the JSON object:
             LIMIT 20",
         );
 
-        let candidates = match self.db.execute(&sql).await {
+        let args = if let Some(pid) = project_id {
+            crate::pg_args!(tenant_id, query.to_string(), pid)
+        } else {
+            crate::pg_args!(tenant_id, query.to_string())
+        };
+
+        let candidates = match self.db.execute_with(&sql, args).await {
             Ok(rows) => rows,
             Err(e) => {
                 warn!(error = %e, "search_knowledge hybrid query failed");
@@ -1915,26 +1970,57 @@ Respond with ONLY the JSON object:
         }
 
         // Step 3: Neighbor chunk expansion — fetch chunk_index +/- 1 for each match
-        let neighbor_conditions: Vec<String> = candidates.iter().filter_map(|row| {
-            let doc_id = row.get("document_id").and_then(Value::as_str)?;
-            let idx = row.get("chunk_index").and_then(Value::as_i64)?;
-            let id = row.get("id").and_then(Value::as_str)?;
-            Some(format!(
-                "(c.document_id = '{doc_id}' AND c.chunk_index IN ({}, {}) AND c.id != '{id}')",
-                idx - 1, idx + 1
-            ))
-        }).collect();
+        // Build parameterized conditions for neighbor lookup
+        let mut neighbor_doc_ids: Vec<uuid::Uuid> = Vec::new();
+        let mut neighbor_chunk_indices: Vec<i64> = Vec::new();
+        let mut neighbor_exclude_ids: Vec<uuid::Uuid> = Vec::new();
+
+        for row in &candidates {
+            if let (Some(doc_id), Some(idx), Some(id)) = (
+                row.get("document_id").and_then(Value::as_str).and_then(|s| s.parse::<uuid::Uuid>().ok()),
+                row.get("chunk_index").and_then(Value::as_i64),
+                row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<uuid::Uuid>().ok()),
+            ) {
+                neighbor_doc_ids.push(doc_id);
+                neighbor_chunk_indices.push(idx - 1);
+                neighbor_doc_ids.push(doc_id);
+                neighbor_chunk_indices.push(idx + 1);
+                neighbor_exclude_ids.push(id);
+            }
+        }
 
         let mut neighbor_map: HashMap<String, Vec<Value>> = HashMap::new();
-        if !neighbor_conditions.is_empty() {
+        if !neighbor_doc_ids.is_empty() {
+            // Build parameterized OR conditions
+            let mut conditions = Vec::new();
+            let mut args = sqlx::postgres::PgArguments::default();
+            use sqlx::Arguments as _;
+            let mut pi = 1u32;
+            for row in &candidates {
+                if let (Some(doc_id), Some(idx), Some(id)) = (
+                    row.get("document_id").and_then(Value::as_str).and_then(|s| s.parse::<uuid::Uuid>().ok()),
+                    row.get("chunk_index").and_then(Value::as_i64),
+                    row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<uuid::Uuid>().ok()),
+                ) {
+                    conditions.push(format!(
+                        "(c.document_id = ${} AND c.chunk_index IN (${}, ${}) AND c.id != ${})",
+                        pi, pi + 1, pi + 2, pi + 3
+                    ));
+                    args.add(doc_id).expect("encode");
+                    args.add((idx - 1) as i32).expect("encode");
+                    args.add((idx + 1) as i32).expect("encode");
+                    args.add(id).expect("encode");
+                    pi += 4;
+                }
+            }
             let neighbor_sql = format!(
                 "SELECT c.id, c.content, c.context_prefix, c.section_title, \
                         c.chunk_index, c.document_id::text \
                  FROM knowledge_chunks c \
                  WHERE ({})",
-                neighbor_conditions.join(" OR ")
+                conditions.join(" OR ")
             );
-            if let Ok(neighbor_rows) = self.db.execute(&neighbor_sql).await {
+            if let Ok(neighbor_rows) = self.db.execute_with(&neighbor_sql, args).await {
                 for nr in &neighbor_rows {
                     let doc_id = nr.get("document_id").and_then(Value::as_str).unwrap_or("");
                     neighbor_map.entry(doc_id.to_string()).or_default().push(nr.clone());
@@ -2081,19 +2167,18 @@ Respond with ONLY the JSON object:
         let start = (chunk_index - half).max(0);
         let end_idx = chunk_index + half;
 
-        let sql = format!(
+        match self.db.execute_with(
             "SELECT c.content, c.section_title, c.chunk_index, c.context_prefix, \
                     d.source_filename, d.source_path \
              FROM knowledge_chunks c \
              JOIN knowledge_documents d ON c.document_id = d.id \
-             WHERE c.document_id = '{doc_uuid}' \
-               AND c.tenant_id = '{tenant_id}' \
-               AND c.chunk_index >= {start} \
-               AND c.chunk_index <= {end_idx} \
-             ORDER BY c.chunk_index"
-        );
-
-        match self.db.execute(&sql).await {
+             WHERE c.document_id = $1 \
+               AND c.tenant_id = $2 \
+               AND c.chunk_index >= $3 \
+               AND c.chunk_index <= $4 \
+             ORDER BY c.chunk_index",
+            crate::pg_args!(doc_uuid, tenant_id, start as i32, end_idx as i32),
+        ).await {
             Ok(rows) if rows.is_empty() => {
                 json!({
                     "error": "No chunks found for the given document_id and chunk range",
@@ -2128,10 +2213,10 @@ Respond with ONLY the JSON object:
                 }
 
                 // Check if there are more chunks available in this document
-                let count_sql = format!(
-                    "SELECT MAX(chunk_index) as max_idx FROM knowledge_chunks WHERE document_id = '{doc_uuid}'"
-                );
-                let max_chunk = self.db.execute(&count_sql).await.ok()
+                let max_chunk = self.db.execute_with(
+                    "SELECT MAX(chunk_index) as max_idx FROM knowledge_chunks WHERE document_id = $1",
+                    crate::pg_args!(doc_uuid),
+                ).await.ok()
                     .and_then(|r| r.first().cloned())
                     .and_then(|r| r.get("max_idx").and_then(Value::as_i64))
                     .unwrap_or(last_chunk);
@@ -2172,6 +2257,7 @@ Respond with ONLY the JSON object:
 
     /// Run a child agent synchronously within the parent's executor loop.
     /// Creates a child ExecutionPlanNode, runs it, persists results, returns output.
+    #[tracing::instrument(skip(self, spawn_context, acceptance_criteria, spawn_examples), fields(parent_uid = %parent_node.uid, child_agent = %agent_slug))]
     pub async fn run_child(
         &self,
         parent_node: &ExecutionPlanNode,
@@ -2181,6 +2267,7 @@ Respond with ONLY the JSON object:
         acceptance_criteria: Option<Vec<String>>,
         spawn_examples: Option<&str>,
     ) -> Value {
+        info!(parent_uid = %parent_node.uid, child_agent = %agent_slug, "spawning child agent");
         const MAX_DEPTH: i32 = 3;
 
         // Check depth from DB
@@ -2356,6 +2443,8 @@ Respond with ONLY the JSON object:
             variant_selected: None,
             client_id: parent_node.client_id,
             tool_id: None,
+            execution_mode: "agent".to_string(),
+            integration_overrides: serde_json::json!({}),
         };
 
         // Pass the orchestrator's context as upstream output so child can reference it
@@ -2434,12 +2523,14 @@ Respond with ONLY the JSON object:
     /// Resume a node's conversation with a user reply.
     /// Loads the saved conversation_state, appends the user message,
     /// and continues the executor loop.
+    #[tracing::instrument(skip(self, user_reply), fields(session_id = %session_id, node_id = %node_id))]
     pub async fn resume_with_reply(
         &self,
         session_id: &str,
         node_id: &str,
         user_reply: &str,
     ) -> AgentResult {
+        info!(session_id = %session_id, node_id = %node_id, "resuming node with user reply");
         let nid = node_id.parse::<uuid::Uuid>().unwrap_or_default();
         let sid = session_id.parse::<uuid::Uuid>().unwrap_or_default();
 
@@ -2557,13 +2648,11 @@ Respond with ONLY the JSON object:
             if requires.is_empty() {
                 std::collections::HashMap::new()
             } else {
-                let req_uuids: Vec<String> = requires.iter().map(|u| format!("'{u}'")).collect();
-                let ups_sql = format!(
+                let ups_rows = self.db.execute_with(
                     "SELECT agent_slug, output FROM execution_nodes \
-                     WHERE id = ANY(ARRAY[{}]::uuid[]) AND status = 'passed' AND output IS NOT NULL",
-                    req_uuids.join(",")
-                );
-                let ups_rows = self.db.execute(&ups_sql).await.unwrap_or_default();
+                     WHERE id = ANY($1) AND status = 'passed' AND output IS NOT NULL",
+                    pg_args!(requires.clone()),
+                ).await.unwrap_or_default();
                 let mut map = std::collections::HashMap::new();
                 for r in ups_rows {
                     if let (Some(slug), Some(output)) = (
@@ -2651,11 +2740,13 @@ Respond with ONLY the JSON object:
             }
 
             if response.is_end_turn() {
+                info!(node_id = %node_id, iterations = iteration + 1, "resume executor finished (end_turn)");
                 final_summary = response.text();
                 break;
             }
 
             if !response.is_tool_use() {
+                info!(node_id = %node_id, iterations = iteration + 1, "resume executor finished (no tool use)");
                 final_summary = response.text();
                 break;
             }
@@ -2682,6 +2773,8 @@ Respond with ONLY the JSON object:
                     break;
                 }
 
+                info!(node_id = %node_id, tool = %tool_name, iteration = iteration + 1, "executing tool (resume)");
+                let tool_started_at = Instant::now();
                 let result = if tool_name == "search_knowledge" {
                     let query_text = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
                     let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
@@ -2699,6 +2792,8 @@ Respond with ONLY the JSON object:
                 } else {
                     actions::execute_action(tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings, &self.http_client).await
                 };
+                let tool_duration_ms = tool_started_at.elapsed().as_millis() as u64;
+                info!(node_id = %node_id, tool = %tool_name, duration_ms = tool_duration_ms, "tool complete (resume)");
 
                 emit_event(&self.db, &self.event_bus, session_id, node_id, "tool_call", &json!({
                     "tool": tool_name,

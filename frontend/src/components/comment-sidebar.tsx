@@ -111,7 +111,7 @@ export function CommentSidebar({
           >
             <MessageSquare className="w-3 h-3 text-brand mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <span className="text-[10px] font-mono text-ink-3">{thread.section_path}</span>
+              <span className="text-xs font-mono text-ink-3">{thread.section_path}</span>
               {thread.highlighted_text ? (
                 <p className="text-xs text-ink truncate mt-0.5">&ldquo;{thread.highlighted_text}&rdquo;</p>
               ) : null}
@@ -128,7 +128,7 @@ export function CommentSidebar({
                     msg.role === "user" ? "bg-blue-50 text-blue-800" : "bg-gray-50 text-ink"
                   }`}
                 >
-                  <span className="font-medium text-[10px] uppercase">{msg.role}</span>
+                  <span className="font-medium text-xs uppercase">{msg.role}</span>
                   <p className="mt-0.5 whitespace-pre-wrap">{msg.content}</p>
                 </div>
               ))}
@@ -147,6 +147,7 @@ export function CommentSidebar({
                   onClick={() => sendReply(thread.id)}
                   disabled={loadingThreads[thread.id]}
                   className="p-1 rounded bg-brand text-white hover:bg-brand-hover disabled:opacity-40"
+                  aria-label="Send reply"
                 >
                   {loadingThreads[thread.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                 </button>
@@ -154,6 +155,7 @@ export function CommentSidebar({
                   onClick={() => resolveThread(thread.id)}
                   className="p-1 rounded text-green-600 hover:bg-green-50"
                   title="Resolve"
+                  aria-label="Resolve thread"
                 >
                   <Check className="w-3 h-3" />
                 </button>
@@ -165,7 +167,7 @@ export function CommentSidebar({
 
       {resolvedThreads.length > 0 ? (
         <div className="mt-3">
-          <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+          <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
             Resolved ({resolvedThreads.length})
           </span>
           {resolvedThreads.map((thread) => (

@@ -109,6 +109,10 @@ pub fn spawn(
     })
 }
 
+#[tracing::instrument(
+    skip(settings, db, catalog, skill_catalog, tool_catalog, event_bus),
+    fields(session_id = %node.session_id, node_uid = %node.uid, agent = %node.agent_slug)
+)]
 async fn execute_node(
     settings: Arc<Settings>,
     db: PgClient,
@@ -156,8 +160,109 @@ async fn execute_node(
         }
     };
 
+    // Manual-mode nodes: skip agent loop, set awaiting_reply with structured instructions
+    if node.execution_mode == "manual" {
+        info!(uid = %uid, agent = %agent_slug, "manual-mode node — entering awaiting_reply");
+
+        let description = db.execute_with(
+            "SELECT description, acceptance_criteria, task_description FROM execution_nodes WHERE id = $1",
+            pg_args!(uid),
+        ).await.ok().and_then(|rows| rows.into_iter().next());
+
+        let desc_json = description.as_ref()
+            .and_then(|r| r.get("description").cloned())
+            .unwrap_or(serde_json::json!({}));
+
+        let _user_actions = desc_json.get("user_actions")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n- "))
+            .unwrap_or_default();
+
+        let io_outputs = desc_json.get("io_contract")
+            .and_then(|v| v.get("outputs"))
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.get("name").and_then(|n| n.as_str())).collect::<Vec<_>>().join(", "))
+            .unwrap_or_default();
+
+        let validation_hints = desc_json.get("validation_hints")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.get("description").and_then(|d| d.as_str())).collect::<Vec<_>>().join("\n- "))
+            .unwrap_or_default();
+
+        let instructions = serde_json::json!({
+            "type": "manual_action",
+            "sub_type": "manual_execution",
+            "overview": format!("This step needs to be completed manually: {}", node.task_description),
+            "sections": [
+                {
+                    "title": "Steps",
+                    "items": desc_json.get("user_actions").cloned().unwrap_or(serde_json::json!([node.task_description])),
+                },
+                {
+                    "title": "Expected Outputs",
+                    "content": if io_outputs.is_empty() { "Reply when complete.".to_string() } else { format!("Please provide: {io_outputs}") },
+                },
+                {
+                    "title": "Verification",
+                    "content": if validation_hints.is_empty() { "We'll verify completion after you reply.".to_string() } else { format!("- {validation_hints}") },
+                }
+            ],
+        });
+
+        let _ = db.execute_with(
+            "INSERT INTO execution_events (session_id, node_id, event_type, payload) VALUES ($1, $2, $3, $4)",
+            pg_args!(session_id, uid, "manual_action_requested".to_string(), instructions.clone()),
+        ).await;
+
+        let _ = db.execute_with(
+            "UPDATE execution_nodes SET status = 'awaiting_reply' WHERE id = $1",
+            pg_args!(uid),
+        ).await;
+
+        event_bus.send(
+            &session_id.to_string(),
+            serde_json::json!({
+                "type": "node_status",
+                "node_uid": uid.to_string(),
+                "status": "awaiting_reply",
+                "manual_action": instructions,
+            }),
+        ).await;
+
+        // Emit stream entry so the chat shows the manual action card
+        let _stream_entry = serde_json::json!({
+            "stream_type": "message",
+            "sub_type": "request_user_action",
+            "role": "assistant",
+            "content": serde_json::to_string(&instructions).unwrap_or_default(),
+            "metadata": instructions,
+        });
+        let _ = db.execute_with(
+            "INSERT INTO node_messages (node_id, stream_type, sub_type, role, content, metadata) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
+            pg_args!(
+                uid, "message".to_string(), "request_user_action".to_string(),
+                "assistant".to_string(),
+                serde_json::to_string(&instructions).unwrap_or_default(),
+                instructions
+            ),
+        ).await;
+
+        return;
+    }
+
     let runner = AgentRunner::new(settings.clone(), db.clone(), catalog.clone(), skill_catalog.clone(), tool_catalog.clone(), event_bus.clone());
     let result = runner.run(&node, &upstream_outputs).await;
+
+    info!(
+        uid = %uid,
+        session = %session_id,
+        agent = %agent_slug,
+        status = %result.status.as_str(),
+        duration_ms = result.duration_ms,
+        score = ?result.judge_score,
+        "node execution finished"
+    );
 
     // Broadcast via the event bus channel (currently just logs; SSE route polls DB)
     emit_to_session(&event_bus, &session_id.to_string(), &result).await;
@@ -240,6 +345,13 @@ async fn execute_node(
             check_session_completion(&db, &session_id, &event_bus).await;
         }
         NodeStatus::Failed => {
+            warn!(
+                uid = %uid,
+                session = %session_id,
+                agent = %agent_slug,
+                error = ?result.error,
+                "node failed — skipping downstream"
+            );
             if let Err(e) = skip_downstream(&db, &uid, &session_id).await {
                 error!(uid = %uid, error = %e, "failed to skip downstream");
             }
@@ -283,7 +395,7 @@ async fn claim_ready_nodes(
             input, output, judge_score, judge_feedback,
             judge_config, max_iterations, model, skip_judge,
             variant_group, variant_label, variant_selected, client_id,
-            tool_id
+            tool_id, execution_mode, integration_overrides
         FROM claimed
         "#
     );
@@ -296,15 +408,33 @@ async fn claim_ready_nodes(
 fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
     use crate::agent_catalog::JudgeConfig;
 
-    let uid = row.get("id")?.as_str()?.parse::<Uuid>().ok()?;
-    let session_id = row.get("session_id")?.as_str()?.parse::<Uuid>().ok()?;
-    let agent_slug = row.get("agent_slug")?.as_str()?.to_string();
-    let agent_git_sha = row.get("agent_git_sha")?.as_str()?.to_string();
-    let task_description = row.get("task_description")?.as_str()?.to_string();
-    let model = row.get("model")?.as_str()?.to_string();
-    let max_iterations = row.get("max_iterations")?.as_u64()? as u32;
-    let skip_judge = row.get("skip_judge")?.as_bool().unwrap_or(false);
-    let attempt_count = row.get("attempt_count")?.as_u64()? as u32;
+    let uid = match row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
+        Some(v) => v,
+        None => {
+            warn!(row_id = ?row.get("id"), "parse_node_row: failed to parse id");
+            return None;
+        }
+    };
+    let session_id = match row.get("session_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()) {
+        Some(v) => v,
+        None => {
+            warn!(uid = %"?", "parse_node_row: failed to parse session_id");
+            return None;
+        }
+    };
+    let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or_else(|| {
+        warn!(%uid, "parse_node_row: missing agent_slug");
+        ""
+    }).to_string();
+    let agent_git_sha = row.get("agent_git_sha").and_then(Value::as_str).unwrap_or("").to_string();
+    let task_description = row.get("task_description").and_then(Value::as_str).unwrap_or("").to_string();
+    let model = row.get("model").and_then(Value::as_str).unwrap_or_else(|| {
+        warn!(%uid, "parse_node_row: missing model, defaulting to empty");
+        ""
+    }).to_string();
+    let max_iterations = row.get("max_iterations").and_then(Value::as_u64).unwrap_or(15) as u32;
+    let skip_judge = row.get("skip_judge").and_then(Value::as_bool).unwrap_or(false);
+    let attempt_count = row.get("attempt_count").and_then(Value::as_u64).unwrap_or(0) as u32;
 
     let requires: Vec<Uuid> = row
         .get("requires")
@@ -347,6 +477,8 @@ fn parse_node_row(row: &Value) -> Option<ExecutionPlanNode> {
         variant_selected: row.get("variant_selected").and_then(Value::as_bool),
         client_id: row.get("client_id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok()),
         tool_id: row.get("tool_id").and_then(Value::as_str).map(String::from),
+        execution_mode: row.get("execution_mode").and_then(Value::as_str).unwrap_or("agent").to_string(),
+        integration_overrides: row.get("integration_overrides").cloned().unwrap_or(serde_json::json!({})),
     })
 }
 
@@ -618,19 +750,14 @@ async fn load_upstream_outputs(
         return Ok(std::collections::HashMap::new());
     }
 
-    let req_uuids: Vec<String> = node.requires.iter().map(|u| format!("'{u}'")).collect();
-    let sql = format!(
-        r#"
-        SELECT agent_slug, output
-        FROM execution_nodes
-        WHERE id = ANY(ARRAY[{}]::uuid[])
-          AND status = 'passed'
-          AND output IS NOT NULL
-        "#,
-        req_uuids.join(",")
-    );
-
-    let rows = db.execute(&sql).await?;
+    let rows = db.execute_with(
+        "SELECT agent_slug, output \
+         FROM execution_nodes \
+         WHERE id = ANY($1) \
+           AND status = 'passed' \
+           AND output IS NOT NULL",
+        pg_args!(node.requires.clone()),
+    ).await?;
     let mut map = std::collections::HashMap::new();
     for row in rows {
         if let (Some(slug), Some(output)) = (

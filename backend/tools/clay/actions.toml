@@ -1,1 +1,1 @@
-actions = ["http_request", "request_user_action"]
+actions = ["http_request", "request_user_action", "clay_get_table_schema", "clay_create_field", "clay_create_source", "clay_create_table", "clay_delete_table", "clay_list_tables", "clay_update_field", "clay_delete_field", "clay_read_rows", "clay_write_rows", "clay_trigger_enrichment"]

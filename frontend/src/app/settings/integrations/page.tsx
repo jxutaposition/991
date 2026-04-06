@@ -364,7 +364,7 @@ export default function IntegrationsPage() {
                 <button
                   onClick={runProbes}
                   disabled={probing}
-                  className="text-[10px] text-ink-3 hover:text-brand transition-colors disabled:opacity-50"
+                  className="text-xs text-ink-3 hover:text-brand transition-colors disabled:opacity-50"
                 >
                   {probing ? "Checking..." : "Re-check all"}
                 </button>
@@ -548,10 +548,10 @@ function ProjectMembersPanel({ projectId, apiFetch }: { projectId: string; apiFe
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-ink truncate">{m.name || m.email}</p>
-              {m.name && <p className="text-[10px] text-ink-3 truncate">{m.email}</p>}
+              {m.name && <p className="text-xs text-ink-3 truncate">{m.email}</p>}
             </div>
             <span
-              className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+              className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                 m.scope === "inherited"
                   ? "bg-gray-50 text-ink-3 border border-gray-100"
                   : "bg-blue-50 text-blue-600 border border-blue-100"
@@ -562,7 +562,7 @@ function ProjectMembersPanel({ projectId, apiFetch }: { projectId: string; apiFe
             {m.scope !== "inherited" && (
               <button
                 onClick={() => remove(m.user_id)}
-                className="text-[10px] text-red-400 hover:text-red-600 px-1"
+                className="text-xs text-red-400 hover:text-red-600 px-1"
               >
                 Remove
               </button>
@@ -577,7 +577,41 @@ function ProjectMembersPanel({ projectId, apiFetch }: { projectId: string; apiFe
 const EXTRA_FIELD_LABELS: Record<string, { label: string; placeholder: string }> = {
   project_url: { label: "Project URL", placeholder: "https://your-project.supabase.co" },
   base_url: { label: "Instance URL", placeholder: "https://your-n8n-instance.com" },
+  session_cookie: { label: "Session Cookie (just the value, no prefix)", placeholder: "s%3ANOD28nwZNUDbAw5T1Ktw6rNtcaasrGZF..." },
+  workspace_id: { label: "Workspace ID", placeholder: "12345" },
 };
+
+function ClaySessionCookieGuide() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2.5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-800 w-full text-left"
+      >
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        How to get the session cookie
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-blue-900">
+          <p className="font-medium">Quick method (30 seconds):</p>
+          <ol className="list-decimal ml-4 space-y-1">
+            <li>Open <a href="https://app.clay.com" target="_blank" rel="noopener noreferrer" className="text-brand font-medium hover:underline">app.clay.com</a> in Chrome (make sure you&apos;re logged in)</li>
+            <li>Press <kbd className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">F12</kbd> to open DevTools</li>
+            <li>Go to the <span className="font-semibold">Application</span> tab, then <span className="font-semibold">Cookies</span> in the left sidebar</li>
+            <li><span className="font-semibold text-red-700">Important:</span> Click on <code className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">https://api.clay.com</code> (NOT <code className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">app.clay.com</code>)</li>
+            <li>Find the cookie named <code className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">claysession</code></li>
+            <li>Copy its <span className="font-semibold">Value</span> (starts with <code className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">s%3A...</code>)</li>
+          </ol>
+          <div className="rounded bg-blue-100/60 border border-blue-200 px-2.5 py-1.5 font-mono text-[10px] text-blue-800 break-all select-all">
+            s%3ANOD28nwZNUDbAw5T1Ktw6rNtcaasrGZF.XXwYueBeePQPuT1BYBcfYZb9Gplx%2BnxAXg9eQ2kHcgI
+          </div>
+          <p className="text-blue-700"><span className="font-semibold">Paste just the value</span> into the Session Cookie field — do NOT include <code className="px-1 py-0.5 rounded bg-blue-100 border border-blue-200 font-mono text-[10px]">claysession=</code> as a prefix. The cookie lasts ~7 days before you need to refresh it.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function IntegrationCard({
   integration,
@@ -643,7 +677,7 @@ function IntegrationCard({
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm text-ink">{integration.name}</span>
             <span
-              className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+              className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                 isOAuth
                   ? "bg-purple-50 text-purple-600 border border-purple-100"
                   : "bg-gray-50 text-ink-3 border border-gray-100"
@@ -653,7 +687,7 @@ function IntegrationCard({
             </span>
             {credScope && (
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                   credScope === "project"
                     ? "bg-blue-50 text-blue-600 border border-blue-100"
                     : "bg-gray-50 text-ink-3 border border-gray-100"
@@ -673,7 +707,7 @@ function IntegrationCard({
                 {onReconnect && (
                   <button
                     onClick={onReconnect}
-                    className="text-[10px] text-ink-3 hover:text-brand px-1.5 py-0.5"
+                    className="text-xs text-ink-3 hover:text-brand px-1.5 py-0.5"
                   >
                     Reconnect
                   </button>
@@ -681,7 +715,7 @@ function IntegrationCard({
                 {onDisconnect && (
                   <button
                     onClick={onDisconnect}
-                    className="text-[10px] text-red-400 hover:text-red-600 px-1.5 py-0.5"
+                    className="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5"
                   >
                     Disconnect
                   </button>
@@ -739,6 +773,7 @@ function IntegrationCard({
                 )}
               </p>
             )}
+            {integration.slug === "clay" && <ClaySessionCookieGuide />}
             {integration.extra_fields?.map((field) => {
               const meta = EXTRA_FIELD_LABELS[field] ?? { label: field, placeholder: field };
               return (
@@ -779,6 +814,7 @@ function IntegrationCard({
         <div className="px-4 pb-4 pt-0 border-t border-rim">
           <div className="pt-3 space-y-2">
             <p className="text-[11px] text-ink-3">Update your {integration.name} credentials:</p>
+            {integration.slug === "clay" && <ClaySessionCookieGuide />}
             {integration.extra_fields?.map((field) => {
               const meta = EXTRA_FIELD_LABELS[field] ?? { label: field, placeholder: field };
               return (
@@ -821,7 +857,7 @@ function IntegrationCard({
             {probeResult.error || `Probe status: ${probeResult.status}`}
           </p>
           {probeResult.hint && (
-            <p className="text-[10px] text-red-600 mt-0.5">{probeResult.hint}</p>
+            <p className="text-xs text-red-600 mt-0.5">{probeResult.hint}</p>
           )}
         </div>
       )}
@@ -835,14 +871,14 @@ function IntegrationCard({
           <ul className="space-y-1.5">
             {integration.setup_steps.map((step, i) => (
               <li key={i} className="flex items-start gap-2">
-                <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold bg-amber-200 text-amber-800">
+                <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold bg-amber-200 text-amber-800">
                   {i + 1}
                 </span>
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-amber-900">
                     {step.label}
                     {step.required && (
-                      <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800">
+                      <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800">
                         Required
                       </span>
                     )}
@@ -855,7 +891,7 @@ function IntegrationCard({
                       href={step.doc_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[10px] text-brand hover:underline mt-0.5 inline-flex items-center gap-0.5"
+                      className="text-xs text-brand hover:underline mt-0.5 inline-flex items-center gap-0.5"
                     >
                       View docs <ExternalLink className="w-2.5 h-2.5" />
                     </a>
@@ -890,7 +926,7 @@ function StatusBadge({ credential, probeResult, probing }: {
 
   if (probing && !probeResult) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-ink-3 font-medium">
+      <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-3 font-medium">
         <span className="w-2.5 h-2.5 border border-ink-3/40 border-t-ink-3 rounded-full animate-spin" />
         Checking...
       </span>
@@ -902,12 +938,12 @@ function StatusBadge({ credential, probeResult, probing }: {
     const icon = probeResult.ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />;
     return (
       <span
-        className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${meta.color}`}
+        className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${meta.color}`}
         title={probeResult.hint || probeResult.error || undefined}
       >
         {icon} {meta.label}
         {probeResult.latency_ms != null && (
-          <span className="text-[8px] opacity-60 ml-0.5">{probeResult.latency_ms}ms</span>
+          <span className="text-xs opacity-60 ml-0.5">{probeResult.latency_ms}ms</span>
         )}
       </span>
     );
@@ -915,20 +951,20 @@ function StatusBadge({ credential, probeResult, probing }: {
 
   if (credential.validated === true) {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
         <Check className="w-3 h-3" /> Verified
       </span>
     );
   }
   if (credential.validated === false) {
     return (
-      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 font-medium border border-amber-200">
+      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 font-medium border border-amber-200">
         Saved, not verified
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
       <Check className="w-3 h-3" /> Connected
     </span>
   );

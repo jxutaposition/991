@@ -38,7 +38,7 @@ Plan:
 [
   {"agent_slug": "notion_operator", "task_description": "Create expert program wiki: tier structure, scoring rules, documentation", "depends_on": []},
   {"agent_slug": "n8n_operator", "task_description": "Build scoring pipeline from Clay/Tolt sources to Supabase", "depends_on": [0]},
-  {"agent_slug": "clay_operator", "task_description": "Build Clay expert table with enrichment and scoring formulas", "depends_on": [0]},
+  {"agent_slug": "clay_operator", "task_description": "Design Clay workbook: engagement tracking, expert registry, scoring, and webhook routing tables", "depends_on": [0]},
   {"agent_slug": "dashboard_builder", "task_description": "Build leaderboard with internal and public views in Supabase + Lovable", "depends_on": [1, 2]},
   {"agent_slug": "lovable_operator", "task_description": "Build expert-facing leaderboard UI with scores and tiers", "depends_on": [3]}
 ]
@@ -59,7 +59,7 @@ Plan:
 When building the DAG, follow this execution order strictly:
 1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
 2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
-3. **Enrichment / data third**: clay_operator (Clay tables, enrichment columns, formulas) — depends on pipeline design and data sources.
+3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
 4. **UI / dashboard / app last**: dashboard_builder, lovable_operator — these reference data from Clay tables and upstream pipelines.
 
 Infer depends_on automatically: if agent B reads from or references a system that agent A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), agent B MUST depend on agent A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
@@ -194,6 +194,11 @@ fn build_execution_nodes(
             .collect();
         let status = if requires.is_empty() { NodeStatus::Pending } else { NodeStatus::Waiting };
 
+        let execution_mode = match agent.automation_mode.as_deref() {
+            Some("guided") => "manual".to_string(),
+            _ => "agent".to_string(),
+        };
+
         nodes.push(ExecutionPlanNode {
             uid: uids[i],
             session_id,
@@ -218,6 +223,8 @@ fn build_execution_nodes(
             variant_selected: None,
             client_id: None,
             tool_id: None,
+            execution_mode,
+            integration_overrides: serde_json::json!({}),
         });
     }
 
@@ -272,6 +279,31 @@ const RICH_PLANNER_SYSTEM_PROMPT: &str = r#"You are a GTM system architect. Your
 - Keep the plan focused — typically 2-8 components.
 - IMPORTANT: Use each agent_slug AT MOST ONCE. If the request requires multiple workflows, pipelines, or artifacts from the same tool, combine them into a single component with a compound task_description. The agent handles sequencing internally. Duplicate slugs waste execution resources.
 - Every component must BUILD something or ACT on an external system. No planning-only components.
+- CRITICAL CONCISENESS: Your total JSON output must stay under 4000 tokens. Keep ALL string values short and declarative. Do NOT generate sample data, mock rows, example records, initial_rows, placeholder content, or any kind of filler. Schemas should be empty objects `{}` unless a specific format is essential. Summaries should be 2-3 sentences max. Acceptance criteria should be one-liners.
+
+## Agent-Specific Guidance
+
+### clay_operator — Workbook-Level Scope
+clay_operator owns the client's ENTIRE Clay workspace. Its description must reflect the full workbook topology, not a single table. In `technical_spec.configuration`, list ALL tables in the workbook with their roles and inter-table connections:
+
+```json
+{
+  "configuration": {
+    "workbook_name": "Expert Engagement Pipeline",
+    "tables": [
+      { "name": "Mentions Catcher", "role": "signal_capture", "feeds_into": ["Action Table"] },
+      { "name": "Action Table", "role": "routing", "feeds_into": ["Post Reactors", "Post Comments"], "webhooks_to": ["n8n scoring"] },
+      { "name": "Post Reactors", "role": "detail" },
+      { "name": "Post Comments", "role": "detail" },
+      { "name": "Experts", "role": "registry", "key_columns": ["Name", "Email", "LinkedIn URL", "Tier", "Total Points"] },
+      { "name": "Tolt Experts", "role": "revenue_scoring", "feeds_into": ["Experts"] }
+    ],
+    "webhook_target": "n8n scoring workflow URL (to be provided by n8n_operator)"
+  }
+}
+```
+
+In `io_contract`, list the workbook-level inputs and outputs (not per-table). In `acceptance_criteria`, include criteria for the full pipeline (e.g., "data flows end-to-end from signal capture to webhook output"), not just one table.
 
 ## Description Structure
 Each component's "description" field is a structured object:
@@ -281,6 +313,9 @@ Each component's "description" field is a structured object:
 - io_contract: { inputs: [{ name, source, schema }], outputs: [{ name, schema }] }
 - optionality: [{ decision, tradeoffs, recommendation }] — where multiple paths exist
 - blockers: [{ type ("credential"|"manual"|"decision"|"external"), description, severity ("blocking"|"warning") }] — missing credentials, manual setup steps, decisions needing human input, external dependencies
+- agent_actions: [string] — what the agent will do autonomously if it executes this component (e.g. "Create n8n workflow with scoring logic", "Configure webhook trigger"). Always populate this.
+- user_actions: [string] — what the user would need to do if they execute this manually (e.g. "Build Clay table in the UI", "Copy prompt into Lovable chat"). For automation_mode=guided agents this is the primary work; for full agents this describes the manual alternative.
+- validation_hints: [{ type ("http_probe"|"format_check"|"api_query"|"existence_check"), description }] — how to verify completion. Used by both the judge (for agent execution) and the manual-completion validator (for user execution). E.g. { type: "http_probe", description: "GET webhook URL returns 200" }.
 - acceptance_criteria: [string] — specific, testable conditions for validating the component's output
 - mockup_reference: string or null — for UI components, a brief description of the expected visual output
 - prior_artifacts: string or null — references to relevant prior work (leave null if unknown)
@@ -316,6 +351,9 @@ Return ONLY valid JSON matching this structure. No explanation, no markdown fenc
         },
         "optionality": [],
         "blockers": [{ "type": "credential", "description": "Clay API key required", "severity": "blocking" }],
+        "agent_actions": ["Create n8n workflow with webhook trigger", "Add scoring logic nodes", "Configure Supabase upsert output", "Test and activate workflow"],
+        "user_actions": ["Build workflow manually in n8n editor", "Add HTTP/webhook nodes and scoring logic", "Connect Supabase output"],
+        "validation_hints": [{ "type": "http_probe", "description": "GET workflow webhook URL returns 200" }, { "type": "api_query", "description": "Query Supabase scored_partners table returns rows" }],
         "acceptance_criteria": ["Partners are scored 0-100", "Tier assignments match defined ranges"],
         "mockup_reference": null,
         "prior_artifacts": null
@@ -324,24 +362,112 @@ Return ONLY valid JSON matching this structure. No explanation, no markdown fenc
   ]
 }"#;
 
+/// Gather relevant context from the knowledge corpus for the planner.
+/// Does a simple vector search — no reranking, just top results.
+pub async fn gather_planner_context(
+    db: &crate::pg::PgClient,
+    request: &str,
+    client_id: Option<uuid::Uuid>,
+    project_id: Option<uuid::Uuid>,
+    openai_api_key: Option<&str>,
+) -> String {
+    tracing::debug!(client_id = ?client_id, project_id = ?project_id, "gathering planner context");
+    let mut context_parts: Vec<String> = Vec::new();
+
+    // 1. Client context
+    if let Some(cid) = client_id {
+        if let Ok(ctx) = crate::client::build_client_context(db, cid, None).await {
+            if !ctx.is_empty() {
+                context_parts.push(format!("## Client Context\n{ctx}"));
+            }
+        }
+    }
+
+    // 2. Knowledge corpus search (if OpenAI key available for embeddings)
+    if let (Some(api_key), Some(tenant_id)) = (openai_api_key, client_id) {
+        if let Ok(embedding) = crate::embeddings::embed_text(api_key, request).await {
+            let embedding_str = format!(
+                "[{}]",
+                embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
+            );
+            let project_clause = project_id
+                .map(|p| format!("AND (c.project_id IS NULL OR c.project_id = '{p}')"))
+                .unwrap_or_default();
+
+            let sql = format!(
+                "SELECT c.content, c.section_title, d.source_filename \
+                 FROM knowledge_chunks c \
+                 JOIN knowledge_documents d ON c.document_id = d.id \
+                 WHERE c.tenant_id = '{tenant_id}' \
+                   AND d.status = 'ready' \
+                   {project_clause} \
+                   AND 1 - (c.embedding <=> '{embedding_str}'::vector) > 0.3 \
+                 ORDER BY c.embedding <=> '{embedding_str}'::vector \
+                 LIMIT 8"
+            );
+
+            if let Ok(rows) = db.execute(&sql).await {
+                if !rows.is_empty() {
+                    let mut knowledge_text = String::from("## Relevant Knowledge Base Results\n");
+                    knowledge_text.push_str("Prior work, decisions, and reference material found in the knowledge base:\n\n");
+                    for row in &rows {
+                        let filename = row.get("source_filename").and_then(serde_json::Value::as_str).unwrap_or("unknown");
+                        let section = row.get("section_title").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let content = row.get("content").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let preview: String = content.chars().take(500).collect();
+                        if !section.is_empty() {
+                            knowledge_text.push_str(&format!("### {filename} — {section}\n{preview}\n\n"));
+                        } else {
+                            knowledge_text.push_str(&format!("### {filename}\n{preview}\n\n"));
+                        }
+                    }
+                    context_parts.push(knowledge_text);
+                }
+            }
+        }
+    }
+
+    // 3. Existing project description (if project already has one)
+    if let Some(pid) = project_id {
+        if let Ok(Some(desc)) = crate::system_description::get_for_project(db, pid).await {
+            let title = desc.get("title").and_then(serde_json::Value::as_str).unwrap_or("");
+            let summary = desc.get("summary").and_then(serde_json::Value::as_str).unwrap_or("");
+            if !title.is_empty() || !summary.is_empty() {
+                context_parts.push(format!(
+                    "## Existing Project Description\nThis project already has an architecture document:\n**{title}**\n{summary}"
+                ));
+            }
+        }
+    }
+
+    tracing::debug!(sections = context_parts.len(), total_chars = context_parts.iter().map(|s| s.len()).sum::<usize>(), "planner context gathered");
+    context_parts.join("\n\n")
+}
+
 /// Call the LLM to generate a rich system description with project-level overview
 /// and per-component structured descriptions.
+/// Accepts pre-gathered context (from gather_planner_context) to avoid double-fetching.
 pub async fn plan_rich_description(
     request: &str,
     catalog_summary: &str,
     api_key: &str,
     model: &str,
+    gathered_context: &str,
 ) -> anyhow::Result<RichPlanOutput> {
-    let system = format!(
-        "{RICH_PLANNER_SYSTEM_PROMPT}\n\n## Agent Catalog\n\n{catalog_summary}"
-    );
+    let system = if gathered_context.is_empty() {
+        format!("{RICH_PLANNER_SYSTEM_PROMPT}\n\n## Agent Catalog\n\n{catalog_summary}")
+    } else {
+        format!(
+            "{RICH_PLANNER_SYSTEM_PROMPT}\n\n{gathered_context}\n\n## Agent Catalog\n\n{catalog_summary}"
+        )
+    };
 
     let client = AnthropicClient::new(api_key.to_string(), model.to_string());
     let messages = vec![user_message(request.to_string())];
 
     info!(request = %request, "running rich description planner");
 
-    let max_tokens_attempts = [8192u32, 16384];
+    let max_tokens_attempts = [16384u32, 32768, 65536];
     let mut last_error = String::new();
 
     for (attempt, &max_tokens) in max_tokens_attempts.iter().enumerate() {
@@ -361,6 +487,13 @@ pub async fn plan_rich_description(
             .trim_start_matches("```")
             .trim_end_matches("```")
             .trim();
+
+        // Strip trailing non-JSON text (LLM sometimes appends explanation after the closing brace)
+        let cleaned = if let Some(last_brace) = cleaned.rfind('}') {
+            &cleaned[..=last_brace]
+        } else {
+            cleaned
+        };
 
         match serde_json::from_str::<RichPlanOutput>(cleaned) {
             Ok(mut output) if !output.components.is_empty() => {
@@ -488,6 +621,8 @@ pub fn plan_to_json(nodes: &[crate::agent_catalog::ExecutionPlanNode]) -> Value 
             "agent_slug": n.agent_slug,
             "task_description": n.task_description,
             "requires": n.requires.iter().map(|u| u.to_string()).collect::<Vec<_>>(),
+            "execution_mode": n.execution_mode,
+            "integration_overrides": n.integration_overrides,
         }))
         .collect::<Vec<_>>())
 }

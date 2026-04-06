@@ -25,9 +25,13 @@ import {
   ListOrdered,
   ExternalLink,
   X,
+  Zap,
+  CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ExecutionNode } from "./execution-canvas";
+import { humanizeToolName, humanizeEventType, isVisibleEvent } from "@/lib/utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,14 +56,97 @@ interface ConversationStreamProps {
   onReply?: (nodeId: string, message: string) => Promise<void>;
   liveThinkingChunks?: Record<string, string>;
   liveTextChunks?: Record<string, string>;
+  chatPending?: boolean;
+}
+
+// ── Segment model for grouping entries ───────────────────────────────────────
+
+type SegmentKind = "user" | "actions" | "response" | "step_result" | "synthesis" | "manual_action";
+
+interface Segment {
+  kind: SegmentKind;
+  entries: StreamEntry[];
+  key: string;
+}
+
+function isActionEntry(entry: StreamEntry): boolean {
+  if (entry.stream_type === "thinking") return true;
+  if (entry.stream_type === "event") return true;
+  if (entry.stream_type === "message") {
+    if (entry.sub_type === "tool_use" || entry.sub_type === "tool_result") {
+      const tn = (entry.metadata as Record<string, unknown>)?.tool_name as string;
+      return tn !== "request_user_action";
+    }
+  }
+  return false;
+}
+
+function buildSegments(entries: StreamEntry[]): Segment[] {
+  const out: Segment[] = [];
+  let pending: StreamEntry[] = [];
+  let idx = 0;
+
+  const flush = () => {
+    if (pending.length > 0) {
+      out.push({ kind: "actions", entries: [...pending], key: `s${idx++}` });
+      pending = [];
+    }
+  };
+
+  for (const e of entries) {
+    const meta = e.metadata as Record<string, unknown> | null;
+    const phase = meta?.phase as string | undefined;
+
+    if (phase === "enrichment_request" || phase === "enrichment_response") continue;
+
+    if (isActionEntry(e)) {
+      pending.push(e);
+      continue;
+    }
+
+    if (e.stream_type === "message") {
+      if (phase === "step_result") { flush(); out.push({ kind: "step_result", entries: [e], key: `s${idx++}` }); continue; }
+      if (phase === "synthesis") { flush(); out.push({ kind: "synthesis", entries: [e], key: `s${idx++}` }); continue; }
+
+      if (e.sub_type === "tool_use") {
+        const tn = (meta?.tool_name as string) || "";
+        if (tn === "request_user_action") { flush(); out.push({ kind: "manual_action", entries: [e], key: `s${idx++}` }); continue; }
+      }
+      if (e.sub_type === "tool_result" && (meta?.tool_name as string) === "request_user_action") continue;
+
+      if (e.sub_type === "user" || e.role === "user") { flush(); out.push({ kind: "user", entries: [e], key: `s${idx++}` }); continue; }
+      if (e.sub_type === "assistant" || e.role === "assistant") { flush(); out.push({ kind: "response", entries: [e], key: `s${idx++}` }); continue; }
+    }
+  }
+  flush();
+  return out;
+}
+
+// ── Action counting helpers ──────────────────────────────────────────────────
+
+function countVisibleActions(entries: StreamEntry[]): number {
+  let n = 0;
+  for (const e of entries) {
+    if (e.stream_type === "thinking") { n++; continue; }
+    if (e.sub_type === "tool_use") { n++; continue; }
+    if (e.stream_type === "event" && isVisibleEvent(e.sub_type)) { n++; }
+  }
+  return n;
+}
+
+function toolHasResult(entries: StreamEntry[], fromIdx: number): boolean {
+  const toolName = (entries[fromIdx].metadata as Record<string, unknown>)?.tool_name;
+  for (let i = fromIdx + 1; i < entries.length; i++) {
+    if (entries[i].sub_type === "tool_result" &&
+      (entries[i].metadata as Record<string, unknown>)?.tool_name === toolName) return true;
+  }
+  return false;
 }
 
 // ── Streaming Cursor ─────────────────────────────────────────────────────────
 
 function StreamingCursor() {
-  return (
-    <span className="inline-block w-0.5 h-[1.1em] bg-brand animate-pulse ml-px align-text-bottom" />
-  );
+  return <span className="streaming-cursor" />;
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────
@@ -71,6 +158,7 @@ export function ConversationStream({
   onReply,
   liveThinkingChunks = {},
   liveTextChunks = {},
+  chatPending = false,
 }: ConversationStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState("");
@@ -80,11 +168,12 @@ export function ConversationStream({
     Object.keys(liveTextChunks).length > 0 ||
     Object.keys(liveThinkingChunks).length > 0;
 
+  // Smooth scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     }
-  }, [entries, liveTextChunks, liveThinkingChunks]);
+  }, [entries, liveTextChunks, liveThinkingChunks, chatPending]);
 
   const handleSend = useCallback(async () => {
     if (!replyText.trim() || !onReply || sending) return;
@@ -99,19 +188,15 @@ export function ConversationStream({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
     },
     [handleSend]
   );
 
+  const segments = useMemo(() => buildSegments(entries), [entries]);
+
   const finalizedAssistantCount = useMemo(
-    () =>
-      entries.filter(
-        (e) => e.stream_type === "message" && e.sub_type === "assistant"
-      ).length,
+    () => entries.filter((e) => e.stream_type === "message" && e.sub_type === "assistant").length,
     [entries]
   );
   const finalizedThinkingCount = useMemo(
@@ -119,126 +204,76 @@ export function ConversationStream({
     [entries]
   );
 
+  // Determine if the last action group is "in-progress" (live content still streaming)
+  const lastSegIsActions = segments.length > 0 && segments[segments.length - 1].kind === "actions";
+  const liveActionGroup = lastSegIsActions && hasLiveContent;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Stream area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto py-2 space-y-1">
-        {loading ? (
+        {loading && entries.length === 0 && !hasLiveContent ? (
           <p className="text-sm text-ink-3 px-4 py-4">Loading conversation...</p>
-        ) : entries.length === 0 && !hasLiveContent ? (
+        ) : entries.length === 0 && !hasLiveContent && !chatPending ? (
           <div className="text-center py-12 px-4">
             <p className="text-sm text-ink-3">
               {selectedNode.status === "running"
                 ? "Waiting for agent output..."
-                : selectedNode.status === "pending" ||
-                    selectedNode.status === "ready" ||
-                    selectedNode.status === "preview"
+                : selectedNode.status === "pending" || selectedNode.status === "ready" || selectedNode.status === "preview"
                   ? "Ask questions or give more details before approving the plan."
                   : "No activity yet."}
             </p>
           </div>
         ) : (
           <>
-            {entries.map((entry, i) => {
-              if (entry.stream_type === "event") return null;
+            {segments.map((seg, segIdx) => {
+              const isLastSeg = segIdx === segments.length - 1;
 
-              const meta = entry.metadata as Record<string, unknown> | null;
-              const phase = meta?.phase as string | undefined;
+              switch (seg.kind) {
+                case "user":
+                  return <StreamChatMessage key={seg.key} entry={seg.entries[0]} isStreaming={false} />;
 
-              switch (entry.stream_type) {
-                case "thinking":
+                case "actions":
                   return (
-                    <StreamThinkingBlock
-                      key={entry.id ?? `t-${i}`}
-                      entry={entry}
-                      defaultOpen={false}
-                      isStreaming={false}
+                    <ActionGroup
+                      key={seg.key}
+                      entries={seg.entries}
+                      isLive={isLastSeg && liveActionGroup}
+                      liveThinkingChunks={isLastSeg ? liveThinkingChunks : undefined}
+                      finalizedThinkingCount={finalizedThinkingCount}
                     />
                   );
-                case "message":
-                  if (phase === "enrichment_request" || phase === "enrichment_response") {
-                    return null;
-                  }
 
-                  if (phase === "step_result") {
-                    return (
-                      <OrchestratorStepCard
-                        key={entry.id ?? `m-${i}`}
-                        entry={entry}
-                      />
-                    );
-                  }
+                case "response":
+                  return <StreamChatMessage key={seg.key} entry={seg.entries[0]} isStreaming={false} />;
 
-                  if (phase === "synthesis") {
-                    return (
-                      <SynthesisMessage
-                        key={entry.id ?? `m-${i}`}
-                        entry={entry}
-                      />
-                    );
-                  }
+                case "step_result":
+                  return <OrchestratorStepCard key={seg.key} entry={seg.entries[0]} />;
 
-                  if (
-                    entry.sub_type === "tool_use" ||
-                    entry.sub_type === "tool_result"
-                  ) {
-                    const toolName = (entry.metadata as Record<string, unknown>)?.tool_name as string | undefined;
-                    if (entry.sub_type === "tool_use" && toolName === "request_user_action") {
-                      return (
-                        <ManualActionCard
-                          key={entry.id ?? `m-${i}`}
-                          entry={entry}
-                        />
-                      );
-                    }
-                    if (entry.sub_type === "tool_result" && toolName === "request_user_action") {
-                      return null;
-                    }
-                    return (
-                      <StreamToolCall
-                        key={entry.id ?? `m-${i}`}
-                        entry={entry}
-                      />
-                    );
-                  }
-                  return (
-                    <StreamChatMessage
-                      key={entry.id ?? `m-${i}`}
-                      entry={entry}
-                      isStreaming={false}
-                    />
-                  );
+                case "synthesis":
+                  return <SynthesisMessage key={seg.key} entry={seg.entries[0]} />;
+
+                case "manual_action":
+                  return <ManualActionCard key={seg.key} entry={seg.entries[0]} />;
+
                 default:
                   return null;
               }
             })}
 
-            {/* Live thinking chunks */}
-            {Object.entries(liveThinkingChunks)
-              .filter(
-                ([blockIdx]) =>
-                  Number(blockIdx) >= finalizedThinkingCount
-              )
-              .map(([blockIdx, text]) => (
-                <StreamThinkingBlock
-                  key={`live-think-${blockIdx}`}
-                  entry={{
-                    stream_type: "thinking",
-                    sub_type: "thinking_block",
-                    thinking_text: text,
-                    created_at: new Date().toISOString(),
-                  }}
-                  defaultOpen={true}
-                  isStreaming={true}
-                />
-              ))}
+            {/* Live action group when no finalized action segment is pending */}
+            {!lastSegIsActions && Object.keys(liveThinkingChunks).length > 0 && (
+              <ActionGroup
+                key="live-actions"
+                entries={[]}
+                isLive={true}
+                liveThinkingChunks={liveThinkingChunks}
+                finalizedThinkingCount={finalizedThinkingCount}
+              />
+            )}
 
-            {/* Live text chunks */}
+            {/* Live text chunks (streaming response) */}
             {Object.entries(liveTextChunks)
-              .filter(
-                ([blockIdx]) =>
-                  Number(blockIdx) >= finalizedAssistantCount
-              )
+              .filter(([blockIdx]) => Number(blockIdx) >= finalizedAssistantCount)
               .map(([blockIdx, text]) => (
                 <StreamChatMessage
                   key={`live-text-${blockIdx}`}
@@ -253,20 +288,20 @@ export function ConversationStream({
               ))}
           </>
         )}
-        {selectedNode.status === "running" &&
-          entries.length === 0 &&
-          !hasLiveContent && (
-            <div className="flex items-center gap-2 px-4 py-2">
-              <div className="w-1.5 h-1.5 bg-brand rounded-full animate-pulse" />
-              <span className="text-sm text-ink-3">Agent is working...</span>
-            </div>
-          )}
+
+        {/* Pending indicator */}
+        {chatPending && !hasLiveContent && <ThinkingIndicator />}
+
+        {/* Running with no content yet */}
+        {selectedNode.status === "running" && entries.length === 0 && !hasLiveContent && !chatPending && (
+          <ThinkingIndicator label="Agent is working" />
+        )}
+
+        {/* Awaiting reply banner */}
         {selectedNode.status === "awaiting_reply" && (
           <div className="flex items-center gap-2 mx-4 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200">
             <MessageCircle className="w-3.5 h-3.5 text-amber-600" />
-            <span className="text-xs text-amber-700">
-              Agent is waiting for your reply
-            </span>
+            <span className="text-xs text-amber-700">Agent is waiting for your reply</span>
           </div>
         )}
       </div>
@@ -294,7 +329,7 @@ export function ConversationStream({
               className="shrink-0 p-2.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-40 transition-colors"
               title="Send"
             >
-              <Send className="w-4 h-4" />
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
         </div>
@@ -303,43 +338,236 @@ export function ConversationStream({
   );
 }
 
-// ── Thinking Block (minimal, Cursor-style) ──────────────────────────────────
+// ── Thinking Indicator (rich pending state) ──────────────────────────────────
 
-function StreamThinkingBlock({
-  entry,
-  defaultOpen,
-  isStreaming,
-}: {
-  entry: StreamEntry;
-  defaultOpen: boolean;
-  isStreaming: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const text = entry.thinking_text ?? "";
+function ThinkingIndicator({ label = "Thinking" }: { label?: string }) {
+  const [phase, setPhase] = useState(0);
+  const phases = ["Understanding your request", "Thinking", "Preparing response"];
 
   useEffect(() => {
-    if (isStreaming) setOpen(true);
-  }, [isStreaming]);
+    const timer = setInterval(() => {
+      setPhase((p) => (p < phases.length - 1 ? p + 1 : p));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [phases.length]);
+
+  const displayLabel = label === "Thinking" ? phases[phase] : label;
 
   return (
-    <div className="mx-4 my-1">
+    <div className="flex items-center gap-3 px-4 py-3 animate-fade-in-up">
+      <div className="relative flex items-center justify-center w-6 h-6">
+        <span className="absolute w-6 h-6 rounded-full bg-brand/15 animate-ping" />
+        <Sparkles className="w-3.5 h-3.5 text-brand relative" />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-sm text-ink-2">{displayLabel}</span>
+        <span className="thinking-dots flex gap-0.5">
+          <span className="w-1 h-1 rounded-full bg-brand" />
+          <span className="w-1 h-1 rounded-full bg-brand" />
+          <span className="w-1 h-1 rounded-full bg-brand" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Action Group (Perplexity-style collapsible actions) ──────────────────────
+
+function ActionGroup({
+  entries,
+  isLive,
+  liveThinkingChunks,
+  finalizedThinkingCount,
+}: {
+  entries: StreamEntry[];
+  isLive: boolean;
+  liveThinkingChunks?: Record<string, string>;
+  finalizedThinkingCount: number;
+}) {
+  const visibleCount = countVisibleActions(entries);
+  const liveThinkingEntries = Object.entries(liveThinkingChunks ?? {})
+    .filter(([idx]) => Number(idx) >= finalizedThinkingCount);
+  const hasLiveThinking = liveThinkingEntries.length > 0;
+  const totalVisible = visibleCount + (hasLiveThinking ? 1 : 0);
+
+  const isComplete = !isLive && !hasLiveThinking;
+  const [expanded, setExpanded] = useState(!isComplete);
+
+  // Auto-collapse once the group completes
+  useEffect(() => {
+    if (isComplete && totalVisible > 0) {
+      const t = setTimeout(() => setExpanded(false), 400);
+      return () => clearTimeout(t);
+    }
+  }, [isComplete, totalVisible]);
+
+  // Auto-expand when live
+  useEffect(() => {
+    if (isLive) setExpanded(true);
+  }, [isLive]);
+
+  if (totalVisible === 0 && entries.length === 0) return null;
+
+  return (
+    <div className="mx-4 my-1.5 animate-fade-in-up">
+      {/* Header: "Actions" or "Completed N steps" */}
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2 py-1 transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 py-1.5 w-full text-left group"
       >
-        {open ? (
-          <ChevronDown className="w-3 h-3 shrink-0" />
+        {expanded
+          ? <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
+          : <ChevronRight className="w-3.5 h-3.5 text-ink-3 shrink-0" />}
+        {isComplete ? (
+          <span className="text-xs font-medium text-ink-3 group-hover:text-ink-2 transition-colors">
+            Completed {totalVisible} step{totalVisible !== 1 ? "s" : ""}
+          </span>
         ) : (
-          <ChevronRight className="w-3 h-3 shrink-0" />
+          <span className="text-xs font-medium text-ink-2">
+            Actions
+          </span>
         )}
-        <Brain className="w-3 h-3 shrink-0" />
-        <span>Thinking{isStreaming ? "..." : ""}</span>
+        {isLive && (
+          <span className="ml-auto">
+            <Loader2 className="w-3 h-3 text-brand animate-spin" />
+          </span>
+        )}
       </button>
-      {open && (
-        <div className="ml-[22px] pb-1">
-          <pre className="text-xs font-mono text-ink-3 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
-            {text}
-            {isStreaming && <StreamingCursor />}
+
+      {/* Collapsible body */}
+      <div className="action-group-body" data-expanded={expanded}>
+        <div className="action-group-inner">
+          <div className="pl-1 border-l-2 border-rim ml-[6px] space-y-0.5">
+            {entries.map((entry, i) => (
+              <ActionItem
+                key={entry.id ?? `a${i}`}
+                entry={entry}
+                allEntries={entries}
+                index={i}
+                isLast={!hasLiveThinking && i === entries.length - 1 && isLive}
+              />
+            ))}
+
+            {/* Live thinking action items */}
+            {liveThinkingEntries.map(([blockIdx, text]) => (
+              <ActionItem
+                key={`live-think-${blockIdx}`}
+                entry={{
+                  stream_type: "thinking",
+                  sub_type: "thinking_block",
+                  thinking_text: text,
+                  created_at: new Date().toISOString(),
+                }}
+                allEntries={[]}
+                index={0}
+                isLast={true}
+                isLiveThinking
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Action Item (single action within a group) ──────────────────────────────
+
+function ActionItem({
+  entry,
+  allEntries,
+  index,
+  isLast,
+  isLiveThinking = false,
+}: {
+  entry: StreamEntry;
+  allEntries: StreamEntry[];
+  index: number;
+  isLast: boolean;
+  isLiveThinking?: boolean;
+}) {
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Determine display info
+  let label = "";
+  let icon: React.ReactNode = null;
+  let isRunning = false;
+  let detail: string | null = null;
+  let hasExpandable = false;
+
+  if (entry.stream_type === "thinking") {
+    label = isLiveThinking ? "Thinking" : "Thought";
+    icon = <Brain className="w-3 h-3 text-violet-500 shrink-0" />;
+    isRunning = isLiveThinking || isLast;
+    const text = entry.thinking_text ?? "";
+    if (text.length > 0) {
+      detail = text;
+      hasExpandable = true;
+    }
+  } else if (entry.sub_type === "tool_use") {
+    const toolName = (entry.metadata as Record<string, unknown>)?.tool_name as string || "tool";
+    label = humanizeToolName(toolName);
+    icon = <Wrench className="w-3 h-3 text-cyan-500 shrink-0" />;
+    isRunning = !toolHasResult(allEntries, index) && isLast;
+    const content = entry.content ?? "";
+    if (content.length > 0) {
+      detail = content;
+      hasExpandable = true;
+    }
+  } else if (entry.sub_type === "tool_result") {
+    return null;
+  } else if (entry.stream_type === "event") {
+    if (!isVisibleEvent(entry.sub_type)) return null;
+    label = humanizeEventType(entry.sub_type);
+    icon = <Zap className="w-3 h-3 text-amber-500 shrink-0" />;
+  } else {
+    return null;
+  }
+
+  return (
+    <div className="animate-fade-in-up">
+      <button
+        onClick={() => hasExpandable && setDetailOpen((v) => !v)}
+        className={`flex items-center gap-2 py-1 px-2.5 w-full text-left rounded-md transition-colors ${
+          hasExpandable ? "hover:bg-surface cursor-pointer" : "cursor-default"
+        }`}
+      >
+        {/* Status icon */}
+        {isRunning ? (
+          <Loader2 className="w-3 h-3 text-brand animate-spin shrink-0" />
+        ) : (
+          <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0 animate-check-pop" />
+        )}
+
+        {icon}
+
+        <span className="text-xs text-ink-2 flex-1 truncate">{label}</span>
+
+        {/* Expandable indicator */}
+        {hasExpandable && (
+          detailOpen
+            ? <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
+            : <ChevronRight className="w-3 h-3 text-ink-3 shrink-0" />
+        )}
+      </button>
+
+      {/* Live thinking preview (shown inline when streaming) */}
+      {isLiveThinking && detail && !detailOpen && (
+        <div className="ml-[42px] mr-2 mb-1">
+          <p className="text-[11px] text-ink-3 font-mono line-clamp-2 leading-relaxed opacity-60">
+            {detail.slice(-200)}
+            <StreamingCursor />
+          </p>
+        </div>
+      )}
+
+      {/* Expanded detail */}
+      {detailOpen && detail && (
+        <div className="ml-[42px] mr-2 mb-1 bg-surface rounded-md p-2 max-h-[200px] overflow-y-auto border border-rim">
+          <pre className="text-[11px] font-mono text-ink-2 whitespace-pre-wrap break-all leading-relaxed">
+            {detail.slice(0, 2000)}
+            {detail.length > 2000 ? "..." : ""}
+            {isLiveThinking && <StreamingCursor />}
           </pre>
         </div>
       )}
@@ -363,7 +591,7 @@ function StreamChatMessage({
   const content = entry.content ?? "";
 
   return (
-    <div className={`px-4 py-3 ${isUser ? "bg-surface/50" : ""}`}>
+    <div className={`px-4 py-3 animate-fade-in-up ${isUser ? "bg-surface/50" : ""}`}>
       <div className="flex items-center gap-1.5 mb-1.5">
         {isUser ? (
           <User className="w-3.5 h-3.5 text-brand shrink-0" />
@@ -374,58 +602,15 @@ function StreamChatMessage({
           {isUser ? (isHumanReply ? "You" : "System") : "Assistant"}
         </span>
       </div>
-      {!isUser && !isStreaming ? (
+      {!isUser ? (
         <div className="text-[13px] text-ink leading-relaxed prose prose-sm max-w-none prose-pre:bg-surface prose-pre:border prose-pre:border-rim prose-pre:rounded-lg prose-pre:p-3 prose-pre:text-xs prose-pre:text-ink-2 prose-code:text-[12px] prose-code:bg-surface prose-code:text-ink-2 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-headings:text-ink prose-headings:font-semibold prose-p:my-2 prose-li:my-0.5 prose-a:text-brand prose-a:no-underline hover:prose-a:underline">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          {isStreaming && <StreamingCursor />}
         </div>
       ) : (
         <p className="text-[13px] text-ink whitespace-pre-wrap leading-relaxed">
           {content}
-          {isStreaming && <StreamingCursor />}
         </p>
-      )}
-    </div>
-  );
-}
-
-// ── Tool Call (compact, expandable) ─────────────────────────────────────────
-
-function StreamToolCall({ entry }: { entry: StreamEntry }) {
-  const [expanded, setExpanded] = useState(false);
-  const isResult = entry.sub_type === "tool_result";
-  const toolName =
-    ((entry.metadata as Record<string, unknown>)?.tool_name as string) ||
-    entry.content ||
-    "tool";
-  const content = entry.content ?? "";
-
-  if (isResult && !content) return null;
-
-  return (
-    <div className="mx-4 py-0.5">
-      <button
-        onClick={() => isResult && content ? setExpanded(!expanded) : undefined}
-        className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2 transition-colors"
-      >
-        <Wrench className="w-3 h-3 text-cyan-500 shrink-0" />
-        <span className="font-mono">
-          {isResult ? `${toolName} \u2192 result` : `${toolName}()`}
-        </span>
-        {isResult && content && (
-          expanded ? (
-            <ChevronDown className="w-3 h-3 shrink-0" />
-          ) : (
-            <ChevronRight className="w-3 h-3 shrink-0" />
-          )
-        )}
-      </button>
-      {expanded && isResult && content && (
-        <div className="ml-[22px] mt-1 bg-gray-50 rounded p-2 max-h-[120px] overflow-y-auto">
-          <pre className="text-[11px] font-mono text-ink-2 whitespace-pre-wrap break-all">
-            {content.slice(0, 1000)}
-            {content.length > 1000 ? "..." : ""}
-          </pre>
-        </div>
       )}
     </div>
   );
@@ -489,28 +674,19 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
     parseActionEntry(entry);
 
   return (
-    <div className="mx-4 rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
-      {/* Header */}
+    <div className="mx-4 rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden animate-fade-in-up">
       <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-100 border-b border-amber-200">
         <Hand className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div className="min-w-0">
-          <span className="text-sm font-semibold text-amber-800 block">
-            {actionTitle}
-          </span>
-          {summary && (
-            <span className="text-xs text-amber-700 block mt-0.5">
-              {summary}
-            </span>
-          )}
+          <span className="text-sm font-semibold text-amber-800 block">{actionTitle}</span>
+          {summary && <span className="text-xs text-amber-700 block mt-0.5">{summary}</span>}
         </div>
       </div>
 
-      {/* Sections */}
       {sections.map((section, i) => (
         <ActionSectionRenderer key={i} section={section} />
       ))}
 
-      {/* Context (legacy/extra structured data) */}
       {context && Object.keys(context).length > 0 && (
         <CollapsibleReferenceEntries
           title={`Reference data (${Object.keys(context).length} items)`}
@@ -518,7 +694,6 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
         />
       )}
 
-      {/* Resume hint */}
       {resumeHint && (
         <div className="px-4 py-2 border-t border-amber-200 bg-amber-100/50">
           <p className="text-xs text-amber-700">
@@ -552,7 +727,6 @@ function ActionSectionRenderer({ section }: { section: ActionSection }) {
   }
 }
 
-// -- Overview: always visible prose
 function SectionOverview({ section }: { section: ActionSection }) {
   if (!section.content) return null;
   return (
@@ -562,7 +736,6 @@ function SectionOverview({ section }: { section: ActionSection }) {
   );
 }
 
-// -- Table spec: collapsed grid with expandable column detail
 function SectionTableSpec({ section }: { section: ActionSection }) {
   const [open, setOpen] = useState(false);
   const columns = section.columns ?? [];
@@ -574,18 +747,10 @@ function SectionTableSpec({ section }: { section: ActionSection }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-amber-100/50 transition-colors"
       >
-        {open ? (
-          <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" />
-        ) : (
-          <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />
-        )}
+        {open ? <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />}
         <Table2 className="w-3 h-3 text-amber-600 shrink-0" />
-        <span className="text-xs font-medium text-amber-800 truncate">
-          {section.title}
-        </span>
-        <span className="text-[10px] text-amber-600 shrink-0 ml-auto">
-          {columns.length} columns
-        </span>
+        <span className="text-xs font-medium text-amber-800 truncate">{section.title}</span>
+        <span className="text-xs text-amber-600 shrink-0 ml-auto">{columns.length} columns</span>
       </button>
       {open && (
         <div className="px-4 pb-3">
@@ -606,31 +771,19 @@ function SectionTableSpec({ section }: { section: ActionSection }) {
               </tbody>
             </table>
           </div>
-          {section.summary && (
-            <p className="text-[10px] text-amber-600 mt-1.5 px-0.5">
-              {section.summary}
-            </p>
-          )}
+          {section.summary && <p className="text-xs text-amber-600 mt-1.5 px-0.5">{section.summary}</p>}
         </div>
       )}
     </div>
   );
 }
 
-function ColumnRow({
-  col,
-}: {
-  col: { name: string; type: string; purpose: string; detail?: string };
-}) {
+function ColumnRow({ col }: { col: { name: string; type: string; purpose: string; detail?: string } }) {
   return (
     <tr className="border-t border-amber-100 hover:bg-amber-50/50">
-      <td className="px-2.5 py-1.5 font-mono font-medium text-ink">
-        {col.name}
-      </td>
+      <td className="px-2.5 py-1.5 font-mono font-medium text-ink">{col.name}</td>
       <td className="px-2.5 py-1.5">
-        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-medium">
-          {col.type}
-        </span>
+        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs font-medium">{col.type}</span>
       </td>
       <td className="px-2.5 py-1.5 text-ink-2">{col.purpose}</td>
       <td className="px-1.5 py-1.5">
@@ -640,7 +793,6 @@ function ColumnRow({
   );
 }
 
-// -- Steps: collapsed numbered list with expandable detail per step
 function SectionSteps({ section }: { section: ActionSection }) {
   const [open, setOpen] = useState(false);
   const steps = section.steps ?? [];
@@ -652,18 +804,10 @@ function SectionSteps({ section }: { section: ActionSection }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-amber-100/50 transition-colors"
       >
-        {open ? (
-          <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" />
-        ) : (
-          <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />
-        )}
+        {open ? <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />}
         <ListOrdered className="w-3 h-3 text-amber-600 shrink-0" />
-        <span className="text-xs font-medium text-amber-800 truncate">
-          {section.title}
-        </span>
-        <span className="text-[10px] text-amber-600 shrink-0 ml-auto">
-          {steps.length} steps
-        </span>
+        <span className="text-xs font-medium text-amber-800 truncate">{section.title}</span>
+        <span className="text-xs text-amber-600 shrink-0 ml-auto">{steps.length} steps</span>
       </button>
       {open && (
         <div className="px-4 pb-3 space-y-1">
@@ -676,11 +820,7 @@ function SectionSteps({ section }: { section: ActionSection }) {
   );
 }
 
-function StepRow({
-  step,
-}: {
-  step: { step: number; label: string; detail?: string };
-}) {
+function StepRow({ step }: { step: { step: number; label: string; detail?: string } }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -688,35 +828,28 @@ function StepRow({
       <button
         onClick={() => step.detail && setExpanded(!expanded)}
         className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs ${
-          step.detail
-            ? "hover:bg-amber-50/50 cursor-pointer"
-            : "cursor-default"
+          step.detail ? "hover:bg-amber-50/50 cursor-pointer" : "cursor-default"
         }`}
       >
-        <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+        <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-semibold shrink-0">
           {step.step}
         </span>
         <span className="text-ink flex-1">{step.label}</span>
         {step.detail && (
-          expanded ? (
-            <ChevronDown className="w-3 h-3 text-amber-400 shrink-0" />
-          ) : (
-            <ChevronRight className="w-3 h-3 text-amber-400 shrink-0" />
-          )
+          expanded
+            ? <ChevronDown className="w-3 h-3 text-amber-400 shrink-0" />
+            : <ChevronRight className="w-3 h-3 text-amber-400 shrink-0" />
         )}
       </button>
       {expanded && step.detail && (
         <div className="px-2.5 pb-2 pl-[38px]">
-          <p className="text-[11px] text-ink-2 leading-relaxed whitespace-pre-wrap">
-            {step.detail}
-          </p>
+          <p className="text-[11px] text-ink-2 leading-relaxed whitespace-pre-wrap">{step.detail}</p>
         </div>
       )}
     </div>
   );
 }
 
-// -- Warnings: always visible amber bullets
 function SectionWarnings({ section }: { section: ActionSection }) {
   const items = section.items ?? [];
   if (items.length === 0) return null;
@@ -725,9 +858,7 @@ function SectionWarnings({ section }: { section: ActionSection }) {
     <div className="px-4 py-2.5 border-t border-amber-200">
       <div className="flex items-center gap-1.5 mb-1.5">
         <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-        <span className="text-xs font-medium text-amber-800">
-          {section.title}
-        </span>
+        <span className="text-xs font-medium text-amber-800">{section.title}</span>
       </div>
       <ul className="space-y-1">
         {items.map((item, i) => (
@@ -741,14 +872,7 @@ function SectionWarnings({ section }: { section: ActionSection }) {
   );
 }
 
-// -- Reference: collapsible key-value pairs
-function CollapsibleReferenceEntries({
-  title,
-  entries,
-}: {
-  title: string;
-  entries: Record<string, unknown>;
-}) {
+function CollapsibleReferenceEntries({ title, entries }: { title: string; entries: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
   const keys = Object.keys(entries);
   if (keys.length === 0) return null;
@@ -759,30 +883,20 @@ function CollapsibleReferenceEntries({
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-amber-100/50 transition-colors"
       >
-        {open ? (
-          <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" />
-        ) : (
-          <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />
-        )}
+        {open ? <ChevronDown className="w-3 h-3 text-amber-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-amber-500 shrink-0" />}
         <ExternalLink className="w-3 h-3 text-amber-600 shrink-0" />
         <span className="text-xs font-medium text-amber-700">{title}</span>
-        <span className="text-[10px] text-amber-600 shrink-0 ml-auto">
-          {keys.length} items
-        </span>
+        <span className="text-xs text-amber-600 shrink-0 ml-auto">{keys.length} items</span>
       </button>
       {open && (
         <div className="px-4 pb-3 space-y-1.5">
           {Object.entries(entries).map(([key, val]) => (
             <div key={key} className="flex items-start gap-2 text-xs">
-              <span className="font-mono text-amber-700 shrink-0 font-medium">
-                {key}:
-              </span>
+              <span className="font-mono text-amber-700 shrink-0 font-medium">{key}:</span>
               <span className="font-mono text-ink break-all flex-1">
                 {typeof val === "string" ? val : JSON.stringify(val)}
               </span>
-              <SmallCopyButton
-                text={typeof val === "string" ? val : JSON.stringify(val)}
-              />
+              <SmallCopyButton text={typeof val === "string" ? val : JSON.stringify(val)} />
             </div>
           ))}
         </div>
@@ -791,15 +905,11 @@ function CollapsibleReferenceEntries({
   );
 }
 
-// -- Detail dialog (for column detail, long content)
 function DetailDialog({ title, detail }: { title: string; detail: string }) {
   return (
     <Dialog.Root>
       <Dialog.Trigger asChild>
-        <button
-          className="p-0.5 rounded hover:bg-amber-100 transition-colors"
-          title="View detail"
-        >
+        <button className="p-0.5 rounded hover:bg-amber-100 transition-colors" title="View detail">
           <ExternalLink className="w-3 h-3 text-amber-500" />
         </button>
       </Dialog.Trigger>
@@ -807,9 +917,7 @@ function DetailDialog({ title, detail }: { title: string; detail: string }) {
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[90vw] max-w-lg max-h-[80vh] bg-white rounded-xl shadow-xl border border-amber-200 overflow-hidden flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100 bg-amber-50">
-            <Dialog.Title className="text-sm font-semibold text-amber-800">
-              {title}
-            </Dialog.Title>
+            <Dialog.Title className="text-sm font-semibold text-amber-800">{title}</Dialog.Title>
             <Dialog.Close asChild>
               <button className="p-1 rounded hover:bg-amber-100 transition-colors">
                 <X className="w-4 h-4 text-amber-600" />
@@ -817,9 +925,7 @@ function DetailDialog({ title, detail }: { title: string; detail: string }) {
             </Dialog.Close>
           </div>
           <div className="p-4 overflow-y-auto flex-1">
-            <pre className="text-xs font-mono text-ink-2 whitespace-pre-wrap break-words leading-relaxed">
-              {detail}
-            </pre>
+            <pre className="text-xs font-mono text-ink-2 whitespace-pre-wrap break-words leading-relaxed">{detail}</pre>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -830,46 +936,16 @@ function DetailDialog({ title, detail }: { title: string; detail: string }) {
 // ── Orchestrator Step Card ───────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string; bg: string; border: string }> = {
-  passed: {
-    icon: <CircleCheck className="w-3 h-3" />,
-    label: "Passed",
-    color: "text-emerald-700",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-  },
-  failed: {
-    icon: <CircleX className="w-3 h-3" />,
-    label: "Failed",
-    color: "text-red-700",
-    bg: "bg-red-50",
-    border: "border-red-200",
-  },
-  awaiting_reply: {
-    icon: <Clock className="w-3 h-3" />,
-    label: "Awaiting Reply",
-    color: "text-amber-700",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
-  },
-  running: {
-    icon: <Loader2 className="w-3 h-3 animate-spin" />,
-    label: "Running",
-    color: "text-blue-700",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-  },
+  passed: { icon: <CircleCheck className="w-3 h-3" />, label: "Passed", color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" },
+  failed: { icon: <CircleX className="w-3 h-3" />, label: "Failed", color: "text-red-700", bg: "bg-red-50", border: "border-red-200" },
+  awaiting_reply: { icon: <Clock className="w-3 h-3" />, label: "Awaiting Reply", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" },
+  running: { icon: <Loader2 className="w-3 h-3 animate-spin" />, label: "Running", color: "text-blue-700", bg: "bg-blue-50", border: "border-blue-200" },
 };
 
 function parseStepResult(content: string, meta: Record<string, unknown> | null): {
-  agentSlug: string;
-  status: string;
-  durationMs: number | null;
-  summary: string;
-  error: string | null;
-  rawJson: string | null;
+  agentSlug: string; status: string; durationMs: number | null; summary: string; error: string | null; rawJson: string | null;
 } {
   const rawOutput = meta?.raw_output as Record<string, unknown> | undefined;
-
   if (rawOutput) {
     return {
       agentSlug: (rawOutput.agent_slug as string) ?? (meta?.agent_slug as string) ?? "agent",
@@ -880,8 +956,6 @@ function parseStepResult(content: string, meta: Record<string, unknown> | null):
       rawJson: JSON.stringify(rawOutput, null, 2),
     };
   }
-
-  // Legacy: parse from content (old messages without structured metadata)
   try {
     const parsed = JSON.parse(content.replace(/^Step \d+ \([^)]+\) completed with status: \w+\.\s*\n*Result:\n?/, ""));
     return {
@@ -893,7 +967,6 @@ function parseStepResult(content: string, meta: Record<string, unknown> | null):
       rawJson: JSON.stringify(parsed, null, 2),
     };
   } catch {
-    // Fallback: try to extract from the "Step N (slug) completed..." format
     const headerMatch = content.match(/^Step \d+ \(([^)]+)\) completed with status: (\w+)/);
     const jsonStart = content.indexOf("{");
     let rawJson: string | null = null;
@@ -917,67 +990,48 @@ function OrchestratorStepCard({ entry }: { entry: StreamEntry }) {
   const [expanded, setExpanded] = useState(false);
   const content = entry.content ?? "";
   const meta = entry.metadata as Record<string, unknown> | null;
-
   const { agentSlug, status, durationMs, summary, error, rawJson } = parseStepResult(content, meta);
   const config = STATUS_CONFIG[status] ?? {
-    icon: <FileText className="w-3 h-3" />,
-    label: status,
-    color: "text-ink-2",
-    bg: "bg-surface",
-    border: "border-rim",
+    icon: <FileText className="w-3 h-3" />, label: status, color: "text-ink-2", bg: "bg-surface", border: "border-rim",
   };
-
   const durationLabel = durationMs != null
-    ? durationMs >= 60000
-      ? `${(durationMs / 60000).toFixed(1)}m`
-      : `${(durationMs / 1000).toFixed(1)}s`
+    ? durationMs >= 60000 ? `${(durationMs / 60000).toFixed(1)}m` : `${(durationMs / 1000).toFixed(1)}s`
     : null;
 
   return (
-    <div className="mx-4 my-1.5">
+    <div className="mx-4 my-1.5 animate-fade-in-up">
       <div className={`rounded-lg border ${config.border} ${config.bg} overflow-hidden`}>
         <button
           onClick={() => setExpanded(!expanded)}
           className="w-full flex items-center gap-2 px-3 py-2 text-left hover:opacity-80 transition-opacity"
         >
           <span className={`shrink-0 ${config.color}`}>{config.icon}</span>
-          <span className="text-xs font-semibold text-ink truncate">
-            {agentSlug.replace(/_/g, " ")}
-          </span>
-          <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${config.bg} ${config.color} border ${config.border}`}>
+          <span className="text-xs font-semibold text-ink truncate">{agentSlug.replace(/_/g, " ")}</span>
+          <span className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full ${config.bg} ${config.color} border ${config.border}`}>
             {config.label}
           </span>
-          {durationLabel && (
-            <span className="text-[10px] text-ink-3 tabular-nums">{durationLabel}</span>
-          )}
+          {durationLabel && <span className="text-xs text-ink-3 tabular-nums">{durationLabel}</span>}
           <span className="ml-auto shrink-0">
-            {expanded ? (
-              <ChevronDown className="w-3 h-3 text-ink-3" />
-            ) : (
-              <ChevronRight className="w-3 h-3 text-ink-3" />
-            )}
+            {expanded ? <ChevronDown className="w-3 h-3 text-ink-3" /> : <ChevronRight className="w-3 h-3 text-ink-3" />}
           </span>
         </button>
-
         {summary && (
           <div className="px-3 pb-2 -mt-0.5">
             <p className="text-[11px] text-ink-2 leading-relaxed line-clamp-2">{summary}</p>
           </div>
         )}
-
         {error && (
           <div className="px-3 pb-2">
             <p className="text-[11px] text-red-600 leading-relaxed line-clamp-2">{error}</p>
           </div>
         )}
-
         {expanded && rawJson && (
           <div className="border-t border-inherit px-3 py-2">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">Raw Output</span>
+              <span className="text-xs font-medium text-ink-3 uppercase tracking-wider">Raw Output</span>
               <SmallCopyButton text={rawJson} />
             </div>
-            <pre className="text-[10px] font-mono text-ink-2 whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto leading-relaxed">
+            <pre className="text-xs font-mono text-ink-2 whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto leading-relaxed">
               {rawJson}
             </pre>
           </div>
@@ -990,34 +1044,18 @@ function OrchestratorStepCard({ entry }: { entry: StreamEntry }) {
 // ── Synthesis Message ────────────────────────────────────────────────────────
 
 function parseSynthesisContent(content: string, meta: Record<string, unknown> | null): {
-  summary: string;
-  rawJson: string | null;
+  summary: string; rawJson: string | null;
 } {
   const metaSummary = meta?.summary as string | undefined;
   const metaRawOutput = meta?.raw_output;
-
   if (metaSummary) {
-    return {
-      summary: metaSummary,
-      rawJson: metaRawOutput ? JSON.stringify(metaRawOutput, null, 2) : content,
-    };
+    return { summary: metaSummary, rawJson: metaRawOutput ? JSON.stringify(metaRawOutput, null, 2) : content };
   }
-
-  // Legacy: try to parse the content as JSON to extract summary
-  const cleaned = content.trim()
-    .replace(/^```json\s*/, "")
-    .replace(/^```\s*/, "")
-    .replace(/\s*```$/, "")
-    .trim();
-
+  const cleaned = content.trim().replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
   try {
     const parsed = JSON.parse(cleaned);
-    return {
-      summary: parsed.summary ?? "Plan execution complete.",
-      rawJson: JSON.stringify(parsed, null, 2),
-    };
+    return { summary: parsed.summary ?? "Plan execution complete.", rawJson: JSON.stringify(parsed, null, 2) };
   } catch {
-    // Not JSON - treat as markdown summary directly
     return { summary: content, rawJson: null };
   }
 }
@@ -1026,11 +1064,10 @@ function SynthesisMessage({ entry }: { entry: StreamEntry }) {
   const [showRaw, setShowRaw] = useState(false);
   const content = entry.content ?? "";
   const meta = entry.metadata as Record<string, unknown> | null;
-
   const { summary, rawJson } = parseSynthesisContent(content, meta);
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-3 animate-fade-in-up">
       <div className="flex items-center gap-1.5 mb-1.5">
         <Bot className="w-3.5 h-3.5 text-ink-2 shrink-0" />
         <span className="text-xs font-semibold text-ink-2">Plan Summary</span>
@@ -1038,27 +1075,22 @@ function SynthesisMessage({ entry }: { entry: StreamEntry }) {
       <div className="text-[13px] text-ink leading-relaxed prose prose-sm max-w-none prose-pre:bg-surface prose-pre:border prose-pre:border-rim prose-pre:rounded-lg prose-pre:p-3 prose-pre:text-xs prose-pre:text-ink-2 prose-code:text-[12px] prose-code:bg-surface prose-code:text-ink-2 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-headings:text-ink prose-headings:font-semibold prose-p:my-2 prose-li:my-0.5 prose-a:text-brand prose-a:no-underline hover:prose-a:underline">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
       </div>
-
       {rawJson && (
         <div className="mt-2">
           <button
             onClick={() => setShowRaw(!showRaw)}
             className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
           >
-            {showRaw ? (
-              <ChevronDown className="w-3 h-3 shrink-0" />
-            ) : (
-              <ChevronRight className="w-3 h-3 shrink-0" />
-            )}
+            {showRaw ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
             <span>View full output</span>
           </button>
           {showRaw && (
             <div className="mt-1.5 bg-surface border border-rim rounded-lg p-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">Full JSON</span>
+                <span className="text-xs font-medium text-ink-3 uppercase tracking-wider">Full JSON</span>
                 <SmallCopyButton text={rawJson} />
               </div>
-              <pre className="text-[10px] font-mono text-ink-2 whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto leading-relaxed">
+              <pre className="text-xs font-mono text-ink-2 whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto leading-relaxed">
                 {rawJson}
               </pre>
             </div>
@@ -1081,16 +1113,10 @@ function SmallCopyButton({ text }: { text: string }) {
   }, [text]);
 
   return (
-    <button
-      onClick={handleCopy}
-      className="p-0.5 rounded hover:bg-surface transition-colors"
-      title="Copy"
-    >
-      {copied ? (
-        <Check className="w-3 h-3 text-green-500" />
-      ) : (
-        <Copy className="w-3 h-3 text-ink-3" />
-      )}
+    <button onClick={handleCopy} className="p-0.5 rounded hover:bg-surface transition-colors" title="Copy">
+      {copied
+        ? <Check className="w-3 h-3 text-green-500" />
+        : <Copy className="w-3 h-3 text-ink-3" />}
     </button>
   );
 }

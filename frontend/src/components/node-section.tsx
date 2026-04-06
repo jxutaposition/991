@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, MessageSquare, Pencil, Save, Sparkles, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Hand, MessageSquare, Pencil, Save, Sparkles, X } from "lucide-react";
 import type { ExecutionNode } from "@/components/execution-canvas";
 import { IssueCard, type NodeIssue } from "@/components/issue-card";
 import { InlineChatInput } from "@/components/inline-chat-input";
@@ -29,6 +29,9 @@ export interface NodeDescription {
     tradeoffs?: string;
     recommendation?: string;
   }>;
+  agent_actions?: string[];
+  user_actions?: string[];
+  validation_hints?: Array<{ type: string; description: string }>;
   visual_refs?: Array<{ type: string; url: string; caption?: string }>;
   prior_artifacts?: Array<{ title: string; reference?: string }>;
 }
@@ -95,6 +98,10 @@ export function NodeSection({
   const descSpec = desc.technical_spec;
   const descIO = desc.io_contract;
   const descOpts: Array<{ decision: string; tradeoffs?: string; recommendation?: string }> = desc.optionality ?? [];
+  const agentActions: string[] = desc.agent_actions ?? [];
+  const userActions: string[] = desc.user_actions ?? [];
+  const validationHints: Array<{ type: string; description: string }> = desc.validation_hints ?? [];
+  const isManualMode = node.execution_mode === "manual";
 
   const renderAiEditUI = (sectionPath: string) => {
     if (diffData && diffData.sectionPath === sectionPath) {
@@ -163,22 +170,32 @@ export function NodeSection({
           {displayName}
         </span>
 
-        <span className="text-[10px] font-mono text-ink-3 shrink-0">
+        <span className="text-xs font-mono text-ink-3 shrink-0">
           {node.agent_slug}
         </span>
 
-        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.bg} ${badge.text}`}>
+        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${badge.bg} ${badge.text}`}>
           {badge.label}
         </span>
 
+        {node.execution_mode === "manual" ? (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-50 text-amber-700 flex items-center gap-0.5">
+            <Hand className="w-2.5 h-2.5" /> Manual
+          </span>
+        ) : node.execution_mode != null ? (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-600 flex items-center gap-0.5">
+            <Bot className="w-2.5 h-2.5" /> Agent
+          </span>
+        ) : null}
+
         {node.judge_score != null && (
-          <span className="text-[10px] font-mono text-ink-3">
+          <span className="text-xs font-mono text-ink-3">
             {node.judge_score.toFixed(1)}/10
           </span>
         )}
 
         {openIssues.length > 0 ? (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium">
             {openIssues.length} issue{openIssues.length > 1 ? "s" : ""}
           </span>
         ) : null}
@@ -190,7 +207,7 @@ export function NodeSection({
           {/* Task Description */}
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
                 Task
               </span>
               {isEditable && !editingTask && (
@@ -242,7 +259,7 @@ export function NodeSection({
               {(descArch.connections ?? []).length > 0 ? (
                 <div className="flex gap-1 mt-1.5 flex-wrap">
                   {(descArch.connections ?? []).map((c) => (
-                    <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200">
+                    <span key={c} className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200">
                       {c}
                     </span>
                   ))}
@@ -261,7 +278,7 @@ export function NodeSection({
               {(descSpec.tools ?? []).length > 0 ? (
                 <div className="flex gap-1 mt-1.5 flex-wrap">
                   {(descSpec.tools ?? []).map((t) => (
-                    <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 font-mono">
+                    <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 font-mono">
                       {t}
                     </span>
                   ))}
@@ -278,7 +295,7 @@ export function NodeSection({
             <DescSection title="I/O Contract" sectionPath="io_contract" onComment={onCommentCreate ? (sp) => onCommentCreate(node.id, sp) : undefined} onAiEditClick={onAiEdit ? () => setAiEditSection("io_contract") : undefined}>
               {(descIO.inputs ?? []).length > 0 ? (
                 <div className="mb-2">
-                  <span className="text-[10px] font-medium text-ink-3">Inputs:</span>
+                  <span className="text-xs font-medium text-ink-3">Inputs:</span>
                   {(descIO.inputs ?? []).map((inp, i) => (
                     <div key={i} className="text-xs font-mono text-ink-2 ml-2">
                       &larr; {inp.name}{inp.source ? ` (from ${inp.source})` : ""}
@@ -288,7 +305,7 @@ export function NodeSection({
               ) : null}
               {(descIO.outputs ?? []).length > 0 ? (
                 <div>
-                  <span className="text-[10px] font-medium text-ink-3">Outputs:</span>
+                  <span className="text-xs font-medium text-ink-3">Outputs:</span>
                   {(descIO.outputs ?? []).map((out, i) => (
                     <div key={i} className="text-xs font-mono text-ink-2 ml-2">
                       &rarr; {out.name}
@@ -311,7 +328,7 @@ export function NodeSection({
                     <span className="font-medium text-ink">{opt.decision}</span>
                     {opt.tradeoffs ? <span className="text-ink-3"> &mdash; {opt.tradeoffs}</span> : null}
                     {opt.recommendation ? (
-                      <span className="ml-1 text-[10px] px-1 py-0.5 bg-green-50 text-green-600 rounded">
+                      <span className="ml-1 text-xs px-1 py-0.5 bg-green-50 text-green-600 rounded">
                         rec: {opt.recommendation}
                       </span>
                     ) : null}
@@ -321,6 +338,48 @@ export function NodeSection({
             </DescSection>
             {renderAiEditUI("optionality")}
             </>
+          ) : null}
+
+          {/* Agent Actions */}
+          {agentActions.length > 0 ? (
+            <DescSection title="Agent Will Do">
+              <div className="space-y-1">
+                {agentActions.map((action, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs">
+                    <Bot className={`w-3 h-3 mt-0.5 shrink-0 ${isManualMode ? "text-ink-3" : "text-blue-500"}`} />
+                    <span className={isManualMode ? "text-ink-3" : "text-ink"}>{action}</span>
+                  </div>
+                ))}
+              </div>
+            </DescSection>
+          ) : null}
+
+          {/* User Actions */}
+          {userActions.length > 0 ? (
+            <DescSection title="You'll Need To">
+              <div className={`space-y-1 ${isManualMode ? "bg-amber-50/50 -mx-1 px-1 py-1 rounded" : ""}`}>
+                {userActions.map((action, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs">
+                    <Hand className={`w-3 h-3 mt-0.5 shrink-0 ${isManualMode ? "text-amber-600" : "text-ink-3"}`} />
+                    <span className={isManualMode ? "text-amber-800" : "text-ink-2"}>{action}</span>
+                  </div>
+                ))}
+              </div>
+            </DescSection>
+          ) : null}
+
+          {/* Validation Hints */}
+          {validationHints.length > 0 ? (
+            <DescSection title="Verification">
+              <div className="space-y-1">
+                {validationHints.map((hint, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs">
+                    <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-ink-3 font-mono shrink-0">{hint.type}</span>
+                    <span className="text-ink-2">{hint.description}</span>
+                  </div>
+                ))}
+              </div>
+            </DescSection>
           ) : null}
 
           {/* Acceptance Criteria */}
@@ -368,7 +427,7 @@ export function NodeSection({
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-xs text-brand hover:underline"
                   >
-                    <span className="text-[10px] px-1 py-0.5 bg-gray-100 rounded font-mono">{a.type}</span>
+                    <span className="text-xs px-1 py-0.5 bg-gray-100 rounded font-mono">{a.type}</span>
                     {a.title}
                   </a>
                 ))}
@@ -379,7 +438,7 @@ export function NodeSection({
           {/* Live preview during execution */}
           {node.status === "running" && livePreview && (
             <div className="bg-blue-50/50 border border-blue-100 rounded px-3 py-2">
-              <span className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-blue-500 uppercase tracking-wider">
                 Live
               </span>
               <p className="text-xs text-blue-700 font-mono mt-1 whitespace-pre-wrap">
@@ -392,7 +451,7 @@ export function NodeSection({
           {/* Output summary (post-execution) */}
           {node.status === "passed" && node.output != null ? (
             <DescSection title="Output">
-              <pre className="text-[10px] font-mono text-ink-2 bg-gray-50 rounded p-2 overflow-x-auto max-h-40">
+              <pre className="text-xs font-mono text-ink-2 bg-gray-50 rounded p-2 overflow-x-auto max-h-40">
                 {typeof node.output === "string"
                   ? node.output
                   : JSON.stringify(node.output, null, 2).slice(0, 1000)}
@@ -415,7 +474,7 @@ function DescSection({ title, children, sectionPath, onComment, onAiEditClick }:
   return (
     <div className="group/desc">
       <div className="flex items-center gap-1.5">
-        <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+        <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
           {title}
         </span>
         {onAiEditClick && (

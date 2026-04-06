@@ -70,37 +70,50 @@ async fn cluster_signals(
     "#;
 
     let groups = db.execute(groups_sql).await?;
+    if groups.is_empty() {
+        return Ok(0);
+    }
+
+    // Load all unresolved signals in a single query, then group in memory (avoids N+1).
+    let all_signals_sql = r#"
+        SELECT id, description, session_id, agent_slug, signal_type, weight, created_at
+        FROM feedback_signals
+        WHERE resolution IS NULL
+        ORDER BY weight DESC, created_at
+    "#;
+    let all_signals = db.execute(all_signals_sql).await?;
+
+    // Group by (agent_slug, signal_type) in memory
+    let mut signal_groups: std::collections::HashMap<(String, String), Vec<Value>> =
+        std::collections::HashMap::new();
+    for signal in all_signals {
+        let slug = signal.get("agent_slug").and_then(Value::as_str).unwrap_or("").to_string();
+        let stype = signal.get("signal_type").and_then(Value::as_str).unwrap_or("").to_string();
+        let group = signal_groups.entry((slug, stype)).or_default();
+        if group.len() < 20 {
+            group.push(signal);
+        }
+    }
+
     let mut total_deduped = 0;
 
-    for group in &groups {
-        let agent_slug = match group.get("agent_slug").and_then(Value::as_str) {
+    for group_row in &groups {
+        let agent_slug = match group_row.get("agent_slug").and_then(Value::as_str) {
             Some(s) => s,
             None => continue,
         };
-        let signal_type = match group.get("signal_type").and_then(Value::as_str) {
+        let signal_type = match group_row.get("signal_type").and_then(Value::as_str) {
             Some(s) => s,
             None => continue,
         };
 
-        let slug_escaped = agent_slug.replace('\'', "''");
-        let type_escaped = signal_type.replace('\'', "''");
+        let key = (agent_slug.to_string(), signal_type.to_string());
+        let signals = match signal_groups.get(&key) {
+            Some(s) if s.len() >= 2 => s,
+            _ => continue,
+        };
 
-        let signals_sql = format!(
-            r#"SELECT id, description, session_id
-               FROM feedback_signals
-               WHERE agent_slug = '{slug_escaped}'
-                 AND signal_type = '{type_escaped}'
-                 AND resolution IS NULL
-               ORDER BY weight DESC, created_at
-               LIMIT 20"#
-        );
-        let signals = db.execute(&signals_sql).await?;
-
-        if signals.len() < 2 {
-            continue;
-        }
-
-        let clusters = cluster_similar_signals(api_key, model, &signals).await?;
+        let clusters = cluster_similar_signals(api_key, model, signals).await?;
 
         for cluster in &clusters {
             if cluster.len() < 2 {
@@ -112,27 +125,31 @@ async fn cluster_signals(
                 None => continue,
             };
 
-            for dup in &cluster[1..] {
-                let dup_id = match dup.get("id").and_then(Value::as_str) {
-                    Some(s) => s,
-                    None => continue,
-                };
+            // Collect all duplicate IDs and batch-update in a single query
+            let dup_ids: Vec<&str> = cluster[1..]
+                .iter()
+                .filter_map(|dup| dup.get("id").and_then(Value::as_str))
+                .collect();
 
-                let update_sql = format!(
-                    "UPDATE feedback_signals \
-                     SET resolution = 'deduped', canonical_signal_id = '{canonical_id}'::uuid \
-                     WHERE id = '{dup_id}'::uuid AND resolution IS NULL"
-                );
-                if db.execute(&update_sql).await.is_ok() {
-                    total_deduped += 1;
-                }
+            if dup_ids.is_empty() {
+                continue;
+            }
+
+            let dup_id_list: String = dup_ids.iter().map(|id| format!("'{id}'::uuid")).collect::<Vec<_>>().join(", ");
+            let batch_sql = format!(
+                "UPDATE feedback_signals \
+                 SET resolution = 'deduped', canonical_signal_id = '{canonical_id}'::uuid \
+                 WHERE id IN ({dup_id_list}) AND resolution IS NULL"
+            );
+            if let Ok(rows) = db.execute(&batch_sql).await {
+                total_deduped += rows.len().max(dup_ids.len());
             }
 
             info!(
                 agent = agent_slug,
                 signal_type,
                 canonical = canonical_id,
-                duplicates = cluster.len() - 1,
+                duplicates = dup_ids.len(),
                 "deduped signal cluster"
             );
         }
@@ -152,10 +169,11 @@ async fn cluster_similar_signals(
 
     let client = AnthropicClient::new(api_key.to_string(), model.to_string());
 
-    let mut items = String::new();
+    use std::fmt::Write;
+    let mut items = String::with_capacity(signals.len() * 80);
     for (i, s) in signals.iter().enumerate() {
         let desc = s.get("description").and_then(Value::as_str).unwrap_or("");
-        items.push_str(&format!("{}. {}\n", i, desc));
+        let _ = writeln!(items, "{}. {}", i, desc);
     }
 
     let system = "You group semantically duplicate feedback signals. Output JSON only.";
@@ -230,8 +248,34 @@ async fn detect_patterns(
     );
 
     let candidates = db.execute(&candidates_sql).await?;
-    let mut patterns_created = 0;
+    if candidates.is_empty() {
+        return Ok(0);
+    }
 
+    // Pre-load all active patterns in one query to avoid per-candidate existence checks (N+1).
+    let existing_patterns = db.execute(
+        "SELECT agent_slug, pattern_type FROM feedback_patterns WHERE status = 'active'"
+    ).await.unwrap_or_default();
+    let existing_set: std::collections::HashSet<(String, String)> = existing_patterns
+        .iter()
+        .filter_map(|row| {
+            let slug = row.get("agent_slug").and_then(Value::as_str)?.to_string();
+            let ptype = row.get("pattern_type").and_then(Value::as_str)?.to_string();
+            Some((slug, ptype))
+        })
+        .collect();
+
+    // Filter candidates that don't already have an active pattern, and prepare data
+    // for concurrent LLM summarization.
+    struct PatternCandidate {
+        agent_slug: String,
+        signal_type: String,
+        session_count: i32,
+        descriptions: String,
+        signal_ids: Vec<Uuid>,
+    }
+
+    let mut to_summarize: Vec<PatternCandidate> = Vec::new();
     for candidate in &candidates {
         let agent_slug = match candidate.get("agent_slug").and_then(Value::as_str) {
             Some(s) => s,
@@ -241,27 +285,15 @@ async fn detect_patterns(
             Some(s) => s,
             None => continue,
         };
+
+        if existing_set.contains(&(agent_slug.to_string(), signal_type.to_string())) {
+            continue;
+        }
+
         let session_count = candidate
             .get("session_count")
             .and_then(Value::as_i64)
             .unwrap_or(0) as i32;
-
-        let slug_escaped = agent_slug.replace('\'', "''");
-        let type_escaped = signal_type.replace('\'', "''");
-
-        let existing_sql = format!(
-            "SELECT 1 FROM feedback_patterns \
-             WHERE agent_slug = '{slug_escaped}' \
-             AND pattern_type = '{type_escaped}' \
-             AND status = 'active' \
-             LIMIT 1"
-        );
-        if let Ok(rows) = db.execute(&existing_sql).await {
-            if !rows.is_empty() {
-                continue;
-            }
-        }
-
         let descriptions = candidate
             .get("descriptions")
             .and_then(Value::as_array)
@@ -272,29 +304,45 @@ async fn detect_patterns(
                     .join("\n- ")
             })
             .unwrap_or_default();
+        let signal_ids = extract_signal_ids(candidate);
 
-        let description = summarize_pattern(
-            api_key,
-            model,
-            agent_slug,
-            signal_type,
-            &descriptions,
-        )
-        .await
-        .unwrap_or_else(|_| {
-            format!("Recurring {signal_type} pattern for agent {agent_slug}")
+        to_summarize.push(PatternCandidate {
+            agent_slug: agent_slug.to_string(),
+            signal_type: signal_type.to_string(),
+            session_count,
+            descriptions,
+            signal_ids,
+        });
+    }
+
+    if to_summarize.is_empty() {
+        return Ok(0);
+    }
+
+    // Fire all LLM summarization calls concurrently instead of sequentially.
+    let summary_futures: Vec<_> = to_summarize
+        .iter()
+        .map(|c| summarize_pattern(api_key, model, &c.agent_slug, &c.signal_type, &c.descriptions))
+        .collect();
+    let summaries = futures_util::future::join_all(summary_futures).await;
+
+    let mut patterns_created = 0;
+
+    for (candidate, summary_result) in to_summarize.iter().zip(summaries.into_iter()) {
+        let description = summary_result.unwrap_or_else(|_| {
+            format!("Recurring {} pattern for agent {}", candidate.signal_type, candidate.agent_slug)
         });
 
-        let signal_ids = extract_signal_ids(candidate);
-        let signal_ids_sql = format_uuid_array(&signal_ids);
-
-        let severity = match session_count {
+        let signal_ids_sql = format_uuid_array(&candidate.signal_ids);
+        let severity = match candidate.session_count {
             n if n >= 10 => "critical",
             n if n >= 5 => "high",
             _ => "medium",
         };
 
         let pattern_id = Uuid::new_v4();
+        let slug_escaped = candidate.agent_slug.replace('\'', "''");
+        let type_escaped = candidate.signal_type.replace('\'', "''");
         let desc_escaped = description.replace('\'', "''");
 
         let insert_sql = format!(
@@ -303,7 +351,8 @@ async fn detect_patterns(
                  session_count, severity, status)
                VALUES
                 ('{pattern_id}', '{slug_escaped}', '{type_escaped}', '{desc_escaped}',
-                 {signal_ids_sql}, {session_count}, '{severity}', 'active')"#
+                 {signal_ids_sql}, {}, '{severity}', 'active')"#,
+            candidate.session_count,
         );
 
         match db.execute(&insert_sql).await {
@@ -311,15 +360,15 @@ async fn detect_patterns(
                 patterns_created += 1;
                 info!(
                     pattern = %pattern_id,
-                    agent = agent_slug,
-                    signal_type,
-                    session_count,
+                    agent = %candidate.agent_slug,
+                    signal_type = %candidate.signal_type,
+                    session_count = candidate.session_count,
                     severity,
                     "detected recurring failure pattern"
                 );
             }
             Err(e) => {
-                warn!(agent = agent_slug, signal_type, error = %e, "failed to insert pattern");
+                warn!(agent = %candidate.agent_slug, signal_type = %candidate.signal_type, error = %e, "failed to insert pattern");
             }
         }
     }

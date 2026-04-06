@@ -5,4 +5,5 @@ description = "Diagnoses Lovable dashboard issues via Supabase API, generates de
 intents = ["lovable", "lovable project", "fix dashboard", "dashboard data", "lovable app", "lovable bug", "lovable fix", "dashboard not showing"]
 max_iterations = 15
 skip_judge = false
+automation_mode = "guided"
 required_integrations = ["supabase"]

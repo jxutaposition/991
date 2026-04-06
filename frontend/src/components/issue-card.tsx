@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyRound, Wrench, HelpCircle, Globe, Bug, Check, X } from "lucide-react";
+import { ISSUE_STATUS_COLORS } from "@/lib/tokens";
 
 export interface NodeIssue {
   id: string;
@@ -23,11 +24,6 @@ const ISSUE_ICONS: Record<string, React.ElementType> = {
   technical: Bug,
 };
 
-const ISSUE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  open: { bg: "bg-red-50", border: "border-red-200", text: "text-red-700" },
-  resolved: { bg: "bg-green-50", border: "border-green-200", text: "text-green-700" },
-  dismissed: { bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-500" },
-};
 
 interface IssueCardProps {
   issue: NodeIssue;
@@ -37,7 +33,7 @@ interface IssueCardProps {
 
 export function IssueCard({ issue, onResolve, onDismiss }: IssueCardProps) {
   const Icon = ISSUE_ICONS[issue.issue_type] ?? Bug;
-  const colors = ISSUE_COLORS[issue.status] ?? ISSUE_COLORS.open;
+  const colors = ISSUE_STATUS_COLORS[issue.status] ?? ISSUE_STATUS_COLORS.open;
 
   return (
     <div className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${colors.bg} ${colors.border}`}>
@@ -47,7 +43,7 @@ export function IssueCard({ issue, onResolve, onDismiss }: IssueCardProps) {
           <span className={`text-xs font-medium ${colors.text}`}>
             {issue.issue_type}
           </span>
-          <span className="text-[10px] text-ink-3">
+          <span className="text-xs text-ink-3">
             via {issue.source}
           </span>
         </div>
@@ -62,6 +58,7 @@ export function IssueCard({ issue, onResolve, onDismiss }: IssueCardProps) {
               onClick={() => onResolve(issue.id)}
               className="p-1 rounded hover:bg-green-100 text-green-600"
               title="Resolve"
+              aria-label="Resolve issue"
             >
               <Check className="w-3 h-3" />
             </button>
@@ -71,6 +68,7 @@ export function IssueCard({ issue, onResolve, onDismiss }: IssueCardProps) {
               onClick={() => onDismiss(issue.id)}
               className="p-1 rounded hover:bg-gray-100 text-gray-400"
               title="Dismiss"
+              aria-label="Dismiss issue"
             >
               <X className="w-3 h-3" />
             </button>

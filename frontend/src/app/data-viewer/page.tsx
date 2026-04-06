@@ -174,7 +174,7 @@ export default function DataViewerPage() {
                 <span className="text-xs text-ink truncate flex-1 group-hover:text-brand">
                   {t.table_name}
                 </span>
-                <span className="text-[10px] text-ink-3 font-mono shrink-0">
+                <span className="text-xs text-ink-3 font-mono shrink-0">
                   {formatRowCount(t.row_count)}
                 </span>
               </button>
@@ -196,7 +196,7 @@ export default function DataViewerPage() {
               <Play className="w-3 h-3" />
               {queryLoading ? "Running..." : "Run"}
             </button>
-            <span className="text-[10px] text-ink-3">Ctrl+Enter</span>
+            <span className="text-xs text-ink-3">Ctrl+Enter</span>
             <div className="flex-1" />
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
@@ -210,7 +210,7 @@ export default function DataViewerPage() {
               {autoRefresh ? "Auto: ON (5s)" : "Auto: OFF"}
             </button>
             {lastRefresh && (
-              <span className="text-[10px] text-ink-3">
+              <span className="text-xs text-ink-3">
                 {lastRefresh.toLocaleTimeString()}
               </span>
             )}
@@ -245,13 +245,13 @@ export default function DataViewerPage() {
               <table className="w-full text-xs font-mono border-collapse">
                 <thead>
                   <tr className="sticky top-0 bg-surface z-10 border-b border-rim">
-                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-ink-3 uppercase tracking-wider w-8">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-ink-3 uppercase tracking-wider w-8">
                       #
                     </th>
                     {result.columns.map((col) => (
                       <th
                         key={col}
-                        className="px-3 py-2 text-left text-[10px] font-semibold text-ink-3 uppercase tracking-wider whitespace-nowrap"
+                        className="px-3 py-2 text-left text-xs font-semibold text-ink-3 uppercase tracking-wider whitespace-nowrap"
                       >
                         {col}
                       </th>
@@ -285,7 +285,7 @@ export default function DataViewerPage() {
                   ))}
                 </tbody>
               </table>
-              <div className="px-3 py-2 text-[10px] text-ink-3 border-t border-rim bg-surface sticky bottom-0">
+              <div className="px-3 py-2 text-xs text-ink-3 border-t border-rim bg-surface sticky bottom-0">
                 {result.row_count} row{result.row_count !== 1 ? "s" : ""} returned
               </div>
             </div>
@@ -303,7 +303,7 @@ export default function DataViewerPage() {
         {selectedCell && (
           <div className="border-t border-rim bg-page shrink-0 max-h-60 overflow-auto">
             <div className="flex items-center justify-between px-3 py-2 border-b border-rim">
-              <span className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
                 <ChevronRight className="w-3 h-3 inline mr-1" />
                 {selectedCell.col}
               </span>

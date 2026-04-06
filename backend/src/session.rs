@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
-use tracing::warn;
+use tracing::{trace, warn};
 
 const BROADCAST_CAPACITY: usize = 1024;
 
@@ -82,6 +82,7 @@ impl EventBus {
     /// Creates the channel lazily if it doesn't exist yet (e.g. after server restart).
     /// Returns false only if there are no active receivers.
     pub async fn send(&self, session_id: &str, event: serde_json::Value) -> bool {
+        trace!(session_id = %session_id, "event bus send");
         if let Some(tx) = self.channels.read().await.get(session_id) {
             return tx.send(event).is_ok();
         }
