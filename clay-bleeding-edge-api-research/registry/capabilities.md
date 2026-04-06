@@ -1,6 +1,6 @@
 # Clay Capability Matrix
 
-Last updated: 2026-04-06 (post workbook pipeline rebuild)
+Last updated: 2026-04-06 (post Session 11 — 68 endpoints, 11 investigation sessions)
 
 ## Legend
 
@@ -32,7 +32,7 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 | Create text columns | no | yes | **working** |
 | Create formula columns | no | yes | **working** |
 | Create action columns (enrichment) | no | **yes** | **working — confirmed via pipeline rebuild** |
-| Create action columns (route-row) | no | **yes** | **working — auto-creates source on target table** |
+| Create action columns (route-row) | no | **partial** | Observed in existing tables; API creation returned 400 in Session 10. Payload format TBD (TODO-038). |
 | Create source columns | no | yes (two-step or auto via route-row) | **working** |
 | Update/rename columns | no | yes (PATCH) | **working** |
 | Update formula text | no | yes (PATCH typeSettings.formulaText) | **working** |
@@ -76,7 +76,7 @@ Last updated: 2026-04-06 (post workbook pipeline rebuild)
 |---|---|---|---|
 | List enrichment actions | no | yes (1,191 actions, 170+ providers) | **working** |
 | Create enrichment column | no | **yes** (POST fields with actionKey + actionPackageId + inputsBinding) | **working — confirmed with real enrichments** |
-| Create route-row column | no | **yes** (actionKey: "route-row", supports list mode) | **working — confirmed with list routing** |
+| Create route-row column | no | **partial** (actionKey: "route-row") | Mechanics observed in existing columns; creation via API returned 400. Payload format needs investigation (TODO-038). |
 | Create action package | no | yes (`POST /v3/actions`) | **endpoint confirmed, definition format unknown** |
 | List connected auth accounts | no | **yes** (`GET /v3/app-accounts`) | **working (INV-010)** |
 | Read authAccountId | no | **yes** (id field from /v3/app-accounts) | **working (INV-010)** |

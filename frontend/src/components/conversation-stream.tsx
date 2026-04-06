@@ -143,6 +143,46 @@ function toolHasResult(entries: StreamEntry[], fromIdx: number): boolean {
   return false;
 }
 
+function isToolResultError(content: string | null | undefined): boolean {
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.error) return true;
+    if (parsed.status && parsed.status >= 400) return true;
+    if (parsed.error_type) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function toolResultIsError(entries: StreamEntry[], fromIdx: number): boolean {
+  const toolName = (entries[fromIdx].metadata as Record<string, unknown>)?.tool_name;
+  for (let i = fromIdx + 1; i < entries.length; i++) {
+    if (entries[i].sub_type === "tool_result" &&
+      (entries[i].metadata as Record<string, unknown>)?.tool_name === toolName) {
+      return isToolResultError(entries[i].content);
+    }
+  }
+  return false;
+}
+
+function formatToolError(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.error) return String(parsed.error);
+    if (parsed.status && parsed.status >= 400) {
+      const parts = [`HTTP ${parsed.status}`];
+      if (parsed.error_type) parts.push(parsed.error_type);
+      if (parsed.suggestion) parts.push(parsed.suggestion);
+      return parts.join(" — ");
+    }
+    return content.slice(0, 200);
+  } catch {
+    return content.slice(0, 200);
+  }
+}
+
 // ── Streaming Cursor ─────────────────────────────────────────────────────────
 
 function StreamingCursor() {
@@ -492,6 +532,7 @@ function ActionItem({
   let label = "";
   let icon: React.ReactNode = null;
   let isRunning = false;
+  let isError = false;
   let detail: string | null = null;
   let hasExpandable = false;
 
@@ -509,13 +550,47 @@ function ActionItem({
     label = humanizeToolName(toolName);
     icon = <Wrench className="w-3 h-3 text-cyan-500 shrink-0" />;
     isRunning = !toolHasResult(allEntries, index) && isLast;
+    isError = toolResultIsError(allEntries, index);
     const content = entry.content ?? "";
     if (content.length > 0) {
       detail = content;
       hasExpandable = true;
     }
   } else if (entry.sub_type === "tool_result") {
-    return null;
+    if (!isToolResultError(entry.content)) return null;
+    const toolName = (entry.metadata as Record<string, unknown>)?.tool_name as string || "tool";
+    const errorSummary = formatToolError(entry.content ?? "");
+    label = `${humanizeToolName(toolName)} failed`;
+    icon = <CircleX className="w-3 h-3 text-red-500 shrink-0" />;
+    detail = entry.content ?? "";
+    hasExpandable = true;
+    return (
+      <div className="animate-fade-in-up">
+        <button
+          onClick={() => setDetailOpen((v) => !v)}
+          className="flex items-center gap-2 py-1 px-2.5 w-full text-left rounded-md transition-colors hover:bg-surface cursor-pointer"
+        >
+          {icon}
+          <span className="text-xs text-red-500 flex-1 truncate">{label}</span>
+          {detailOpen
+            ? <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
+            : <ChevronRight className="w-3 h-3 text-ink-3 shrink-0" />}
+        </button>
+        {!detailOpen && (
+          <div className="ml-[42px] mr-2 mb-1">
+            <p className="text-[11px] text-red-400 font-mono truncate">{errorSummary}</p>
+          </div>
+        )}
+        {detailOpen && (
+          <div className="ml-[42px] mr-2 mb-1 bg-red-50 dark:bg-red-950/30 rounded-md p-2 max-h-[200px] overflow-y-auto border border-red-200 dark:border-red-800/40">
+            <pre className="text-[11px] font-mono text-red-600 dark:text-red-400 whitespace-pre-wrap break-all leading-relaxed">
+              {detail.slice(0, 2000)}
+              {detail.length > 2000 ? "..." : ""}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
   } else if (entry.stream_type === "event") {
     if (!isVisibleEvent(entry.sub_type)) return null;
     label = humanizeEventType(entry.sub_type);
@@ -535,6 +610,8 @@ function ActionItem({
         {/* Status icon */}
         {isRunning ? (
           <Loader2 className="w-3 h-3 text-brand animate-spin shrink-0" />
+        ) : isError ? (
+          <CircleX className="w-3 h-3 text-red-500 shrink-0" />
         ) : (
           <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0 animate-check-pop" />
         )}

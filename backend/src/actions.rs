@@ -1288,7 +1288,7 @@ async fn execute_action_inner(
                 .or_else(|| input.get("workspace_id").and_then(Value::as_u64))
                 .unwrap_or(0);
 
-            match name {
+            let clay_result = match name {
         "clay_get_table_schema" => {
             let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
             if table_id.is_empty() {
@@ -1978,7 +1978,20 @@ async fn execute_action_inner(
         }
 
         _ => json!({"error": format!("Unknown clay tool: {}", name)}).to_string(),
-            } // end inner match
+            }; // end inner match
+
+            // Inject resolved workspace_id into successful Clay responses so the LLM
+            // always has the correct ID in context (prevents hallucinated workspace IDs in artifacts).
+            if resolved_ws_id > 0 {
+                if let Ok(mut parsed) = serde_json::from_str::<Value>(&clay_result) {
+                    if parsed.get("error").is_none() {
+                        parsed["_workspace_id"] = json!(resolved_ws_id);
+                        parsed["_workspace_url_base"] = json!(format!("https://app.clay.com/workspaces/{}", resolved_ws_id));
+                        return parsed.to_string();
+                    }
+                }
+            }
+            clay_result
         } // end clay tools block
 
         "http_request" => {

@@ -461,9 +461,11 @@ impl ResponseAccumulator {
                             let json_str = &self.json_accumulators[*index];
                             let parsed = serde_json::from_str::<Value>(json_str).unwrap_or_else(|e| {
                                 tracing::warn!("Failed to parse tool_use input JSON: {e}");
-                                Value::Null
+                                json!({})
                             });
-                            self.content_blocks[*index]["input"] = parsed;
+                            // Anthropic requires tool_use input to be a dict, never null
+                            let safe = if parsed.is_object() { parsed } else { json!({}) };
+                            self.content_blocks[*index]["input"] = safe;
                         }
                         _ => {}
                     }

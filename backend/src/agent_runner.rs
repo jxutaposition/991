@@ -89,6 +89,69 @@ async fn emit_event(
     event_bus.send(session_id, event).await;
 }
 
+/// After a Clay creation tool completes, immediately persist an artifact link
+/// on the execution node so the frontend can show it while the agent is still running.
+async fn maybe_emit_early_artifact(
+    db: &PgClient,
+    event_bus: &EventBus,
+    session_id: &str,
+    node_id: &str,
+    tool_name: &str,
+    result: &str,
+) {
+    let is_create_table = tool_name == "clay_create_table";
+    let is_create_workbook = tool_name == "clay_create_workbook";
+    if !is_create_table && !is_create_workbook {
+        return;
+    }
+
+    let result_json: Value = match serde_json::from_str(result) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let data = match result_json.get("data") {
+        Some(d) if d.is_object() => d,
+        _ => return,
+    };
+
+    let resource_id = match data.get("id").and_then(Value::as_str) {
+        Some(id) if !id.is_empty() => id,
+        _ => return,
+    };
+
+    let ws_id = data.get("workspaceId").and_then(Value::as_u64).unwrap_or(0);
+    if ws_id == 0 {
+        return;
+    }
+
+    let name = data.get("name").and_then(Value::as_str).unwrap_or("Untitled");
+
+    let (artifact_type, url) = if is_create_workbook {
+        ("clay_workbook", format!("https://app.clay.com/workspaces/{}/workbooks/{}", ws_id, resource_id))
+    } else {
+        let wb_id = data.get("workbookId").and_then(Value::as_str).unwrap_or("");
+        if !wb_id.is_empty() {
+            ("clay_table", format!("https://app.clay.com/workspaces/{}/workbooks/{}/tables/{}", ws_id, wb_id, resource_id))
+        } else {
+            ("clay_table", format!("https://app.clay.com/workspaces/{}/tables/{}", ws_id, resource_id))
+        }
+    };
+
+    let artifact = json!({"type": artifact_type, "url": url, "title": name});
+
+    if let Ok(nid) = node_id.parse::<uuid::Uuid>() {
+        let _ = db.execute_with(
+            "UPDATE execution_nodes SET artifacts = COALESCE(artifacts, '[]'::jsonb) || $1::jsonb WHERE id = $2",
+            pg_args!(json!([artifact]), nid),
+        ).await;
+    }
+
+    emit_event(db, event_bus, session_id, node_id, "artifacts_updated", &json!({
+        "artifact": artifact,
+    })).await;
+}
+
 /// Forward a streaming delta from Anthropic to the EventBus as an SSE event.
 async fn forward_stream_delta(
     event_bus: &EventBus,
@@ -236,7 +299,7 @@ impl AgentRunner {
     }
 
     #[tracing::instrument(
-        skip(self, upstream_outputs),
+        skip(self, plan_node, upstream_outputs),
         fields(session_id = %plan_node.session_id, node_uid = %plan_node.uid, agent = %plan_node.agent_slug)
     )]
     pub async fn run(
@@ -952,10 +1015,12 @@ impl AgentRunner {
                 Ok(Ok(r)) => r,
                 Ok(Err(e)) => {
                     warn!(iteration, error = %e, "executor LLM call failed");
+                    last_llm_text = format!("[LLM call failed on iteration {}: {}]", iteration + 1, e);
                     break;
                 }
                 Err(e) => {
                     warn!(iteration, error = %e, "executor LLM task panicked");
+                    last_llm_text = format!("[LLM task panicked on iteration {}: {}]", iteration + 1, e);
                     break;
                 }
             };
@@ -1198,15 +1263,12 @@ impl AgentRunner {
                         tool_use_id.clone(),
                         json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string(),
                     ));
-                    messages.push(tool_results_message(&tool_results));
 
                     persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_result", &json!({"status": "paused"}).to_string(), &json!({
                         "tool_use_id": tool_use_id,
                         "tool_name": "request_user_action",
                     })).await;
 
-                    // Return with paused=true and action metadata in output
-                    // (output is set so the UI can display the action_title on the node)
                     final_output = Some(json!({
                         "action_title": action_title,
                         "paused_for_user_action": true,
@@ -1215,7 +1277,6 @@ impl AgentRunner {
                 }
 
                 if tool_name == "write_output" {
-                    // Agent is done — capture output and break
                     final_output = tool_input.get("result").cloned();
                     final_summary = tool_input
                         .get("summary")
@@ -1234,6 +1295,7 @@ impl AgentRunner {
                         }
                     }
 
+                    tool_results.push((tool_use_id.clone(), json!({"stored": true}).to_string()));
                     break;
                 }
 
@@ -1260,22 +1322,26 @@ impl AgentRunner {
                     "duration_ms": tool_duration_ms,
                 })).await;
 
-                // Persist tool result message
                 let result_preview: String = result.chars().take(2000).collect();
                 persist_message(&self.db, &self.event_bus, session_id, node_id, "tool_result", &result_preview, &json!({
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
                 })).await;
 
+                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
+
                 tool_results.push((tool_use_id.clone(), result));
+            }
+
+            // Always push accumulated tool_results before breaking so the
+            // saved conversation_state has valid tool_result messages for every
+            // tool_use — this prevents Anthropic API errors on resume.
+            if !tool_results.is_empty() {
+                messages.push(tool_results_message(&tool_results));
             }
 
             if final_output.is_some() {
                 break;
-            }
-
-            if !tool_results.is_empty() {
-                messages.push(tool_results_message(&tool_results));
             }
 
             // Truncate old messages to prevent context window overflow.
@@ -1318,7 +1384,7 @@ impl AgentRunner {
     }
 
     /// Judge: score the output 0-10 against the rubric + need_to_know and decide pass/fail/reject.
-    #[tracing::instrument(skip(self, question, narrative), fields(stage = "judge"))]
+    #[tracing::instrument(skip(self, question, narrative, judge_config), fields(stage = "judge"))]
     async fn judge_run(
         &self,
         question: &str,
@@ -1399,7 +1465,7 @@ impl AgentRunner {
     /// to spawn, the system iterates through the planned steps in order. The
     /// orchestrator LLM is used only to enrich each step with detailed context,
     /// acceptance criteria, and examples before execution.
-    #[tracing::instrument(skip(self, system_prompt, _credentials, preview_children), fields(session_id = %plan_node.session_id, node_uid = %plan_node.uid))]
+    #[tracing::instrument(skip(self, plan_node, system_prompt, _credentials, preview_children), fields(session_id = %plan_node.session_id, node_uid = %plan_node.uid))]
     async fn run_orchestrated_plan(
         &self,
         plan_node: &ExecutionPlanNode,
@@ -2192,7 +2258,7 @@ Respond with ONLY the JSON object:
 
     /// Run a child agent synchronously within the parent's executor loop.
     /// Creates a child ExecutionPlanNode, runs it, persists results, returns output.
-    #[tracing::instrument(skip(self, spawn_context, acceptance_criteria, spawn_examples), fields(parent_uid = %parent_node.uid, child_agent = %agent_slug))]
+    #[tracing::instrument(skip(self, parent_node, task_description, spawn_context, acceptance_criteria, spawn_examples), fields(parent_uid = %parent_node.uid, child_agent = %agent_slug))]
     pub async fn run_child(
         &self,
         parent_node: &ExecutionPlanNode,
@@ -2516,8 +2582,11 @@ Respond with ONLY the JSON object:
             .unwrap_or("")
             .to_string();
 
-        // Append user reply
-        messages.push(user_message(user_reply.to_string()));
+        // Append user reply — sanitize message history first so we don't send
+        // tool_use blocks without matching tool_results to the Anthropic API.
+        if !prepare_resume_messages(&mut messages, user_reply) {
+            messages.push(user_message(user_reply.to_string()));
+        }
         persist_message(&self.db, &self.event_bus, session_id, node_id, "user", user_reply, &json!({"source": "human_reply"})).await;
 
         // Emit event
@@ -2606,6 +2675,22 @@ Respond with ONLY the JSON object:
             model.to_string(),
         );
 
+        // Determine thinking budget using same logic as the executor
+        let thinking_budget = if self.settings.thinking_budget_tokens > 0
+            && (model.contains("sonnet") || model.contains("opus"))
+            && !model.contains("haiku")
+        {
+            Some(self.settings.thinking_budget_tokens)
+        } else {
+            None
+        };
+
+        // Strip thinking blocks from saved messages when thinking is not enabled,
+        // otherwise the Anthropic API rejects messages containing thinking content.
+        if thinking_budget.is_none() {
+            strip_thinking_blocks(&mut messages);
+        }
+
         let started_at = Instant::now();
         let mut final_output: Option<Value> = None;
         let mut final_summary = String::new();
@@ -2627,7 +2712,7 @@ Respond with ONLY the JSON object:
                 &tool_defs,
                 8192,
                 Some(model),
-                None, // resume_with_reply currently doesn't reload thinking budget
+                thinking_budget,
             );
             while let Some(event) = delta_rx.recv().await {
                 forward_stream_delta(&self.event_bus, session_id, node_id, iteration + 1, &event).await;
@@ -2715,6 +2800,17 @@ Respond with ONLY the JSON object:
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
+
+                    if let Some(artifacts) = tool_input.get("artifacts") {
+                        if let Some(ref mut output) = final_output {
+                            if let Some(obj) = output.as_object_mut() {
+                                obj.entry("artifacts").or_insert_with(|| artifacts.clone());
+                            }
+                        } else {
+                            final_output = Some(json!({"artifacts": artifacts}));
+                        }
+                    }
+
                     tool_results.push((tool_use_id.clone(), json!({"stored": true}).to_string()));
                     messages.push(tool_results_message(&tool_results));
                     break;
@@ -2752,6 +2848,8 @@ Respond with ONLY the JSON object:
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
                 })).await;
+
+                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
 
                 tool_results.push((tool_use_id.clone(), result));
             }
@@ -2986,6 +3084,126 @@ fn smart_truncate(text: &str, limit: usize) -> String {
     let mut out: String = selected.iter().map(|(_, l)| *l).collect::<Vec<_>>().join("\n");
     out.push_str("\n... (truncated)");
     out
+}
+
+/// Prepare a saved message history for resume by fixing Anthropic API invariants.
+///
+/// After a node completes (e.g. write_output) the saved conversation may end with
+/// an assistant message containing tool_use blocks that have no corresponding
+/// tool_result.  The Anthropic API rejects such sequences.
+///
+/// This function:
+///  1. Finds any tool_use IDs in the last assistant message that lack a tool_result.
+///  2. Generates synthetic tool_result blocks for them.
+///  3. Packs those results together with the user's reply text into a single user
+///     message so the API sees a valid alternating sequence.
+///  4. If the last message is already a user message with tool_results (e.g. from
+///     request_user_action), the reply text is merged into that message instead of
+///     creating a second consecutive user message.
+///
+/// Returns `true` if the user reply was already appended by this function.
+fn prepare_resume_messages(messages: &mut Vec<Value>, user_reply: &str) -> bool {
+    let pending = extract_pending_tool_use_ids(messages);
+
+    if !pending.is_empty() {
+        // Build a single user message: synthetic tool_results + user text
+        let mut blocks: Vec<Value> = pending
+            .iter()
+            .map(|id| {
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": "[Conversation resumed by user]"
+                })
+            })
+            .collect();
+        blocks.push(json!({"type": "text", "text": user_reply}));
+        messages.push(json!({"role": "user", "content": blocks}));
+        return true;
+    }
+
+    // If the last message is a user message with tool_results, merge the reply
+    // text into it to avoid two consecutive user messages.
+    if let Some(last) = messages.last_mut() {
+        if last.get("role").and_then(Value::as_str) == Some("user") {
+            if let Some(arr) = last.get_mut("content").and_then(Value::as_array_mut) {
+                let has_tool_results = arr
+                    .iter()
+                    .any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"));
+                if has_tool_results {
+                    arr.push(json!({"type": "text", "text": user_reply}));
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Remove thinking content blocks from assistant messages so the conversation
+/// can be sent to the API without extended thinking enabled.
+fn strip_thinking_blocks(messages: &mut [Value]) {
+    for msg in messages.iter_mut() {
+        if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        if let Some(blocks) = msg.get_mut("content").and_then(Value::as_array_mut) {
+            blocks.retain(|b| {
+                b.get("type").and_then(Value::as_str) != Some("thinking")
+            });
+        }
+    }
+}
+
+/// Extract tool_use IDs from the last assistant message that have no matching
+/// tool_result in any subsequent user message.
+fn extract_pending_tool_use_ids(messages: &[Value]) -> Vec<String> {
+    let mut last_assistant_idx = None;
+    for (i, msg) in messages.iter().enumerate().rev() {
+        if msg.get("role").and_then(Value::as_str) == Some("assistant") {
+            last_assistant_idx = Some(i);
+            break;
+        }
+    }
+
+    let Some(idx) = last_assistant_idx else {
+        return vec![];
+    };
+
+    let tool_use_ids: Vec<String> = messages[idx]
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+                .filter_map(|b| b.get("id").and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if tool_use_ids.is_empty() {
+        return vec![];
+    }
+
+    let mut satisfied: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for msg in &messages[idx + 1..] {
+        if let Some(content) = msg.get("content").and_then(Value::as_array) {
+            for block in content {
+                if block.get("type").and_then(Value::as_str) == Some("tool_result") {
+                    if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
+                        satisfied.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    tool_use_ids
+        .into_iter()
+        .filter(|id| !satisfied.contains(id))
+        .collect()
 }
 
 /// Truncate old messages to prevent context window overflow.

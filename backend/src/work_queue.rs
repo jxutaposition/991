@@ -110,7 +110,7 @@ pub fn spawn(
 }
 
 #[tracing::instrument(
-    skip(settings, db, catalog, skill_catalog, tool_catalog, event_bus),
+    skip(settings, db, catalog, skill_catalog, tool_catalog, event_bus, node),
     fields(session_id = %node.session_id, node_uid = %node.uid, agent = %node.agent_slug)
 )]
 async fn execute_node(

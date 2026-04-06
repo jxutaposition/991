@@ -294,11 +294,13 @@ pub async fn execution_sessions_list(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
     let sql = r#"
-        SELECT id, request_text, status, plan_approved_at, created_at, completed_at,
+        SELECT s.id, s.request_text, s.status, s.plan_approved_at, s.created_at, s.completed_at,
+               c.slug as client_slug,
                (SELECT COUNT(*) FROM execution_nodes WHERE session_id = s.id) as node_count,
                (SELECT COUNT(*) FILTER (WHERE status = 'passed') FROM execution_nodes WHERE session_id = s.id) as passed_count
         FROM execution_sessions s
-        ORDER BY created_at DESC
+        LEFT JOIN clients c ON c.id = s.client_id
+        ORDER BY s.created_at DESC
         LIMIT 50
     "#;
     let rows = state.db.execute(sql).await.unwrap_or_default();
@@ -2849,10 +2851,42 @@ pub async fn execution_node_reply(
         }))).into());
     }
 
-    // Mark node as running
+    // If this node is awaiting_reply because a child is, route the reply to
+    // the actual child that needs it. This happens when the user replies from
+    // the master orchestrator's conversation.
+    let (target_node_uuid, target_node_id) = if node_status == "awaiting_reply" {
+        let child_rows = state.db.execute_with(
+            "SELECT id FROM execution_nodes \
+             WHERE parent_uid = $1 AND session_id = $2 AND status = 'awaiting_reply' \
+               AND conversation_state IS NOT NULL \
+             ORDER BY created_at DESC LIMIT 1",
+            pg_args!(node_uuid, session_uuid),
+        ).await.unwrap_or_default();
+        if let Some(child_row) = child_rows.first() {
+            if let Some(child_id_str) = child_row.get("id").and_then(|v| v.as_str()) {
+                if let Ok(child_uuid) = child_id_str.parse::<Uuid>() {
+                    tracing::info!(
+                        parent = %node_id, child = %child_id_str,
+                        "routing reply from parent to awaiting child node"
+                    );
+                    (child_uuid, child_id_str.to_string())
+                } else {
+                    (node_uuid, node_id.clone())
+                }
+            } else {
+                (node_uuid, node_id.clone())
+            }
+        } else {
+            (node_uuid, node_id.clone())
+        }
+    } else {
+        (node_uuid, node_id.clone())
+    };
+
+    // Mark target node as running
     state.db.execute_with(
         "UPDATE execution_nodes SET status = 'running' WHERE id = $1 AND session_id = $2",
-        pg_args!(node_uuid, session_uuid),
+        pg_args!(target_node_uuid, session_uuid),
     ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
@@ -2862,7 +2896,7 @@ pub async fn execution_node_reply(
         &session_id,
         serde_json::json!({
             "type": "node_resumed",
-            "node_uid": node_id,
+            "node_uid": target_node_id,
         }),
     ).await;
 
@@ -2876,11 +2910,12 @@ pub async fn execution_node_reply(
         state.event_bus.clone(),
     );
     let sid = session_id.clone();
-    let nid = node_id.clone();
+    let target_nid = target_node_id.clone();
+    let parent_nid = node_id.clone();
     let reply_text = body.message.clone();
 
     tokio::spawn(async move {
-        let result = runner.resume_with_reply(&sid, &nid, &reply_text).await;
+        let result = runner.resume_with_reply(&sid, &target_nid, &reply_text).await;
 
         // Persist result
         let status = result.status.as_str().to_string();
@@ -2888,25 +2923,59 @@ pub async fn execution_node_reply(
             r#"UPDATE execution_nodes
                SET status = $1, output = COALESCE($2, output), completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
                WHERE id = $3 AND session_id = $4"#,
-            crate::pg_args!(status.clone(), result.output.clone(), node_uuid, session_uuid),
+            crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid),
         ).await;
 
-        // Broadcast completion
+        // Broadcast completion for the target node
         runner.event_bus().send(
             &sid,
             serde_json::json!({
                 "type": if result.status.is_terminal() { "node_completed" } else { "node_awaiting_reply" },
-                "node_uid": nid,
+                "node_uid": target_nid,
                 "status": status,
             }),
         ).await;
 
+        // If we routed to a child and it completed, update the parent orchestrator
+        if target_node_uuid != node_uuid && result.status.is_terminal() {
+            // Check if the parent still has other children awaiting reply
+            let remaining = runner.db().execute_with(
+                "SELECT COUNT(*) as cnt FROM execution_nodes \
+                 WHERE parent_uid = $1 AND session_id = $2 AND status = 'awaiting_reply'",
+                crate::pg_args!(node_uuid, session_uuid),
+            ).await.unwrap_or_default();
+            let still_awaiting = remaining.first()
+                .and_then(|r| r.get("cnt").and_then(serde_json::Value::as_i64))
+                .unwrap_or(0);
+
+            if still_awaiting == 0 {
+                // All children done — mark parent as passed
+                let parent_status = if result.status == crate::agent_catalog::NodeStatus::Passed {
+                    "passed"
+                } else {
+                    "failed"
+                };
+                let _ = runner.db().execute_with(
+                    "UPDATE execution_nodes SET status = $1, completed_at = NOW() WHERE id = $2 AND session_id = $3",
+                    crate::pg_args!(parent_status.to_string(), node_uuid, session_uuid),
+                ).await;
+                runner.event_bus().send(
+                    &sid,
+                    serde_json::json!({
+                        "type": "node_completed",
+                        "node_uid": parent_nid,
+                        "status": parent_status,
+                    }),
+                ).await;
+            }
+        }
+
         // Unblock downstream nodes or skip them on failure, then check session completion
         if result.status == crate::agent_catalog::NodeStatus::Passed {
-            let _ = crate::work_queue::unblock_downstream(runner.db(), &node_uuid, &session_uuid).await;
+            let _ = crate::work_queue::unblock_downstream(runner.db(), &target_node_uuid, &session_uuid).await;
             crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
         } else if result.status == crate::agent_catalog::NodeStatus::Failed {
-            let _ = crate::work_queue::skip_downstream(runner.db(), &node_uuid, &session_uuid).await;
+            let _ = crate::work_queue::skip_downstream(runner.db(), &target_node_uuid, &session_uuid).await;
             crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
         }
     });
@@ -2915,6 +2984,7 @@ pub async fn execution_node_reply(
         "ok": true,
         "status": "running",
         "message": "Reply sent, agent is processing...",
+        "target_node_id": target_node_id,
     })))
 }
 

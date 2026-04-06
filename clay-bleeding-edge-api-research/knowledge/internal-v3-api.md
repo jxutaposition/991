@@ -692,6 +692,44 @@ Per-field array of run entries with unix timestamp and unique run ID:
 
 Formulas auto-evaluate immediately on row insert and auto-re-evaluate when dependent cells are updated. No manual trigger is needed. `PATCH /v3/tables/{id}/run` with formula fieldIds also works if explicit re-evaluation is desired.
 
+**No formula validation**: Clay accepts ANY formula text at creation time — invalid field references, syntax errors, everything returns 200. Errors only surface at runtime. Agents must validate field references themselves.
+
+## autoRun Behavior (INV-023)
+
+Setting `tableSettings.autoRun: true` via `PATCH /v3/tables/{id}` causes enrichment columns to **automatically execute on newly inserted rows**. Verified: insert row via `POST /records` → 500ms later enrichment already shows `status: "SUCCESS"`. No manual `PATCH /run` needed.
+
+## Conditional Enrichment Execution (INV-023)
+
+Enrichment columns can include `conditionalRunFormulaText` in typeSettings:
+```json
+{"conditionalRunFormulaText": "{{f_scoreField}} > 50"}
+```
+
+Behavior:
+- Rows where condition is truthy → enrichment executes normally → `status: "SUCCESS"`
+- Rows where condition is falsy → enrichment skipped → `status: "ERROR_RUN_CONDITION_NOT_MET"`
+- The skip status `ERROR_RUN_CONDITION_NOT_MET` is distinct from actual errors
+
+Optional enrichment parameters work via `inputsBinding`:
+```json
+{"inputsBinding": [
+  {"name": "companyName", "formulaText": "{{f_input}}"},
+  {"name": "titleCase", "formulaText": "true"}
+]}
+```
+
+## tableSettings Merge Semantics (INV-023)
+
+`PATCH /v3/tables/{id}` with `tableSettings` uses **MERGE** (not replace):
+- New keys are added to existing settings
+- Setting a key to `null` stores null (does NOT delete the key)
+- System keys `autoRun` and `HAS_SCHEDULED_RUNS` always present
+- The object is schemaless — any key accepted
+
+## Table Duplication Field IDs (INV-023)
+
+`POST /v3/tables/{id}/duplicate` preserves **identical field IDs** between original and duplicate. Formulas, enrichment inputsBinding, and all field references remain valid in the clone. Duplication is a perfect template mechanism.
+
 ## Confirmed Non-Existent Endpoints
 
 These return 404 (NoMatchingURL) — definitively do not exist:

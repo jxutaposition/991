@@ -21,6 +21,23 @@ We are building a proprietary API layer by reverse-engineering Clay's internal v
 - **Harness scripts** (in `harness/scripts/`): Pre-built Playwright scripts for common operations
 - **Web search**: For finding new community tools, forum posts, documentation updates
 
+## CRITICAL: Credit Usage
+
+**Clay charges credits for enrichment execution. Do NOT waste credits in investigation scripts.**
+
+Read `exhaustively_searched/credit-usage-patterns.md` before writing any script. Key rules:
+- Table/column/row/view CRUD = FREE. Schema reads = FREE. Export jobs = FREE.
+- `PATCH /run` (enrichment trigger) = **COSTS CREDITS** (1+ per row × field)
+- `tableSettings.autoRun: true` + inserting rows = **COSTS CREDITS** per enrichment column
+- Creating enrichment columns on tables with existing rows = **MAY COST CREDITS**
+- Use 1-2 rows max when testing enrichments. Use `forceRun: false` to avoid re-running succeeded cells.
+
+## Formula Language
+
+Clay formulas are **JavaScript expressions**. All standard JS works: optional chaining (`?.`), ternary, arrow functions, `JSON.parse()`, RegExp, `.map()`, `.filter()`, `.join()`, `Math.*`, `parseInt()`. Clay-specific: `UPPER()`, `LOWER()`, `LEN()`, `DOMAIN()`, `Clay.formatForJSON()`. `typeof` does NOT work. All results coerced to strings.
+
+**Always validate field IDs** before creating formulas — Clay accepts invalid references at 200 (errors only surface at runtime).
+
 ## Your Workflow
 
 1. **Read the current state**: Check `registry/gaps.md` for prioritized open questions, `registry/capabilities.md` for what's already known

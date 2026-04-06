@@ -56,10 +56,10 @@ Things we **cannot** do programmatically today that block a fully autonomous Cla
 
 ## Score
 
-### Sessions 4-6 Combined
-- **Original TODOs (001-019)**: 18/19 resolved (95%). Only TODO-007 (WebSocket) remains.
-- **Session 5 TODOs (020-025)**: 4 resolved, 4 open
-- **Session 6 TODOs (026-031)**: 4 resolved, 2 open
-- **Total open**: 7 (TODO-007, 022, 023, 024, 025, 028, 029)
-- **Total resolved**: 24/31 (77%)
-- **Total registry endpoints**: 66
+### Sessions 4-9 Combined
+- **Total TODOs created**: 43
+- **Total resolved**: 35 (81%)
+- **Total open**: 8 (TODO-007, 022, 023, 024, 025, 028, 032, 038)
+- **Exhaustively searched**: 27 documented dead-ends + behavioral patterns
+- **Total registry endpoints**: 66+
+- **Investigation sessions**: 9

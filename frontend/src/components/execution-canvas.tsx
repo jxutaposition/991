@@ -434,7 +434,7 @@ function NodeBox({
       })()}
 
       {/* Artifact links */}
-      {(node.artifacts?.length ?? 0) > 0 && (status === "passed" || status === "failed") && !isVariantAlt && (
+      {(node.artifacts?.length ?? 0) > 0 && !isVariantAlt && (
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           {node.artifacts!.slice(0, 3).map((a, idx) => {
             const integrationSlug = a.type.split("_")[0];

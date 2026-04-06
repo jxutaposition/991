@@ -111,7 +111,7 @@ export type CatalogMap = Record<string, CatalogAgent>;
 export default function SessionPage() {
   const { session_id } = useParams();
   const router = useRouter();
-  const { activeClient, apiFetch, token } = useAuth();
+  const { activeClient, apiFetch, token, loading: _authLoading } = useAuth();
   const [session, setSession] = useState<ExecutionSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -251,11 +251,12 @@ export default function SessionPage() {
   }, [session, apiFetch]);
 
   useEffect(() => {
+    if (!token) return;
     fetchSession();
     fetchFailures();
     fetchIssues();
     fetchThreads();
-  }, [fetchSession, fetchFailures, fetchIssues, fetchThreads]);
+  }, [token, fetchSession, fetchFailures, fetchIssues, fetchThreads]);
 
   useEffect(() => {
     fetchProjectDescription();
@@ -267,6 +268,7 @@ export default function SessionPage() {
     if (!session || session.status !== "planning") return;
     const timer = setInterval(() => fetchSession(), 4000);
     return () => clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, fetchSession]);
 
   // Fetch credential status for agents in this session
@@ -278,10 +280,12 @@ export default function SessionPage() {
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setCredentialStatus(data); })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.nodes, activeClient, apiFetch]);
 
   // Fetch catalog for agent metadata (tools, category, description)
   useEffect(() => {
+    if (!token) return;
     apiFetch("/api/catalog")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -294,7 +298,7 @@ export default function SessionPage() {
         }
       })
       .catch(() => {});
-  }, [apiFetch]);
+  }, [token, apiFetch]);
 
   // Update a node field via PATCH (for pre-approval editing)
   const handleNodeUpdate = useCallback(
@@ -434,7 +438,7 @@ export default function SessionPage() {
         // Only re-fetch session/failures on meaningful state changes (not every delta)
         const isTerminalEvent = eventType === "node_completed" || eventType === "node_started"
           || eventType === "session_completed" || eventType === "node_resumed"
-          || eventType === "node_awaiting_reply";
+          || eventType === "node_awaiting_reply" || eventType === "artifacts_updated";
         if (isTerminalEvent) {
           fetchSession();
           fetchFailures();
@@ -549,6 +553,7 @@ export default function SessionPage() {
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session_id, token, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
 
   useEffect(() => {
@@ -558,15 +563,67 @@ export default function SessionPage() {
 
   const handleReply = useCallback(
     async (nodeId: string, message: string) => {
-      await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/reply`, {
+      const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      fetchNodeStream();
+      const data = await resp.json().catch(() => ({}));
+      const targetNodeId = data.target_node_id ?? nodeId;
+
       fetchSession();
+      fetchMasterStream();
+      if (selectedNodeIdRef.current) fetchNodeStream();
+
+      // Poll for the response in case SSE events are missed (e.g. reconnect gap).
+      const poll = async () => {
+        let delay = 1000;
+        const maxDelay = 8000;
+        const maxAttempts = 20;
+        for (let i = 0; i < maxAttempts; i++) {
+          await new Promise((r) => setTimeout(r, delay));
+          delay = Math.min(delay * 1.5, maxDelay);
+          try {
+            // Check the target node's stream for an assistant response
+            const r = await apiFetch(
+              `/api/execute/${session_id}/nodes/${targetNodeId}/stream`
+            );
+            if (!r.ok) continue;
+            const streamData = await r.json();
+            const entries = (streamData.stream ?? []) as StreamEntry[];
+            const last = entries[entries.length - 1];
+            if (
+              last &&
+              last.stream_type === "message" &&
+              (last.sub_type === "assistant" || last.role === "assistant")
+            ) {
+              // Response arrived — refresh both streams
+              fetchMasterStream();
+              if (selectedNodeIdRef.current) fetchNodeStream();
+              fetchSession();
+              break;
+            }
+            // Also break if the node is no longer running
+            const sessResp = await apiFetch(`/api/execute/${session_id}`);
+            if (sessResp.ok) {
+              const sessData = await sessResp.json();
+              const nodes = sessData.nodes ?? sessData.session?.nodes ?? [];
+              const target = nodes.find((n: ExecutionNode) => n.id === targetNodeId);
+              if (target && target.status !== "running") {
+                fetchMasterStream();
+                if (selectedNodeIdRef.current) fetchNodeStream();
+                fetchSession();
+                break;
+              }
+            }
+          } catch {
+            // ignore transient errors
+          }
+        }
+      };
+      poll();
     },
-    [session_id, apiFetch, fetchNodeStream, fetchSession]
+    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream]
   );
 
   const handleSessionChat = useCallback(

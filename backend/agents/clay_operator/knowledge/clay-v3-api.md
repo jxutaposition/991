@@ -116,8 +116,10 @@ Body: {
 
 **Action/enrichment column**: `{"type": "action", "typeSettings": {"actionKey": "provider-name", "actionPackageId": "uuid", "authAccountId": "aa_xxx", "inputsBinding": [{"name": "domain", "formulaText": "{{f_xxx}}"}], "dataTypeSettings": {"type": "json"}}}`
 
-**Route-row column**: `{"type": "action", "typeSettings": {"actionKey": "route-row", "tableId": "formulaText with literal table ID string", "rowData": {"Key Name": "{{f_xxx}}"}}}`
+**Route-row column**: `{"type": "action", "name": "Send to Table B", "activeViewId": "<view_id>", "typeSettings": {"actionKey": "route-row", "tableId": "<destination_table_id>", "rowData": {"Column Name": "{{f_xxx}}"}}}`
+- `activeViewId` is required (get from `clay_get_table_schema` → `views[0].id`)
 - Auto-creates source fields on target table
+- If validation fails, try `rowData` values as `{"formulaText": "{{f_xxx}}"}` objects
 - List mode: `type: "list"` + `listData` creates one row per list item
 
 Returns: `{"field": {"id": "f_new123", "name": "...", "type": "..."}}`

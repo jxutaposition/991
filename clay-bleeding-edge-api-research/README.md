@@ -1,170 +1,224 @@
 # Clay Bleeding-Edge API Research
 
-A structured research project to reverse-engineer, document, and build a proprietary server-side API layer for Clay (the GTM enrichment platform at clay.com). Clay has no official public API for structural operations. This project systematically maps what exists, discovers what's possible, and designs the integration layer.
+Reverse-engineering Clay's (clay.com) internal v3 API to enable fully programmatic table management — creating tables, configuring enrichments, managing data pipelines, and running AI actions — all without the Clay UI.
 
-## Goal
-
-Build a proprietary "API" that gives the Lele agent full programmatic read/write/configure access to Clay tables — creating columns, configuring enrichments, managing webhooks, reading schemas, and debugging formulas — all server-side, without requiring a human in the Clay UI.
-
-## Current Status (updated 2026-04-06)
-
-**The v3 API is the only functional API layer.** The v1 API is fully deprecated and non-functional. All operations go through `https://api.clay.com/v3` authenticated with a `claysession` cookie.
+## Current Status
 
 | Metric | Value |
 |--------|-------|
-| Documented endpoints | 57 (38+ confirmed working) |
-| Authentication | Session cookie (`claysession`), 7-day auto-refreshing lifetime |
+| Documented endpoints | 68 (45+ confirmed working) |
+| Investigation sessions | 11 |
+| Exhaustively searched dead-ends | 35 |
+| Authentication | Session cookie (`claysession`), 7-day auto-refreshing |
 | Rate limiting | None detected (50 req/s tested) |
 | Average latency | ~21ms |
 
-### Proof of capability
-
-On 2026-04-06 we programmatically **diagnosed and rebuilt an entire Clay workbook pipeline** using only v3 API calls — no browser, no UI. This included: creating tables, creating enrichment action columns, creating formula columns, creating route-row actions, updating formulas, deleting broken fields, deleting tables, seeding row data, triggering enrichments, and verifying end-to-end data flow across 4 tables with 128 source rows producing 100 output rows.
+**All operations use `https://api.clay.com/v3`** with session cookie auth. The v1 API is fully deprecated.
 
 ---
 
-## What We CAN Do (confirmed working)
+## What We Can Do
 
-### Row CRUD (complete)
+### Tables & Workbooks
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **Create rows** | `POST /v3/tables/{id}/records` | `{records: [{cells: {f_id: "value"}}]}`. Multiple rows per call. |
-| **Read rows (list)** | `GET /v3/tables/{id}/views/{viewId}/records?limit=10000` | Requires a view ID. Use `limit=10000` for all rows. No pagination mechanism. |
-| **Read single row** | `GET /v3/tables/{id}/records/{recordId}` | Returns full record with cells, metadata, timestamps. |
-| **Update rows** | `PATCH /v3/tables/{id}/records` | `{records: [{id: "r_xxx", cells: {...}}]}`. Async/enqueued. |
-| **Delete rows** | `DELETE /v3/tables/{id}/records` | `{recordIds: ["r_xxx", "r_yyy"]}`. Synchronous. |
+| Operation | How |
+|-----------|-----|
+| List tables | `GET /v3/workspaces/{id}/tables` |
+| Get full table schema | `GET /v3/tables/{id}` — returns fields, views, sources, settings, abilities |
+| Create table | `POST /v3/tables` with `{workspaceId, type, name}` |
+| Rename/update table | `PATCH /v3/tables/{id}` with `{name, description, tableSettings}` |
+| Delete table | `DELETE /v3/tables/{id}` |
+| Duplicate table | `POST /v3/tables/{id}/duplicate` — copies schema + settings, NOT rows. Field IDs preserved. |
+| Move table to different workbook | `PATCH /v3/tables/{id}` with `{workbookId: "wb_other"}` |
+| List workbooks | `GET /v3/workspaces/{id}/workbooks` |
+| Create workbook | `POST /v3/workbooks` with `{workspaceId, name}` |
+| Duplicate workbook | `POST /v3/workbooks/{id}/duplicate` |
 
-### Column/Field CRUD (complete)
+### Rows (Records)
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **Create text column** | `POST /v3/tables/{id}/fields` | `{name, type: "text", activeViewId, typeSettings: {dataTypeSettings: {type: "text"}}}` |
-| **Create formula column** | `POST /v3/tables/{id}/fields` | `{type: "formula", typeSettings: {formulaText: "...", formulaType: "text"}}` |
-| **Create action column** | `POST /v3/tables/{id}/fields` | `{type: "action", typeSettings: {actionKey, actionPackageId, inputsBinding: [...]}}` |
-| **Create enrichment column** | `POST /v3/tables/{id}/fields` | Same as action, with `authAccountId` for authenticated providers. |
-| **Create route-row column** | `POST /v3/tables/{id}/fields` | `actionKey: "route-row"`, supports `type: "list"` for one-to-many routing. Auto-creates source on target table. |
-| **Create source column** | Two-step | `POST /v3/sources` then read back `dataFieldId`. Or auto-created via route-row. |
-| **Update/rename column** | `PATCH /v3/tables/{id}/fields/{fieldId}` | Can update `name`, `typeSettings` (including `formulaText`). |
-| **Delete column** | `DELETE /v3/tables/{id}/fields/{fieldId}` | Returns `{}` on success. |
+| Operation | How |
+|-----------|-----|
+| Create rows | `POST /v3/tables/{id}/records` — up to 500+ rows per call, `{records: [{cells: {f_id: "value"}}]}` |
+| Read rows (list) | `GET /v3/tables/{id}/views/{viewId}/records?limit=10000` — requires view ID. Default limit=100, use 10000 for all rows. No pagination mechanism. |
+| Read single row | `GET /v3/tables/{id}/records/{recordId}` — bypasses views, always works |
+| Update rows | `PATCH /v3/tables/{id}/records` — async (enqueued), last-write-wins |
+| Delete rows | `DELETE /v3/tables/{id}/records` with `{recordIds: [...]}` |
 
-### Table Lifecycle (complete)
+**Limits tested**: 500 rows per insert (163ms), 500KB per cell value, invalid field IDs silently ignored (row created, bad fields skipped), 10 concurrent inserts all succeed.
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **List tables** | `GET /v3/workspaces/{id}/tables` | Returns `{results: [{id, name, type, workbookId, ...}]}` |
-| **List workbooks** | `GET /v3/workspaces/{id}/workbooks` | Returns all workbooks with names, settings, ownership. |
-| **Get table schema** | `GET /v3/tables/{id}` | Full schema: fields, views, sources, abilities. |
-| **Create table** | `POST /v3/tables` | `{workspaceId, type: "spreadsheet"\|"company"\|"people"\|"jobs", name, workbookId?}` |
-| **Rename table** | `PATCH /v3/tables/{id}` | `{name: "New Name"}` |
-| **Delete table** | `DELETE /v3/tables/{id}` | Returns deleted table with `deletedAt` timestamp. |
-| **Duplicate table** | `POST /v3/tables/{id}/duplicate` | `{name?: "Custom Name"}`. Also works via `POST /v3/tables` with `sourceTableId` param. |
-| **Create workbook** | `POST /v3/workbooks` | `{workspaceId, name}`. Returns full workbook object. |
-| **Duplicate workbook** | `POST /v3/workbooks/{id}/duplicate` | Copies entire workbook. |
+### Columns (Fields)
 
-### View Management (new — Session 4)
+| Operation | How |
+|-----------|-----|
+| Create text/url/email/number column | `POST /v3/tables/{id}/fields` with `{name, type: "text", typeSettings: {dataTypeSettings: {type}}, activeViewId}` |
+| Create formula column | Same, `type: "formula"`, `typeSettings: {formulaText, formulaType, dataTypeSettings}` |
+| Create enrichment (action) column | Same, `type: "action"`, `typeSettings: {actionKey, actionPackageId, inputsBinding, authAccountId?}` |
+| Rename column | `PATCH /v3/tables/{id}/fields/{fieldId}` with `{name}` |
+| Update formula text | `PATCH /v3/tables/{id}/fields/{fieldId}` with `{typeSettings: {formulaText: "..."}}` |
+| Delete column | `DELETE /v3/tables/{id}/fields/{fieldId}` |
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **Create view** | `POST /v3/tables/{id}/views` | `{name: "Custom View"}`. Returns view with id, fields, filter, sort. |
-| **Rename view** | `PATCH /v3/tables/{id}/views/{viewId}` | `{name: "New Name"}`. |
-| **Update filter/sort** | `PATCH /v3/tables/{id}/views/{viewId}` | Returns 200 but may not persist — payload format needs refinement. |
+**Cannot change field type** (e.g., text→formula) via PATCH — must delete and recreate.
 
-### Source/Webhook Management (complete)
+**No formula validation**: Clay accepts ANY formula text at creation time. Invalid references and syntax errors return 200. Errors only surface at runtime. Agent must validate field IDs itself.
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **Create source** | `POST /v3/sources` | `{workspaceId, tableId, name, type, typeSettings}` |
-| **Read source** | `GET /v3/sources/{id}` | Includes `state.url` for webhook sources. |
-| **List sources** | `GET /v3/sources?workspaceId=` | All sources with IDs, types, states. |
-| **Update source** | `PATCH /v3/sources/{id}` | |
-| **Delete source** | `DELETE /v3/sources/{id}` | Returns `{success: true}`. |
+**Deletion cascade**: Deleting a field that's referenced by formulas/enrichments marks dependents with `settingsError` (not deleted). Fix via PATCH with corrected references — error auto-clears.
 
-### Enrichment & Actions
+### Formula Language
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **List all actions** | `GET /v3/actions?workspaceId=` | 1,191 actions, 170+ providers. Full I/O schemas, rate limits. |
-| **List auth accounts** | `GET /v3/app-accounts` | Returns all 111 auth accounts with IDs and provider types. |
-| **Trigger enrichment** | `PATCH /v3/tables/{id}/run` | `{runRecords: {recordIds: [...]}, fieldIds: [...], forceRun: true}`. Returns `{recordCount, runMode}`. |
-| **Check enrichment status** | Poll row cells → `metadata.status` | Values: `SUCCESS`, `ERROR_OUT_OF_CREDITS`, `ERROR_BAD_REQUEST`. Stale: `{isStale: true}`. |
-| **Create action column** | `POST /v3/tables/{id}/fields` | Requires `actionKey`, `actionPackageId`, `inputsBinding`, optionally `authAccountId`. |
-| **Run history** | `recordMetadata.runHistory` on rows | Per-field `[{time: unix_ms, runId: "run_xxx"}]`. |
+Clay formulas are **JavaScript expressions** evaluated per-row. All results coerced to strings.
 
-### Workspace & Account
+| Pattern | Example | Result |
+|---------|---------|--------|
+| String ops | `UPPER({{f_text}})`, `LOWER()`, `LEN()` | "ANTHROPIC" |
+| JS string methods | `{{f}}?.includes("x")`, `.split("@")?.[1]`, `.slice(0,3)`, `.replace()`, `.startsWith()` | Works |
+| Concatenation | `{{f_name}} + " Inc."` | "Anthropic Inc." |
+| Number ops | `parseInt({{f}})`, `Math.round()`, `{{f}} * 2` | "42", "43", "85.4" |
+| Conditionals | `{{f}} > 50 ? "high" : "low"` | "low" |
+| JSON parsing | `JSON.parse({{f_json}})?.key`, `?.nested?.deep`, `?.arr?.[0]` | Extracts from JSON strings |
+| Arrays | `[1,2,3].map(x => x*2).join(",")`, `.filter(x => x>3)` | "2,4,6" |
+| RegExp | `{{f_url}}?.match(/https?:\/\/([^/]+)/)?.[1]` | "www.anthropic.com" |
+| Dates | `new Date().getFullYear()` | "2026" |
+| Clay utils | `Clay.formatForJSON({{f}})`, `DOMAIN({{f_url}})` | Clay-specific functions |
 
-| Operation | Endpoint | Notes |
-|-----------|----------|-------|
-| **Workspace details** | `GET /v3/workspaces/{id}` | Billing, credits, feature flags, abilities. |
-| **Current user** | `GET /v3/me` | User profile, API token, auth strategy. |
-| **Credit balance** | `GET /v3/workspaces/{id}` | `credits: {basic: N, actionExecution: N}` in real time. |
-| **Import history** | `GET /v3/imports?workspaceId=` | Import records with column mapping details. |
-| **CSV export** | `POST /v3/tables/{id}/export` | Creates async job (`ej_xxx`). Poll for `uploadedFilePath`. |
-| **API key management** | `GET /v3/api-keys?resourceType=user&resourceId=` | List API keys per user. |
+**What doesn't work**: `typeof` (parse error).
+
+### Enrichment Actions
+
+Clay has **1193 enrichment actions** from 170+ providers. Each is a packaged API call that takes inputs from row data and stores results in the cell.
+
+| Operation | How |
+|-----------|-----|
+| List all actions | `GET /v3/actions?workspaceId=` — returns full catalog with I/O schemas, rate limits, auth requirements |
+| List auth accounts | `GET /v3/app-accounts` — all connected accounts with IDs and provider types |
+| Create enrichment column | `POST /v3/tables/{id}/fields` with `type: "action"`, `actionKey`, `actionPackageId`, `inputsBinding` |
+| Trigger enrichment | `PATCH /v3/tables/{id}/run` with `{runRecords: {recordIds}, fieldIds, forceRun}` |
+| Check completion | Poll row cells → `cell.metadata.status` |
+| Auto-trigger on insert | Set `tableSettings.autoRun: true` — enrichments fire automatically on new rows |
+| Conditional execution | Add `conditionalRunFormulaText: "{{f_score}} > 50"` to enrichment typeSettings |
+| Re-run only gaps | `forceRun: false` skips cells already at SUCCESS |
+| Force re-run all | `forceRun: true` re-runs everything |
+
+**Key actions available without auth (354 total)**:
+- **`use-ai`** — Clay's built-in LLM. Inputs: `prompt`, `systemPrompt`, `model`, `temperature`, `jsonMode`, `maxCostInCents`. No API key needed.
+- **`claygent`** — AI web researcher. Inputs: `mission`, `model`. Autonomous web research.
+- **`table-level-ai`** — AI using entire Clay table as context. Inputs: `tableId`, `question`.
+- **`scrape-website`** — Web scraper with JS rendering. Inputs: `url`, `outputFields`, `enableJavaScriptRendering`.
+- **`search-google`** — Google search. Inputs: `query`, `numberOfResults`.
+- **`normalize-company-name`** — Text normalization.
+- **`http-api-v2`** — Call ANY HTTP endpoint with custom method/headers/body.
+- **`lookup-*-in-other-table`** — Cross-table JOINs (single, multiple, company).
+
+**Enrichment cell metadata status values**:
+- `SUCCESS` — completed, value populated
+- `ERROR_OUT_OF_CREDITS` — credit exhaustion
+- `ERROR_BAD_REQUEST` — provider error
+- `ERROR_RUN_CONDITION_NOT_MET` — intentionally skipped by conditional formula
+- `{isStale: true, staleReason: "TABLE_AUTO_RUN_OFF"}` — not yet run
+
+### Table Settings
+
+`PATCH /v3/tables/{id}` with `{tableSettings: {...}}` — schemaless JSON blob, merge semantics (keys accumulate).
+
+| Setting | Effect |
+|---------|--------|
+| `autoRun: true` | Auto-trigger enrichments when rows are inserted |
+| `dedupeFieldId: "f_xxx"` | Set dedup key (doesn't prevent API inserts; may only affect source/webhook ingestion) |
+| `schedule`, `cronExpression` | Accepted but behavioral effect unverified |
+| Any arbitrary key | Accepted (schemaless) — set to default value to "undo", null doesn't delete |
+
+### Views
+
+| Operation | How |
+|-----------|-----|
+| Create view | `POST /v3/tables/{id}/views` with `{name}` |
+| Rename view | `PATCH /v3/tables/{id}/views/{viewId}` with `{name}` |
+| Delete view | `DELETE /v3/tables/{id}/views/{viewId}` |
+
+**View filter/sort is NOT settable via REST API.** 11 payload formats tested, all return 200 but don't persist. Preconfigured views (Errored rows, Fully enriched rows, etc.) get filters server-side via `typeSettings.preconfiguredType`. See `exhaustively_searched/view-filter-sort.md`.
+
+### Sources & Webhooks
+
+| Operation | How |
+|-----------|-----|
+| Create source | `POST /v3/sources` with `{workspaceId, tableId, name, type, typeSettings}` |
+| Read source | `GET /v3/sources/{id}` — includes `state.url` for webhook sources |
+| List sources | `GET /v3/sources?workspaceId=` |
+| Rename source | `PATCH /v3/sources/{id}` with `{name}` |
+| Delete source | `DELETE /v3/sources/{id}` |
+
+**Webhook sources require a paid plan** (402 Payment Required on Launch plan).
+
+### CSV Export (Full Flow)
+
+1. `POST /v3/tables/{id}/export` → `{id: "ej_xxx", status: "ACTIVE"}`
+2. Poll: `GET /v3/exports/{jobId}` → wait for `status: "FINISHED"`
+3. Download: `GET /v3/exports/{jobId}?download=true` → `downloadUrl` field contains pre-signed S3 URL (24h expiry)
+
+### Workspace & Users
+
+| Operation | How |
+|-----------|-----|
+| Workspace details | `GET /v3/workspaces/{id}` — billing, credits, feature flags |
+| Credit balance | `credits: {basic: N, actionExecution: N}` |
+| Current user | `GET /v3/me` — profile, API token, session state |
+| List users | `GET /v3/workspaces/{id}/users` — members with roles |
+| Permissions | `GET /v3/workspaces/{id}/permissions` — role assignments |
+| Signals | `GET /v3/workspaces/{id}/signals` — monitoring configs (read-only) |
+| Resource tags | `POST/GET/DELETE /v3/workspaces/{id}/resource-tags` — full CRUD |
+| Attributes catalog | `GET /v3/attributes` — 68 enrichment attributes (28 person, 40 company) with provider mappings |
+| Import history | `GET /v3/imports?workspaceId=` |
 
 ### Authentication
 
 | Aspect | Details |
 |--------|---------|
-| **Method** | Session cookie `claysession` on `.api.clay.com` |
-| **Format** | Express signed cookie: `s:<session_id>.<signature>` (URL-encoded) |
-| **Lifetime** | 7 days, auto-refreshes on every API call |
-| **Extraction** | Browser DevTools → Application → Cookies → `api.clay.com` → `claysession` |
-| **Headers needed** | Only `Cookie` + `Accept: application/json`. `X-Clay-Frontend-Version` is optional. |
-| **Rate limiting** | None detected at 50 req/s. |
+| Method | Session cookie `claysession` on `.api.clay.com` |
+| Format | Express signed cookie: `s:<session_id>.<signature>` (URL-encoded) |
+| Lifetime | 7 days, auto-refreshes on every API call |
+| Extraction | Browser DevTools → Application → Cookies → `api.clay.com` → `claysession` |
+| API key auth | Does NOT work on v3 endpoints. Session cookie is the only mechanism. |
 
 ---
 
-## What We CAN'T Do (remaining gaps)
+## What We Can't Do
 
-| Capability | Status | Notes |
-|------------|--------|-------|
-| **WebSocket/real-time** | Unknown | Clay UI shows live updates but no WS/SSE endpoint discovered. Requires CDP browser inspection. |
-| **View filter/sort update** | Partially working | PATCH returns 200 but filter/sort not persisted. Payload format needs CDP intercept. |
-| **Custom action packages** | Endpoint exists, format unknown | `POST /v3/actions` with `actionPackageDefinition` — serialized format undocumented. (GAP-019) |
-| **List all workspaces** | Requires admin | 403 for regular users. |
-| **Individual workbook CRUD** | Not available | `GET/PATCH/DELETE /v3/workbooks/{id}` all 404. Only create, duplicate, and list (via workspace) work. |
-| **Table history/restore** | Not available | All endpoints 404. Feature flag exists but API is UI-only. |
-| **Per-action credit tracking** | Not available | No credit-usage endpoints. Only aggregate via workspace details. |
-| **Row sorting via query params** | Not available | All sort params silently ignored. Sorting is view-level only. |
+| Capability | Status |
+|------------|--------|
+| View filter/sort via API | Not possible — preconfigured views only |
+| Row pagination | No cursor/offset — use `limit=10000` workaround |
+| Row sorting via query params | All params ignored — sorting is view-level only |
+| Route-row column creation | Endpoint exists but payload format needs investigation (400 error) |
+| Webhook source creation | Requires paid plan (402 on Launch plan) |
+| WebSocket/real-time updates | Unknown transport, requires CDP browser inspection |
+| Individual workbook read/update/delete | Only create, duplicate, and list work |
+| Table history/restore | UI-only feature, all endpoints 404 |
+| Custom action packages | `POST /v3/actions` exists but `actionPackageDefinition` format undocumented |
+| Per-action credit tracking | Only aggregate via workspace details |
+| Tag-to-table association | Tags exist but no way to link them to tables via REST |
+| Import job creation | Endpoint exists (500 not 404) but requires file upload, not JSON |
 
-### Confirmed non-existent endpoints
-
-These v3 paths return 404 — they definitively do not exist:
-
-`/v3/workbooks`, `/v3/fields`, `/v3/rows`, `/v3/columns`, `/v3/webhooks`, `/v3/views`, `/v3/enrichments`, `/v3/integrations`, `/v3/accounts`, `/v3/billing`, `/v3/credits`, `/v3/formulas`, `/v3/providers`, `/v3/connectors`, `/v3/folders`, `/v3/people`, `/v3/companies`, `/v3/notifications`, `/v3/templates`, `/v3/settings`, `/v3/graphql`, `/v3/auth-accounts`, `/v3/authAccounts`, `/v3/connected-accounts`
-
-### Deprecated (non-functional)
-
-| Layer | Status |
-|-------|--------|
-| **v1 API** (`api.clay.com/api/v1/*`) | Routes not registered (Express HTML 404) |
-| **v1 API** (`api.clay.run/v1/*`) | Returns `{"success":false,"message":"deprecated API endpoint"}` |
-| **v2 API** | Same deprecated response as v1 |
+Full list of 35 dead-ends: see [exhaustively_searched/](exhaustively_searched/).
 
 ---
 
-## Key Technical Details
+## Key Behavioral Patterns
 
-### Field reference system
+| Behavior | Rule |
+|----------|------|
+| **autoRun** | `tableSettings.autoRun: true` → enrichments auto-fire on row insert (~500ms). Works with conditional formulas. |
+| **Formula evaluation** | Formulas auto-evaluate on insert and auto-re-evaluate on dependent cell changes. No trigger needed. |
+| **Table duplication** | Schema + settings + views copied. Rows NOT copied. **Field IDs preserved** — all references valid in clone. |
+| **tableSettings** | Merge semantics — keys accumulate. `null` doesn't delete. Schemaless blob. |
+| **Concurrent writes** | All succeed. PATCH is async last-write-wins. No locking. |
+| **Invalid formulas** | Accepted at creation (200). Errors only at runtime. Agent must validate field refs. |
+| **Deletion cascade** | Dependent fields get `settingsError`, not deleted. Fix via PATCH — error auto-clears. |
+| **forceRun** | `false` = skip SUCCESS cells. `true` = re-run all. Response shows total submitted, not filtered count. |
+| **View reads** | Use view ID obtained AFTER all columns created. Or use single record endpoint to bypass views entirely. |
+| **Credit cost** | Only enrichment execution costs credits. All CRUD, schema reads, formula eval = FREE. |
 
-Clay formulas use internal field IDs, not column names:
-- **Internal**: `{{f_abc123}}` — used in all API calls
-- **Portable** (Claymate only): `{{@Column Name}}` — does NOT work at runtime
+---
 
-### Data type settings
-
-The `dataTypeSettings.type` field controls display: `text`, `url`, `email`, `number`, `boolean`, `json`, `select`
-
-### Route-row mechanics
-
-Route-row actions (`actionKey: "route-row"`) have special behavior:
-- **Auto-creates source**: When a route-row targets a table, Clay auto-creates a source field on the target plus formula columns for each `rowData` key
-- **List mode**: `type: "list"` with `listData` creates one row per list item. The `rowData` becomes `parent` context accessible via `{{source}}?.parent?.["key"]`
-- **Single mode**: Default. Creates one row per source row.
-- **Source merging**: If the target table already has a source from another route-row, Clay adds the new source ID to the existing source field's `sourceIds` array
-
-### ID formats
+## ID Formats
 
 | Entity | Format | Example |
 |--------|--------|---------|
@@ -174,84 +228,31 @@ Route-row actions (`actionKey: "route-row"`) have special behavior:
 | Record | `r_` + alphanumeric | `r_0td1wqfzVWADzCQ8fwC` |
 | Source | `s_` + alphanumeric | `s_0td1wf0SUdg6kfhgRve` |
 | Workbook | `wb_` + alphanumeric | `wb_0td1vqydXftNuRgPgHc` |
+| Export job | `ej_` + alphanumeric | `ej_0td27yaDc4FUgFZw6UK` |
+| Signal | `sig_` + alphanumeric | `sig_0tczx56sqoRJ8sQnHzP` |
+| Tag | `tag_` + alphanumeric | `tag_0td27ypn6EEi9Amo7xk` |
 | Workspace | Numeric | `1080480` |
 
 ---
-
-## Quick Reference
-
-| What | Where |
-|------|-------|
-| Iterative progress log | [timeline/](timeline/) |
-| Everything we know about Clay's APIs | [knowledge/](knowledge/) |
-| System design for the proprietary API layer | [architecture/](architecture/) |
-| Endpoint registry and capability matrix | [registry/](registry/) |
-| Agent-deployable probing infrastructure | [harness/](harness/) |
-| Individual research threads | [investigations/](investigations/) |
-| Open research gaps | [registry/gaps.md](registry/gaps.md) |
-| TODO tracker | [todo/](todo/) |
-
-## How to Deploy an Agent
-
-1. Point the agent at this folder
-2. Have it read [AGENT.md](AGENT.md) first
-3. It will check [registry/gaps.md](registry/gaps.md) for open research questions
-4. It picks a gap, probes it using the harness scripts/prompts, writes findings to `investigations/`
-5. It updates `registry/endpoints.jsonl` and `registry/capabilities.md` with new discoveries
 
 ## Folder Map
 
 ```
 clay-bleeding-edge-api-research/
 ├── README.md                       # This file
-├── AGENT.md                        # Instructions for deployed agents
-├── timeline/                       # Iterative progress: what we know, can do, can't do
-│   └── YYYY-MM-DD_slug.md         # One entry per research session
-├── knowledge/                      # Persistent documentation of everything known
-│   ├── landscape.md                # Full landscape: official vs unofficial vs bleeding-edge
-│   ├── official-api.md             # v1 API reference (deprecated)
-│   ├── internal-v3-api.md          # Reverse-engineered v3 API (primary reference)
-│   ├── webhooks.md                 # Webhook capabilities, limits, patterns
-│   ├── authentication.md           # Auth mechanics per layer
-│   ├── claymate-analysis.md        # Full Claymate Lite source analysis
-│   ├── third-party-tools.md        # Community tools and integrations
-│   └── clay-dom-structure.md       # DOM selectors, React SPA structure
-├── architecture/                   # Design docs for the proprietary API layer
-│   ├── system-design.md            # Four-layer stack architecture
-│   ├── session-management.md       # Cookie extraction, storage, refresh
-│   ├── tool-specifications.md      # New agent tool definitions
-│   ├── risk-assessment.md          # ToS, stability, fallback strategies
-│   └── integration-plan.md         # Integration with existing clay_operator
-├── registry/                       # Structured endpoint/capability tracking
-│   ├── endpoints.jsonl             # Machine-readable endpoint registry (57 entries)
-│   ├── capabilities.md             # What can we do vs. what we can't
-│   ├── gaps.md                     # Open research questions (prioritized)
+├── AGENT.md                        # Instructions for deployed research agents
+├── timeline/                       # Chronological progress (13 entries, 11 sessions)
+├── knowledge/                      # API reference docs (v3 API, auth, webhooks, Claymate analysis)
+├── architecture/                   # System design, tool specs, integration plan
+├── registry/
+│   ├── endpoints.jsonl             # Machine-readable endpoint registry (68 entries)
+│   ├── capabilities.md             # Capability matrix
+│   ├── gaps.md                     # Open research questions
 │   └── changelog.md                # Timestamped discovery log
-├── harness/                        # Agent-deployable probing infrastructure
-│   ├── README.md                   # How to run probes
-│   ├── prompts/                    # Structured prompts for agent sessions
-│   ├── scripts/                    # Runnable Playwright/CDP scripts
-│   ├── fixtures/sample-schemas/    # Test data for probing
-│   └── results/                    # Output directory for probe results
-├── investigations/                 # Individual research threads (17 completed)
-│   ├── _index.md                   # Index of all investigations
-│   └── INV-XXX_*.md                # One file per investigation
-└── todo/                           # Task tracker (2 open, 17 resolved)
-    ├── README.md                   # Task management overview + resolved log
-    └── TODO-XXX_*.md               # Individual open task files
+├── harness/
+│   ├── scripts/                    # 20+ investigation scripts (TypeScript/tsx)
+│   └── results/                    # Raw JSON probe results + session cookies
+├── investigations/                 # 28 completed investigations (INV-001 through INV-028)
+├── exhaustively_searched/          # 35 documented dead-ends (things that DON'T work)
+└── todo/                           # 10 open items, 40+ resolved
 ```
-
-## Relationship to Main Codebase
-
-This folder is a **research project** — it does not modify the main `backend/` or `frontend/` code. When findings are ready for promotion to production:
-
-- New Clay API client code goes to `backend/src/clay_api.rs`
-- New tool definitions go to `backend/tools/clay/actions.toml`
-- Updated agent prompts go to `backend/agents/clay_operator/prompt.md`
-- Updated knowledge goes to `backend/agents/clay_operator/knowledge/clay-reference.md`
-
-The promotion path is documented in [architecture/integration-plan.md](architecture/integration-plan.md).
-
----
-
-**Important**: When updating any file in this project, ensure ALL related files (knowledge/, registry/, architecture/) are also updated. Stale claims create confusion for deployed agents. The single source of truth for endpoint status is `registry/endpoints.jsonl`. All other files should reference or align with it.

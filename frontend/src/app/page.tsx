@@ -37,6 +37,7 @@ interface SessionSummary {
   node_count: number;
   passed_count: number;
   created_at: string;
+  client_slug?: string | null;
 }
 
 const STATUS_BADGE = SESSION_STATUS_BADGE;
@@ -245,6 +246,11 @@ export default function HomePage() {
                   >
                     {session.status.replace(/_/g, " ")}
                   </span>
+                  {session.client_slug && (
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200 truncate max-w-[120px]">
+                      {session.client_slug}
+                    </span>
+                  )}
                   <span className="text-xs text-ink-3 ml-auto">
                     {new Date(session.created_at).toLocaleDateString()}
                   </span>

@@ -23,6 +23,8 @@ The v1 API is **deprecated and non-functional** (all endpoints return errors). A
 - Connecting enrichment provider accounts (OAuth handshake inside Clay UI)
 - Any operation blocked by missing session cookie
 
+**Never use `request_user_action` for**: table creation, column creation, route-row columns, enrichment columns, writing rows, or anything else you can do via `clay_create_field` / `clay_create_table` / `clay_write_rows`. If the API supports it, do it yourself.
+
 ### Auto-wiring enrichment columns
 
 You can now fully automate enrichment column creation without user input:
@@ -34,7 +36,7 @@ Only use `request_user_action` if the required provider account isn't connected 
 
 ### Credential awareness
 - **If any tool returns `no_session: true`**: The session cookie is not configured. Include those operations in `request_user_action` and mention the user can enable full automation by adding the session cookie in Settings → Integrations → Clay.
-- **`workspace_id`**: Stored in the Clay credential. If not set, ask the user once for their workspace ID (the number in `app.clay.com/workspaces/<ID>/...`) or use `clay_list_tables` to discover it.
+- **`workspace_id`**: Every successful Clay tool response includes a `_workspace_id` field — this is the user's configured workspace ID. **Always use this value** when constructing URLs or referencing the workspace. Never hardcode, guess, or reuse a workspace ID from a previous session.
 
 ## Workbook-First Design
 
@@ -54,7 +56,30 @@ Before designing any column, map the full table topology: which tables exist, wh
 
 Use Clay's **route-row columns** to route rows between tables within the workbook, and **action columns** (HTTP POST) to push data to external systems (n8n, Supabase, Notion). Use **lookup columns** for cross-table joins.
 
-### Route-Row Mechanics
+### Route-Row (Send-to-Table) Mechanics
+
+Route-row columns are created via `clay_create_field` — **do not use `request_user_action` for this**. You must include `activeViewId` (from `clay_get_table_schema` → `views[0].id`). Example:
+```json
+{
+  "type": "action",
+  "name": "Send to Enriched Leads",
+  "activeViewId": "<source_table_view_id>",
+  "typeSettings": {
+    "actionKey": "route-row",
+    "tableId": "<destination_table_id>",
+    "rowData": {
+      "Company Name": "{{f_companyNameFieldId}}",
+      "Website": "{{f_websiteFieldId}}"
+    }
+  }
+}
+```
+
+If the route-row creation fails with a validation error, **read the error response carefully and adjust** — do NOT fall back to `request_user_action`. Common fixes:
+- Missing `activeViewId` — always include it
+- `rowData` values may need `{"formulaText": "{{f_xxx}}"}` objects instead of bare strings
+- Try fetching `clay_list_actions` to find the route-row `actionPackageId` and include it
+
 - Route-row actions auto-create a source field + formula columns on the target table for each `rowData` key
 - List mode (`type: "list"` + `listData`) creates one row per list item; `rowData` becomes `parent` context
 - Source data in formulas: `{{source}}?.parent?.["Key Name"]`
@@ -148,6 +173,13 @@ Call `write_output` with the references for downstream agents:
 - `manual_steps_completed`: summary of what the user built (if any)
 - `notes`: any issues or deviations from the plan
 
-Also include an `artifacts` array in the `write_output` call. Link to the **workbook** (the canvas view showing all tables connected), not to individual tables. The workspace ID is the numeric ID from the Clay URL (`app.clay.com/workspaces/<ID>/...`):
-- One workbook artifact: `{"type": "clay_workbook", "url": "https://app.clay.com/workspaces/{workspace_id}/workbooks/{workbook_id}", "title": "{workbook_name}"}`
-- For each source with a webhook URL: `{"type": "clay_source", "url": "{webhook_url}", "title": "{source_name} webhook"}`
+Also include an `artifacts` array in the `write_output` call. Link to the **workbook** (the canvas view showing all tables connected), not to individual tables.
+
+**Use the `_workspace_id` from any Clay tool response** as the workspace ID in URLs — never hardcode it.
+
+```json
+[
+  {"type": "clay_workbook", "url": "https://app.clay.com/workspaces/{_workspace_id}/workbooks/{workbook_id}", "title": "{workbook_name}"},
+  {"type": "clay_source", "url": "{webhook_url}", "title": "{source_name} webhook"}
+]
+```
