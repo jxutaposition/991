@@ -1,8 +1,8 @@
 slug = "dashboard_builder"
 name = "Dashboard Builder"
 category = "program_operations"
-description = "Builds dashboards end-to-end. Reads data from upstream sources (Clay tables, Supabase, APIs) and outputs a dashboard spec JSON that the platform renders automatically as interactive charts, tables, and metrics."
-intents = ["dashboard", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "build dashboard", "create dashboard", "analytics dashboard", "pipeline dashboard"]
+description = "DEFAULT dashboard agent. Builds React dashboards rendered natively in the platform. Reads data from upstream sources (Clay tables, Supabase, APIs) and outputs a dashboard_spec JSON that the platform renders automatically as interactive charts, tables, funnels, and metrics. Use this for any 'dashboard', 'React dashboard', 'analytics view', 'leaderboard', or 'data visualization' request. Do NOT use lovable_operator for these — lovable_operator is only for existing Lovable-hosted projects."
+intents = ["dashboard", "react dashboard", "internal dashboard", "external dashboard", "leaderboard", "points display", "partner dashboard", "program dashboard", "data visibility", "build dashboard", "create dashboard", "analytics dashboard", "pipeline dashboard", "data visualization", "charts", "funnel", "metrics view"]
 max_iterations = 100
 skip_judge = false
 automation_mode = "full"

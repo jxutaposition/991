@@ -3389,14 +3389,30 @@ before approving it. Help them understand, refine, or modify the plan.\n\n\
 ## Original Request\n{request_text}\n\n\
 ## Current Plan\n{plan_text}\n\n\
 ## Available Agents\n{catalog_summary}{knowledge_scope_desc}\n\n\
+## How to Modify the Plan\n\
+You have DIRECT control over the execution plan. When the user asks to change, swap, add, or remove \
+agents, you MUST include a ```replan block in your response. The system automatically detects this \
+block and applies the changes immediately — it deletes the old plan nodes and creates new ones. \
+This is NOT a suggestion or proposal — it is an actual edit that takes effect as soon as you respond.\n\n\
+Format: include a fenced JSON block tagged ```replan containing the COMPLETE updated plan as an array.\n\
+depends_on uses 0-based indices (e.g. [0] means depends on the first node), OR agent slug strings (e.g. [\"clay_operator\"]).\n\
+```replan\n\
+[{{\"agent_slug\": \"notion_operator\", \"task_description\": \"...\", \"depends_on\": []}}, \
+{{\"agent_slug\": \"dashboard_builder\", \"task_description\": \"...\", \"depends_on\": [0]}}]\n\
+```\n\
+After including the block, confirm to the user that the plan has been updated. Do NOT say you \"cannot\" \
+modify the plan or that it's \"just a suggestion\" — the replan block IS the modification mechanism.\n\n\
+## Agent Selection Rules\n\
+- **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, \
+leaderboard, funnel chart, or metrics display. It renders natively in the platform.\n\
+- **lovable_operator** is ONLY for maintaining existing Lovable-hosted projects (lovable.dev). Do NOT use it \
+to build new dashboards or React UIs.\n\
+- NEVER use both together for the same dashboard. They are separate paths.\n\n\
 ## Guidelines\n\
 - Answer questions about the plan, agents, and what each step does.\n\
 - You have access to search_knowledge and read_knowledge tools. Use them to look up historical \
 project data, prior work, user logs, bugs, and configurations when the user asks about existing \
 data or project history — or when you need context to give a better answer.\n\
-- If the user wants to change the plan (add/remove agents, modify tasks), include a JSON block \
-tagged with ```replan in your response containing the updated plan as an array of objects with \
-agent_slug, task_description, and depends_on fields. The system will detect this and update the plan.\n\
 - Keep answers concise and actionable.\n\
 - Be encouraging and help the user feel confident about approving the plan or guide them to the changes they need."
     );
@@ -3426,6 +3442,7 @@ agent_slug, task_description, and depends_on fields. The system will detect this
 
         let max_tool_rounds = 3;
         let mut response_text = String::new();
+        let mut all_text_across_rounds = String::new();
 
         for round in 0..=max_tool_rounds {
             let (mut delta_rx, response_handle) = client.messages_stream(
@@ -3512,6 +3529,12 @@ agent_slug, task_description, and depends_on fields. The system will detect this
             };
 
             response_text = response.text();
+            if !response_text.is_empty() {
+                if !all_text_across_rounds.is_empty() {
+                    all_text_across_rounds.push_str("\n\n");
+                }
+                all_text_across_rounds.push_str(&response_text);
+            }
 
             // Check if the LLM wants to use tools
             let tool_uses: Vec<(String, String, Value)> = response.content.iter().filter_map(|block| {
@@ -3601,70 +3624,103 @@ agent_slug, task_description, and depends_on fields. The system will detect this
             "session chat message_stop sent"
         );
 
-        // Detect ```replan block and apply plan changes
-        if let Some(replan_start) = response_text.find("```replan") {
-            let json_start = replan_start + "```replan".len();
-            if let Some(json_end) = response_text[json_start..].find("```") {
-                let replan_json = response_text[json_start..json_start + json_end].trim();
-                if let Ok(new_plan) = serde_json::from_str::<Vec<planner::PlannedNode>>(replan_json) {
-                    info!(session_id = %bg_session_id, nodes = new_plan.len(), "replanning from chat");
+        // Detect ```replan block and apply plan changes.
+        // Search all_text_across_rounds (not just the final round) in case the
+        // model emitted the replan in a round that also used tool calls.
+        let replan_source = if all_text_across_rounds.contains("```replan") {
+            &all_text_across_rounds
+        } else if response_text.contains("```replan") {
+            &response_text
+        } else {
+            ""
+        };
 
-                    let _ = bg_state.db.execute_with(
-                        "DELETE FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2",
-                        pg_args!(bg_session_uuid, bg_master_uuid),
-                    ).await;
-
-                    let empty_uuids: Vec<Uuid> = vec![];
-                    let model = bg_state.settings.anthropic_model.clone();
-                    let mut plan_entries = vec![json!({
-                        "uid": bg_master_node_id,
-                        "agent_slug": MASTER_ORCHESTRATOR_SLUG,
-                        "task_description": bg_request_text,
-                        "requires": [],
-                    })];
-
-                    for pn in &new_plan {
-                        let child_uid = Uuid::new_v4();
-                        let child_jc_val = bg_state.catalog.get(&pn.agent_slug)
-                            .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
-                            .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+        if !replan_source.is_empty() {
+            if let Some(extracted) = extract_replan_json(replan_source) {
+                match parse_replan_nodes(&extracted) {
+                    Ok(new_plan) if !new_plan.is_empty() => {
+                        info!(session_id = %bg_session_id, nodes = new_plan.len(), "replanning from chat — applying");
 
                         let _ = bg_state.db.execute_with(
-                            r#"INSERT INTO execution_nodes
-                                (id, session_id, agent_slug, agent_git_sha, task_description, status,
-                                 requires, attempt_count, parent_uid, judge_config, max_iterations,
-                                 model, skip_judge, depth)
-                               VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, 1)"#,
-                            pg_args!(
-                                child_uid, bg_session_uuid, pn.agent_slug.clone(), "preview".to_string(),
-                                pn.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uuid,
-                                child_jc_val, model.clone()
-                            ),
+                            "DELETE FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2",
+                            pg_args!(bg_session_uuid, bg_master_uuid),
                         ).await;
 
-                        plan_entries.push(json!({
-                            "uid": child_uid.to_string(),
-                            "agent_slug": &pn.agent_slug,
-                            "task_description": &pn.task_description,
+                        let empty_uuids: Vec<Uuid> = vec![];
+                        let model = bg_state.settings.anthropic_model.clone();
+                        let mut plan_entries = vec![json!({
+                            "uid": bg_master_node_id,
+                            "agent_slug": MASTER_ORCHESTRATOR_SLUG,
+                            "task_description": bg_request_text,
                             "requires": [],
-                            "parent_uid": bg_master_node_id,
-                            "preview": true,
-                        }));
+                        })];
+
+                        for pn in &new_plan {
+                            let child_uid = Uuid::new_v4();
+                            let child_jc_val = bg_state.catalog.get(&pn.agent_slug)
+                                .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
+                                .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+
+                            let _ = bg_state.db.execute_with(
+                                r#"INSERT INTO execution_nodes
+                                    (id, session_id, agent_slug, agent_git_sha, task_description, status,
+                                     requires, attempt_count, parent_uid, judge_config, max_iterations,
+                                     model, skip_judge, depth)
+                                   VALUES ($1, $2, $3, $4, $5, 'preview', $6, 0, $7, $8, 15, $9, true, 1)"#,
+                                pg_args!(
+                                    child_uid, bg_session_uuid, pn.agent_slug.clone(), "preview".to_string(),
+                                    pn.task_description.clone(), &empty_uuids as &[Uuid], bg_master_uuid,
+                                    child_jc_val, model.clone()
+                                ),
+                            ).await;
+
+                            plan_entries.push(json!({
+                                "uid": child_uid.to_string(),
+                                "agent_slug": &pn.agent_slug,
+                                "task_description": &pn.task_description,
+                                "requires": [],
+                                "parent_uid": bg_master_node_id,
+                                "preview": true,
+                            }));
+                        }
+
+                        let plan_json: Value = plan_entries.into();
+                        let _ = bg_state.db.execute_with(
+                            "UPDATE execution_sessions SET plan = $1 WHERE id = $2",
+                            pg_args!(plan_json.clone(), bg_session_uuid),
+                        ).await;
+
+                        bg_state.event_bus.send(&bg_session_id, json!({
+                            "type": "plan_ready",
+                            "plan": plan_json,
+                            "node_count": 1 + new_plan.len(),
+                        })).await;
+
+                        info!(session_id = %bg_session_id, "replan applied and plan_ready sent");
                     }
-
-                    let plan_json: Value = plan_entries.into();
-                    let _ = bg_state.db.execute_with(
-                        "UPDATE execution_sessions SET plan = $1 WHERE id = $2",
-                        pg_args!(plan_json.clone(), bg_session_uuid),
-                    ).await;
-
-                    bg_state.event_bus.send(&bg_session_id, json!({
-                        "type": "plan_ready",
-                        "plan": plan_json,
-                        "node_count": 1 + new_plan.len(),
-                    })).await;
+                    Ok(_) => {
+                        warn!(session_id = %bg_session_id, "replan block parsed but produced empty plan");
+                    }
+                    Err(e) => {
+                        warn!(
+                            session_id = %bg_session_id,
+                            error = %e,
+                            json_preview = %extracted.chars().take(200).collect::<String>(),
+                            "replan block found but JSON parse failed"
+                        );
+                    }
                 }
+            } else {
+                warn!(
+                    session_id = %bg_session_id,
+                    "found ```replan tag but could not extract JSON block"
+                );
             }
+        } else if all_text_across_rounds.contains("replan") || all_text_across_rounds.contains("updated plan") {
+            info!(
+                session_id = %bg_session_id,
+                "response mentions replan but no ```replan block detected"
+            );
         }
     });
 
@@ -3672,6 +3728,96 @@ agent_slug, task_description, and depends_on fields. The system will detect this
         "ok": true,
         "message": "Processing your message...",
     })))
+}
+
+/// Parse a replan JSON array into PlannedNodes, handling the common case where
+/// the LLM uses agent slug strings in depends_on instead of numeric indices.
+fn parse_replan_nodes(json_str: &str) -> Result<Vec<planner::PlannedNode>, String> {
+    // First try direct parsing (numeric depends_on)
+    if let Ok(nodes) = serde_json::from_str::<Vec<planner::PlannedNode>>(json_str) {
+        return Ok(nodes);
+    }
+
+    // Fallback: parse with flexible depends_on (strings or numbers)
+    #[derive(serde::Deserialize)]
+    struct FlexNode {
+        agent_slug: String,
+        task_description: String,
+        #[serde(default)]
+        depends_on: Vec<serde_json::Value>,
+    }
+
+    let flex_nodes: Vec<FlexNode> = serde_json::from_str(json_str)
+        .map_err(|e| format!("{e}"))?;
+
+    let slug_to_idx: std::collections::HashMap<String, usize> = flex_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.agent_slug.clone(), i))
+        .collect();
+
+    let nodes = flex_nodes
+        .into_iter()
+        .map(|n| {
+            let depends_on = n.depends_on.iter().filter_map(|dep| {
+                match dep {
+                    serde_json::Value::Number(num) => num.as_u64().map(|v| v as usize),
+                    serde_json::Value::String(slug) => slug_to_idx.get(slug.as_str()).copied(),
+                    _ => None,
+                }
+            }).collect();
+            planner::PlannedNode {
+                agent_slug: n.agent_slug,
+                task_description: n.task_description,
+                depends_on,
+            }
+        })
+        .collect();
+
+    Ok(nodes)
+}
+
+/// Extract JSON from a ```replan fenced block, handling common LLM formatting
+/// variations: ```replan, ```replan\n, ```replan json, etc.
+fn extract_replan_json(text: &str) -> Option<String> {
+    // Find the ```replan tag (case-insensitive for the tag part)
+    let lower = text.to_lowercase();
+    let tag_pos = lower.find("```replan")?;
+    let after_tag = tag_pos + "```replan".len();
+
+    // Skip past the tag line (everything up to the first newline after the tag)
+    let rest = &text[after_tag..];
+    let json_start_offset = if let Some(nl) = rest.find('\n') {
+        nl + 1
+    } else {
+        0
+    };
+    let json_region = &rest[json_start_offset..];
+
+    // Find closing ``` fence
+    let json_end = json_region.find("```")?;
+    let raw = json_region[..json_end].trim();
+
+    if raw.is_empty() {
+        return None;
+    }
+
+    // If it starts with '[', it's the JSON array directly
+    if raw.starts_with('[') {
+        return Some(raw.to_string());
+    }
+
+    // Sometimes the LLM wraps it in another object; try to find the array inside
+    if let Some(arr_start) = raw.find('[') {
+        if let Some(arr_end) = raw.rfind(']') {
+            if arr_end > arr_start {
+                return Some(raw[arr_start..=arr_end].to_string());
+            }
+        }
+    }
+
+    // Fall back to the raw content
+    Some(raw.to_string())
 }
 
 // ── Agent Version Routes ─────────────────────────────────────────────────────

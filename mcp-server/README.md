@@ -1,105 +1,111 @@
 # Lele MCP Server
 
-An MCP (Model Context Protocol) server that bridges Claude Code to the Lele 2.0 agent platform. Claude Code acts as the smart local client — reading your files, understanding your codebase, enriching requests with local context — while Lele's server-side agents handle domain-specific work (Clay tables, n8n workflows, Notion pages, dashboards, etc.).
+A remote MCP (Model Context Protocol) server that bridges Claude Code to the Lele 2.0 agent platform. Runs on your server alongside the Lele backend. Users connect with a single URL -- no local installation required.
 
-## Setup
+## Architecture
 
-### 1. Build the server
+```
+User's Machine                          Your Server (EC2)
+┌────────────────────┐                ┌──────────────────────────────┐
+│ Claude Code        │   HTTP/S       │ MCP Server (:3002)           │
+│  ├── reads files   ├──────────────► │  └── /mcp endpoint           │
+│  ├── runs tools    │                │        │ (localhost)          │
+│  └── edits code    │                │        ▼                     │
+│                    │                │ Lele Backend (:3001)          │
+│ No install needed  │                │  ├── Planner                 │
+│                    │                │  ├── Master Orchestrator      │
+│                    │                │  ├── Clay / n8n / Notion ...  │
+│                    │                │  └── Domain Agents            │
+└────────────────────┘                └──────────────────────────────┘
+```
+
+## Server Setup
+
+### 1. Build and start
 
 ```bash
 cd mcp-server
 npm install
 npm run build
+npm start
 ```
 
-### 2. Get a JWT token
+The server starts on port 3002 by default and connects to the Lele backend at `localhost:3001`.
 
-Log into the Lele web UI normally, then grab the token from your browser:
+### 2. Environment variables
 
-1. Open the Lele frontend in your browser and log in
-2. Open DevTools → Application → Local Storage
-3. Copy the value of `99percent_token`
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LELE_BACKEND_URL` | `http://localhost:3001` | URL of the Lele backend |
+| `MCP_PORT` | `3002` | Port the MCP server listens on |
 
-This token will expire eventually. For long-term use, ask for an API key to be added to the backend.
+### 3. Expose to the internet
 
-### 3. Configure Claude Code
+The MCP server needs to be reachable from your users' machines. Options:
+- **Reverse proxy** (recommended): Add to your nginx/caddy config as `/mcp` route
+- **Direct**: Open port 3002 in your security group
 
-Add this to your Claude Code MCP config (usually `~/.claude/mcp.json` or project `.mcp.json`):
+## User Setup (one command)
+
+Users add the server to their Claude Code with a single command:
+
+```bash
+claude mcp add --transport http lele https://your-server.com/mcp
+```
+
+Or add to their `.mcp.json` / `~/.claude/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "lele": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-server/dist/index.js"],
-      "env": {
-        "LELE_BACKEND_URL": "http://localhost:3001",
-        "LELE_API_KEY": "your-jwt-token-here"
+      "type": "http",
+      "url": "https://your-server.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LELE_TOKEN}"
       }
     }
   }
 }
 ```
 
-Replace `/absolute/path/to/mcp-server` with the actual path to this directory. Replace `LELE_BACKEND_URL` with your Lele backend URL if not running locally.
+### Authentication
 
-## Usage
+Users authenticate with the same JWT they use for the Lele web UI. The MCP server passes the Bearer token through to the backend -- no separate auth system.
 
-Once configured, Claude Code will have access to these tools:
+To get a token, users log into the Lele web UI (Google Sign-In), and the token is available in localStorage as `99percent_token`. In the future, this can be replaced with a proper OAuth flow or API keys.
 
-### Tools
+## Available Tools
 
 | Tool | Purpose |
 |------|---------|
-| `lele_submit_request` | Submit a task to Lele for planning. Include local context (file schemas, URLs, conventions) in the request text. |
+| `lele_submit_request` | Submit a task to Lele. Include local context (file schemas, URLs, conventions) in the text. |
 | `lele_get_plan` | Check if the plan is ready. Returns node details when status is `awaiting_approval`. |
 | `lele_approve_plan` | Approve the plan and start agent execution. |
-| `lele_get_status` | Monitor execution progress. Shows which agents are running, done, or need input. |
+| `lele_get_status` | Monitor execution progress. Highlights agents that need input. |
 | `lele_get_node_output` | Get the full output from a specific agent node. |
-| `lele_reply` | Reply to an agent that is waiting for input (status: `awaiting_reply`). |
-| `lele_chat` | Send a message to the session orchestrator (for plan changes or follow-ups). |
+| `lele_reply` | Reply to an agent waiting for input (`awaiting_reply` status). |
+| `lele_chat` | Send a message to the session orchestrator (plan changes, follow-ups). |
 | `lele_stop` | Cancel a running session. |
 
-### Resources
+## Available Resources
 
 | Resource | Purpose |
 |----------|---------|
 | `lele://agents` | Browse all available agents and their capabilities. |
 | `lele://agents/{slug}` | Detailed info about a specific agent. |
 
-### Example workflow
+## Example Workflow
 
-You say to Claude Code:
+User says to Claude Code:
 
-> "I need to set up lead enrichment. The leads come from data/leads.csv and enriched data should trigger a Slack alert via our n8n automation."
+> "Set up lead enrichment. Leads come from data/leads.csv, enriched data should trigger Slack alerts via n8n."
 
-Claude Code will:
-
-1. Read `data/leads.csv` to understand your schema
-2. Read the agent catalog to know what Lele can do
-3. Submit an enriched request to Lele with your schema context
-4. Show you the plan and ask for approval
-5. Monitor execution, answering agent questions from local context when possible
-6. Present results and optionally update local files (config, README, etc.)
-
-## Architecture
-
-```
-Your Machine                          Lele Backend
-┌────────────────────┐                ┌──────────────────────────┐
-│ Claude Code        │                │ REST API                 │
-│  ├── reads files   │  MCP (stdio)   │  ├── Planner             │
-│  ├── runs tools   ◄──────────────►  │  ├── Master Orchestrator │
-│  └── edits code    │   HTTP/S       │  ├── Clay Operator       │
-│                    │                │  ├── n8n Operator         │
-│ MCP Server (local) │                │  ├── Notion Operator     │
-│  └── thin bridge   │                │  └── ... more agents     │
-└────────────────────┘                └──────────────────────────┘
-```
-
-## Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LELE_BACKEND_URL` | Yes | URL of the Lele backend (e.g., `http://localhost:3001` or `https://your-instance.com`) |
-| `LELE_API_KEY` | Yes | JWT token or API key for authentication |
+Claude Code:
+1. Reads `data/leads.csv` locally to understand the schema
+2. Reads `lele://agents` resource to know what Lele can do
+3. Calls `lele_submit_request` with the task + schema context
+4. Calls `lele_get_plan` to get the plan, presents it to the user
+5. Calls `lele_approve_plan` after user confirms
+6. Polls `lele_get_status`, answers agent questions from local files
+7. Gets results via `lele_get_node_output`, does local follow-up (updates config, README)
