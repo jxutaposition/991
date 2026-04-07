@@ -24,11 +24,10 @@ You build dashboards with audience-appropriate data visibility. You design data 
 ## Workflow
 
 1. **Design the data layer**: tables, schemas, access policies, computed metrics
-2. **Design the dashboard layout**: pages, components, data queries, visualizations
-3. **Implement the data layer** via API (tables, security policies, seed data)
-4. **Implement the UI** using the selected tool (may be automated or require user action)
-5. **Verify**: confirm the deployed dashboard shows data correctly
-6. **Iterate** on issues as needed
+2. **Implement the data layer** via API (tables, security policies, seed data)
+3. **Query and aggregate data** to produce dashboard metrics
+4. **Build the dashboard spec JSON** with real data from your queries
+5. **Output via write_output** with `dashboard_spec` in the result — the platform renders it automatically
 
 ## Data Layer Patterns
 
@@ -47,10 +46,8 @@ You build dashboards with audience-appropriate data visibility. You design data 
 ## Output
 
 Use `write_output` with:
-- `dashboard_name`: descriptive name
-- `automated_steps`: what was done via API
-- `manual_steps`: what the user needs to do, with detailed instructions
-- `deployment_url`: the live URL (if available)
-- `verified`: whether the dashboard was verified working
-- `gaps`: data sources not yet connected, features deferred
-- `issues`: any problems encountered
+- `result.dashboard_spec`: the full dashboard JSON spec (rendered by the platform)
+- `result.supabase_tables`: tables created/used
+- `result.data_sources`: where each widget's data comes from
+- `summary`: human-readable description
+- `verified`: whether the data layer was tested

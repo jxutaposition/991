@@ -392,6 +392,7 @@ fn build_execution_nodes(
     session_id: uuid::Uuid,
     git_sha: &str,
     catalog: &crate::agent_catalog::AgentCatalog,
+    session_model: Option<&str>,
 ) -> anyhow::Result<Vec<crate::agent_catalog::ExecutionPlanNode>> {
     use crate::agent_catalog::{ExecutionPlanNode, NodeStatus};
     use uuid::Uuid;
@@ -432,6 +433,7 @@ fn build_execution_nodes(
             judge_config: agent.judge_config.clone(),
             max_iterations: agent.max_iterations,
             model: agent.model.clone()
+                .or_else(|| session_model.map(|m| m.to_string()))
                 .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string()),
             skip_judge: agent.skip_judge,
             variant_group: None,
@@ -453,11 +455,12 @@ pub fn plan_to_execution_nodes(
     session_id: uuid::Uuid,
     git_sha: &str,
     catalog: &crate::agent_catalog::AgentCatalog,
+    session_model: Option<&str>,
 ) -> anyhow::Result<Vec<crate::agent_catalog::ExecutionPlanNode>> {
     let items: Vec<(&str, &str, &[usize])> = plan.iter()
         .map(|p| (p.agent_slug.as_str(), p.task_description.as_str(), p.depends_on.as_slice()))
         .collect();
-    build_execution_nodes(&items, session_id, git_sha, catalog)
+    build_execution_nodes(&items, session_id, git_sha, catalog, session_model)
 }
 
 // ── Rich Description Planner ─────────────────────────────────────────────────
@@ -620,7 +623,8 @@ pub async fn gather_planner_context(
                 .unwrap_or_default();
 
             let sql = format!(
-                "SELECT c.content, c.section_title, d.source_filename \
+                "SELECT c.id, c.content, c.section_title, d.source_filename, \
+                        1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity \
                  FROM knowledge_chunks c \
                  JOIN knowledge_documents d ON c.document_id = d.id \
                  WHERE c.tenant_id = '{tenant_id}' \
@@ -635,6 +639,27 @@ pub async fn gather_planner_context(
                 if !rows.is_empty() {
                     let mut knowledge_text = String::from("## Relevant Knowledge Base Results\n");
                     knowledge_text.push_str("Prior work, decisions, and reference material found in the knowledge base:\n\n");
+
+                    // Fire-and-forget: log chunk retrievals for observatory
+                    let db_log = db.clone();
+                    let log_rows: Vec<(String, f64)> = rows.iter().filter_map(|r| {
+                        let id = r.get("id").and_then(serde_json::Value::as_str)?.to_string();
+                        let sim = r.get("similarity").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+                        Some((id, sim))
+                    }).collect();
+                    let log_query = request.to_string();
+                    tokio::spawn(async move {
+                        for (chunk_id, sim) in log_rows {
+                            if let Ok(rid) = chunk_id.parse::<uuid::Uuid>() {
+                                let _ = db_log.execute_with(
+                                    "INSERT INTO knowledge_access_log (access_type, resource_id, query_text, similarity_score) \
+                                     VALUES ('chunk_retrieval', $1, $2, $3)",
+                                    crate::pg_args!(rid, log_query.clone(), sim as f32),
+                                ).await;
+                            }
+                        }
+                    });
+
                     for row in &rows {
                         let filename = row.get("source_filename").and_then(serde_json::Value::as_str).unwrap_or("unknown");
                         let section = row.get("section_title").and_then(serde_json::Value::as_str).unwrap_or("");
@@ -762,11 +787,12 @@ pub fn rich_plan_to_execution_nodes(
     session_id: uuid::Uuid,
     git_sha: &str,
     catalog: &crate::agent_catalog::AgentCatalog,
+    session_model: Option<&str>,
 ) -> anyhow::Result<Vec<crate::agent_catalog::ExecutionPlanNode>> {
     let items: Vec<(&str, &str, &[usize])> = plan.iter()
         .map(|p| (p.agent_slug.as_str(), p.task_description.as_str(), p.depends_on.as_slice()))
         .collect();
-    build_execution_nodes(&items, session_id, git_sha, catalog)
+    build_execution_nodes(&items, session_id, git_sha, catalog, session_model)
 }
 
 /// After plan generation, check each component's required tools against available

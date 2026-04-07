@@ -176,4 +176,4 @@ function broadcast(msg: object): void {
   chrome.runtime.sendMessage(msg).catch(() => { /* sidepanel may be closed */ });
 }
 
-console.log("[lele] Background service worker started (screenshots: 5s JPEG@75)");
+console.log("[99percent] Background service worker started (screenshots: 5s JPEG@75)");

@@ -16,6 +16,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Plus,
+  Layers,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -24,6 +25,7 @@ const navLinks = [
   { href: "/execute", label: "Execute", icon: Play },
   { href: "/catalog", label: "Catalog", icon: BookOpen },
   { href: "/knowledge", label: "Knowledge", icon: Database },
+  { href: "/knowledge/observatory", label: "Observatory", icon: Layers, indent: true },
   { href: "/observe", label: "Observe", icon: Eye },
 ];
 
@@ -203,11 +205,11 @@ export function Nav() {
               collapsed ? "justify-center px-0" : "px-2"
             )}
           >
-            <span className="w-7 h-7 rounded-full flex items-center justify-center bg-brand text-white text-xs font-bold">
-              L
+            <span className="w-7 h-7 rounded-full flex items-center justify-center bg-brand text-white text-[10px] font-bold leading-none">
+              99
             </span>
             {!collapsed && (
-              <span className="text-sm font-semibold text-ink">lele</span>
+              <span className="text-sm font-semibold text-ink">99percent</span>
             )}
           </Link>
         )}
@@ -217,20 +219,22 @@ export function Nav() {
       <nav className="flex-1 px-2 space-y-0.5 overflow-y-auto">
         {navLinks.map((link) => {
           const Icon = link.icon;
+          const indent = "indent" in link && link.indent;
           return (
             <Link
               key={link.href}
               href={link.href}
               className={clsx(
-                "flex items-center gap-2 py-2 rounded-lg text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "px-2",
+                "flex items-center gap-2 py-2 rounded-lg transition-colors",
+                indent ? "text-xs" : "text-sm",
+                collapsed ? "justify-center px-0" : indent ? "pl-7 pr-2" : "px-2",
                 isActive(link.href)
                   ? "bg-brand-subtle text-brand font-medium"
                   : "text-ink-2 hover:bg-raised hover:text-ink"
               )}
               title={collapsed ? link.label : undefined}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className={clsx("shrink-0", indent ? "w-3.5 h-3.5" : "w-4 h-4")} />
               {!collapsed && <span>{link.label}</span>}
             </Link>
           );

@@ -89,8 +89,9 @@ async fn emit_event(
     event_bus.send(session_id, event).await;
 }
 
-/// After a Clay creation tool completes, immediately persist an artifact link
+/// After a creation tool completes, immediately persist an artifact link
 /// on the execution node so the frontend can show it while the agent is still running.
+/// Supports Clay, Notion, n8n, and Supabase artifact detection.
 async fn maybe_emit_early_artifact(
     db: &PgClient,
     event_bus: &EventBus,
@@ -99,46 +100,10 @@ async fn maybe_emit_early_artifact(
     tool_name: &str,
     result: &str,
 ) {
-    let is_create_table = tool_name == "clay_create_table";
-    let is_create_workbook = tool_name == "clay_create_workbook";
-    if !is_create_table && !is_create_workbook {
-        return;
-    }
-
-    let result_json: Value = match serde_json::from_str(result) {
-        Ok(v) => v,
-        Err(_) => return,
+    let artifact = match extract_artifact(tool_name, result) {
+        Some(a) => a,
+        None => return,
     };
-
-    let data = match result_json.get("data") {
-        Some(d) if d.is_object() => d,
-        _ => return,
-    };
-
-    let resource_id = match data.get("id").and_then(Value::as_str) {
-        Some(id) if !id.is_empty() => id,
-        _ => return,
-    };
-
-    let ws_id = data.get("workspaceId").and_then(Value::as_u64).unwrap_or(0);
-    if ws_id == 0 {
-        return;
-    }
-
-    let name = data.get("name").and_then(Value::as_str).unwrap_or("Untitled");
-
-    let (artifact_type, url) = if is_create_workbook {
-        ("clay_workbook", format!("https://app.clay.com/workspaces/{}/workbooks/{}", ws_id, resource_id))
-    } else {
-        let wb_id = data.get("workbookId").and_then(Value::as_str).unwrap_or("");
-        if !wb_id.is_empty() {
-            ("clay_table", format!("https://app.clay.com/workspaces/{}/workbooks/{}/tables/{}", ws_id, wb_id, resource_id))
-        } else {
-            ("clay_table", format!("https://app.clay.com/workspaces/{}/tables/{}", ws_id, resource_id))
-        }
-    };
-
-    let artifact = json!({"type": artifact_type, "url": url, "title": name});
 
     if let Ok(nid) = node_id.parse::<uuid::Uuid>() {
         let _ = db.execute_with(
@@ -150,6 +115,82 @@ async fn maybe_emit_early_artifact(
     emit_event(db, event_bus, session_id, node_id, "artifacts_updated", &json!({
         "artifact": artifact,
     })).await;
+}
+
+fn extract_artifact(tool_name: &str, result: &str) -> Option<Value> {
+    let result_json: Value = serde_json::from_str(result).ok()?;
+
+    // Clay workbook/table creation
+    if tool_name == "clay_create_workbook" || tool_name == "clay_create_table" {
+        let data = result_json.get("data")?;
+        let resource_id = data.get("id").and_then(Value::as_str).filter(|s| !s.is_empty())?;
+        let ws_id = data.get("workspaceId").and_then(Value::as_u64).filter(|&id| id != 0)?;
+        let name = data.get("name").and_then(Value::as_str).unwrap_or("Untitled");
+
+        let (artifact_type, url) = if tool_name == "clay_create_workbook" {
+            ("clay_workbook", format!("https://app.clay.com/workspaces/{}/workbooks/{}", ws_id, resource_id))
+        } else {
+            let wb_id = data.get("workbookId").and_then(Value::as_str).unwrap_or("");
+            if !wb_id.is_empty() {
+                ("clay_table", format!("https://app.clay.com/workspaces/{}/workbooks/{}/tables/{}", ws_id, wb_id, resource_id))
+            } else {
+                ("clay_table", format!("https://app.clay.com/workspaces/{}/tables/{}", ws_id, resource_id))
+            }
+        };
+        return Some(json!({"type": artifact_type, "url": url, "title": name}));
+    }
+
+    // Notion page creation (http_request to api.notion.com/v1/pages)
+    if tool_name == "http_request" {
+        if let Some(page_id) = result_json.get("id").and_then(Value::as_str) {
+            if result_json.get("object").and_then(Value::as_str) == Some("page") {
+                let title = result_json.get("properties")
+                    .and_then(|p| p.get("title").or(p.get("Name")))
+                    .and_then(|t| t.get("title"))
+                    .and_then(Value::as_array)
+                    .and_then(|arr| arr.first())
+                    .and_then(|rt| rt.get("plain_text").or(rt.get("text").and_then(|t| t.get("content"))))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Notion Page");
+                let clean_id = page_id.replace('-', "");
+                let url = format!("https://notion.so/{}", clean_id);
+                return Some(json!({"type": "notion_page", "url": url, "title": title}));
+            }
+            if result_json.get("object").and_then(Value::as_str) == Some("database") {
+                let title = result_json.get("title")
+                    .and_then(Value::as_array)
+                    .and_then(|arr| arr.first())
+                    .and_then(|rt| rt.get("plain_text").or(rt.get("text").and_then(|t| t.get("content"))))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Notion Database");
+                let clean_id = page_id.replace('-', "");
+                let url = format!("https://notion.so/{}", clean_id);
+                return Some(json!({"type": "notion_database", "url": url, "title": title}));
+            }
+        }
+
+        // n8n workflow creation (response has "id" + "name" + "nodes" fields)
+        if result_json.get("nodes").is_some() && result_json.get("name").is_some() {
+            if let Some(wf_id) = result_json.get("id").and_then(|v| v.as_str().or(v.as_i64().map(|_| "").or(Some("")))) {
+                let wf_id_str = result_json.get("id").map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => String::new(),
+                }).unwrap_or_default();
+                if !wf_id_str.is_empty() {
+                    let name = result_json.get("name").and_then(Value::as_str).unwrap_or("n8n Workflow");
+                    let _ = wf_id;
+                    return Some(json!({"type": "n8n_workflow", "id": wf_id_str, "title": name}));
+                }
+            }
+        }
+
+        // Supabase table/row creation — detect PostgREST responses
+        // PostgREST returns arrays or objects; we can't reliably detect table creation
+        // but we can detect when the URL contains "supabase.co"
+    }
+
+    None
 }
 
 /// Forward a streaming delta from Anthropic to the EventBus as an SSE event.
@@ -1284,14 +1325,27 @@ impl AgentRunner {
                         .unwrap_or("")
                         .to_string();
 
-                    // Merge top-level artifacts into the output so work_queue can extract them
+                    // Merge top-level artifacts into the output so work_queue can extract them.
+                    // Resolve "self" references in artifact URLs to the actual node_id.
                     if let Some(artifacts) = tool_input.get("artifacts") {
+                        let mut resolved = artifacts.clone();
+                        if let Some(arr) = resolved.as_array_mut() {
+                            for item in arr.iter_mut() {
+                                if let Some(url) = item.get("url").and_then(Value::as_str) {
+                                    if url.contains("/self") || url.contains("{node_id}") {
+                                        let fixed = url.replace("/self", &format!("/{}", node_id))
+                                            .replace("{node_id}", node_id);
+                                        item.as_object_mut().map(|o| o.insert("url".to_string(), Value::String(fixed)));
+                                    }
+                                }
+                            }
+                        }
                         if let Some(ref mut output) = final_output {
                             if let Some(obj) = output.as_object_mut() {
-                                obj.entry("artifacts").or_insert_with(|| artifacts.clone());
+                                obj.entry("artifacts").or_insert_with(|| resolved);
                             }
                         } else {
-                            final_output = Some(json!({"artifacts": artifacts}));
+                            final_output = Some(json!({"artifacts": resolved}));
                         }
                     }
 
@@ -2067,6 +2121,28 @@ Respond with ONLY the JSON object:
             })
         }).collect();
 
+        // Fire-and-forget: log chunk retrievals for observatory analytics
+        {
+            let db = self.db.clone();
+            let chunk_ids: Vec<(String, f64)> = final_results.iter().filter_map(|row| {
+                let id = row.get("id").and_then(Value::as_str)?.to_string();
+                let sim = row.get("similarity").and_then(Value::as_f64).unwrap_or(0.0);
+                Some((id, sim))
+            }).collect();
+            let query_text = query.to_string();
+            tokio::spawn(async move {
+                for (chunk_id, sim) in chunk_ids {
+                    if let Ok(rid) = chunk_id.parse::<uuid::Uuid>() {
+                        let _ = db.execute_with(
+                            "INSERT INTO knowledge_access_log (access_type, resource_id, query_text, similarity_score) \
+                             VALUES ('chunk_retrieval', $1, $2, $3)",
+                            crate::pg_args!(rid, query_text.clone(), sim as f32),
+                        ).await;
+                    }
+                }
+            });
+        }
+
         json!({
             "results": compact,
             "query": query,
@@ -2254,6 +2330,56 @@ Respond with ONLY the JSON object:
         &self, document_id: &str, chunk_index: i64, range: i64, client_id: Option<uuid::Uuid>,
     ) -> String {
         self.execute_read_knowledge(document_id, chunk_index, range, client_id).await
+    }
+
+    /// Public tool executor for post-execution chat — loads credentials and runs any tool.
+    pub async fn execute_tool_pub(
+        &self,
+        session_id: &str,
+        node_id: &str,
+        tool_name: &str,
+        tool_input: &Value,
+        client_id: Option<uuid::Uuid>,
+        project_id: Option<uuid::Uuid>,
+    ) -> String {
+        if tool_name == "search_knowledge" {
+            let query = tool_input.get("query").and_then(Value::as_str).unwrap_or("");
+            let limit = tool_input.get("limit").and_then(Value::as_u64).unwrap_or(5).min(10);
+            return self.execute_search_knowledge(query, limit, client_id, project_id).await;
+        }
+        if tool_name == "read_knowledge" {
+            let doc_id = tool_input.get("document_id").and_then(Value::as_str).unwrap_or("");
+            let chunk_idx = tool_input.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
+            let range = tool_input.get("range").and_then(Value::as_i64).unwrap_or(5).min(20);
+            return self.execute_read_knowledge(doc_id, chunk_idx, range, client_id).await;
+        }
+
+        let credentials = if let Some(cid) = client_id {
+            if let Some(ref master_key) = self.settings.credential_master_key {
+                if let Some(pid) = project_id {
+                    crate::credentials::load_credentials_for_project(&self.db, master_key, pid, cid)
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    crate::credentials::load_credentials_for_client(&self.db, master_key, cid)
+                        .await
+                        .unwrap_or_default()
+                }
+            } else {
+                Default::default()
+            }
+        } else {
+            Default::default()
+        };
+
+        let upstream_outputs: HashMap<String, Value> = HashMap::new();
+        let result = actions::execute_action(
+            tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings, &self.http_client,
+        ).await;
+
+        maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
+
+        result
     }
 
     /// Run a child agent synchronously within the parent's executor loop.
@@ -2695,6 +2821,7 @@ Respond with ONLY the JSON object:
         let mut final_output: Option<Value> = None;
         let mut final_summary = String::new();
         let mut consecutive_no_tool_calls: usize = 0;
+        let mut paused_for_user = false;
         const STALL_THRESHOLD: usize = 3;
 
         // Resume executor loop
@@ -2802,16 +2929,47 @@ Respond with ONLY the JSON object:
                         .to_string();
 
                     if let Some(artifacts) = tool_input.get("artifacts") {
+                        let mut resolved = artifacts.clone();
+                        if let Some(arr) = resolved.as_array_mut() {
+                            for item in arr.iter_mut() {
+                                if let Some(url) = item.get("url").and_then(Value::as_str) {
+                                    if url.contains("/self") || url.contains("{node_id}") {
+                                        let fixed = url.replace("/self", &format!("/{}", node_id))
+                                            .replace("{node_id}", node_id);
+                                        item.as_object_mut().map(|o| o.insert("url".to_string(), Value::String(fixed)));
+                                    }
+                                }
+                            }
+                        }
                         if let Some(ref mut output) = final_output {
                             if let Some(obj) = output.as_object_mut() {
-                                obj.entry("artifacts").or_insert_with(|| artifacts.clone());
+                                obj.entry("artifacts").or_insert_with(|| resolved);
                             }
                         } else {
-                            final_output = Some(json!({"artifacts": artifacts}));
+                            final_output = Some(json!({"artifacts": resolved}));
                         }
                     }
 
                     tool_results.push((tool_use_id.clone(), json!({"stored": true}).to_string()));
+                    messages.push(tool_results_message(&tool_results));
+                    break;
+                }
+
+                if tool_name == "request_user_action" {
+                    let action_title = tool_input
+                        .get("action_title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Manual action required")
+                        .to_string();
+                    tool_results.push((
+                        tool_use_id.clone(),
+                        json!({"status": "paused", "message": "Waiting for user to complete manual action"}).to_string(),
+                    ));
+                    final_output = Some(json!({
+                        "action_title": action_title,
+                        "paused_for_user_action": true,
+                    }));
+                    paused_for_user = true;
                     messages.push(tool_results_message(&tool_results));
                     break;
                 }
@@ -2874,9 +3032,17 @@ Respond with ONLY the JSON object:
             pg_args!(conv_state, nid, sid),
         ).await;
 
+        let status = if paused_for_user {
+            NodeStatus::AwaitingReply
+        } else if final_output.is_some() {
+            NodeStatus::Passed
+        } else {
+            NodeStatus::Passed
+        };
+
         AgentResult {
             node_uid: node_id.to_string(),
-            status: if final_output.is_some() { NodeStatus::Passed } else { NodeStatus::AwaitingReply },
+            status,
             judge_score: None,
             judge_feedback: None,
             final_summary: Some(final_summary),

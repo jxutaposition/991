@@ -527,25 +527,39 @@ async fn persist_node_result(
 
     let error_category = classify_error(result);
 
-    // Extract artifacts from the output for easy querying
-    let artifacts: serde_json::Value = result.output.as_ref()
+    // Extract artifacts from the output for easy querying.
+    // Only overwrite the column if write_output actually provided artifacts;
+    // otherwise keep whatever early-detection artifacts are already stored.
+    let new_artifacts: Option<serde_json::Value> = result.output.as_ref()
         .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
-        .cloned()
-        .unwrap_or(serde_json::json!([]));
+        .filter(|a| a.as_array().map_or(false, |arr| !arr.is_empty()))
+        .cloned();
 
     let completed_clause = if result.status.is_terminal() {
         "completed_at = NOW()"
     } else {
         "completed_at = completed_at" // no-op for awaiting_reply
     };
-    let sql = format!(
-        "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, error_category = $7, {} WHERE id = $5",
-        completed_clause
-    );
-    db.execute_with(
-        &sql,
-        pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts, error_category),
-    ).await?;
+
+    if let Some(ref artifacts) = new_artifacts {
+        let sql = format!(
+            "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, error_category = $7, {} WHERE id = $5",
+            completed_clause
+        );
+        db.execute_with(
+            &sql,
+            pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts.clone(), error_category),
+        ).await?;
+    } else {
+        let sql = format!(
+            "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, error_category = $6, {} WHERE id = $5",
+            completed_clause
+        );
+        db.execute_with(
+            &sql,
+            pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, error_category),
+        ).await?;
+    }
 
     // Log execution event with rich payload
     let narrative_preview: String = result

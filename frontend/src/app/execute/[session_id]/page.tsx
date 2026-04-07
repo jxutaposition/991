@@ -677,6 +677,7 @@ export default function SessionPage() {
   );
 
   const activeReplyHandler = session?.status === "awaiting_approval" || session?.status === "planning"
+    || session?.status === "completed" || session?.status === "failed" || session?.status === "stopped"
     ? handleSessionChat
     : handleReply;
 

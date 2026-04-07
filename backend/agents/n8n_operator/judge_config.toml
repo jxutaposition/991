@@ -16,5 +16,5 @@ need_to_know = [
   "Never use {{}} inside Code nodes — use direct JavaScript/Python variable access",
   "Operation drives required fields — always check for the specific resource + operation combination",
   "Auto-sanitization happens on save: binary IF/Switch ops strip erroneous fields automatically",
-  "When using the HeyReach n8n instance, scope API calls with ?projectId=personal for Personal project workflows",
+  "On n8n Cloud (or any host with multiple projects), list/get workflows may require ?projectId=<id> — obtain the correct project id from the UI, API, or task context; do not assume a fixed project name",
 ]

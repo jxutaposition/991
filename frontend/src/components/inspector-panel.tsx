@@ -1387,12 +1387,13 @@ export const InspectorPanel = React.memo(function InspectorPanel({
                       <div className="grid gap-2">
                         {(selectedNode.artifacts as Array<{type: string; url: string; title: string}>).map((artifact, idx) => {
                           const integrationSlug = artifact.type.split("_")[0];
+                          const isInternal = artifact.url.startsWith("/");
                           return (
                             <a
                               key={idx}
                               href={artifact.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              target={isInternal ? undefined : "_blank"}
+                              rel={isInternal ? undefined : "noopener noreferrer"}
                               className="flex items-center gap-3 p-3 rounded-lg border border-rim bg-surface hover:bg-blue-50 hover:border-blue-200 transition-colors group"
                             >
                               <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
@@ -1400,7 +1401,7 @@ export const InspectorPanel = React.memo(function InspectorPanel({
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-ink truncate group-hover:text-blue-700">{artifact.title}</p>
-                                <p className="text-xs text-ink-3 truncate">{artifact.type.replace(/_/g, " ")} &middot; {artifact.url}</p>
+                                <p className="text-xs text-ink-3 truncate">{artifact.type.replace(/_/g, " ")}</p>
                               </div>
                               <ExternalLink className="w-3.5 h-3.5 text-ink-3 group-hover:text-blue-500 flex-shrink-0" />
                             </a>

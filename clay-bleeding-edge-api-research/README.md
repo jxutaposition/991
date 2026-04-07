@@ -187,7 +187,7 @@ Clay has **1193 enrichment actions** from 170+ providers. Each is a packaged API
 | View filter/sort via API | Not possible — preconfigured views only |
 | Row pagination | No cursor/offset — use `limit=10000` workaround |
 | Row sorting via query params | All params ignored — sorting is view-level only |
-| Route-row column creation | Endpoint exists but payload format needs investigation (400 error) |
+| ~~Route-row column creation~~ | **RESOLVED (Session 12)** — works with correct `actionPackageId: "b1ab3d5d-..."`, `inputsBinding` with `tableId` + `rowData` formulaMap. Auto-creates source + formula columns on target table. |
 | Webhook source creation | Requires paid plan (402 on Launch plan) |
 | WebSocket/real-time updates | Unknown transport, requires CDP browser inspection |
 | Individual workbook read/update/delete | Only create, duplicate, and list work |

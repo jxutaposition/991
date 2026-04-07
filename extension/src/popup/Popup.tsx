@@ -26,7 +26,7 @@ export function Popup() {
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", color: "#e4e4e7" }}>
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>lele Observer</div>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>99percent Observer</div>
         <div style={{ fontSize: 12, color: "#71717a" }}>
           {state?.isRecording ? `Recording · ${state.sessionId?.slice(0, 8) ?? ""}` : "Not recording"}
         </div>

@@ -96,7 +96,7 @@ export function SidePanel() {
       <div style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={S.dot} />
-          <span style={{ fontWeight: 600 }}>lele</span>
+          <span style={{ fontWeight: 600 }}>99percent</span>
           {state.sessionId && <span style={{ fontSize: 11, color: "#52525b" }}>{state.sessionId.slice(0, 8)}</span>}
         </div>
         <button style={S.recBtn} onClick={state.isRecording ? stopRecording : startRecording}>

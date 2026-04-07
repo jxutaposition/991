@@ -1,12 +1,12 @@
 # Gap Workstream Prompts
 
-These are self-contained session prompts for closing each gap between the Lele 2.0 thesis and the current codebase. Each prompt is designed to be dropped into a fresh Cursor/Claude conversation working inside this repo.
+These are self-contained session prompts for closing each gap between the 99percent product thesis and the current codebase. Each prompt is designed to be dropped into a fresh Cursor/Claude conversation working inside this repo.
 
 The prompts are ordered by priority. Each one should produce a **system design document** (like SD-001 through SD-003) plus an **implementation plan** that respects the existing architecture.
 
 **Ground rules for every workstream:**
 - The architecture must be a living, breathing system -- not a one-shot build. Design for continuous evolution.
-- Postgres is the source of truth. The `lele/` directory is the expert's local knowledge corpus.
+- Postgres is the source of truth. Expert and client knowledge is ingested via workspace uploads and the knowledge corpus (`knowledge_documents` / RAG), not committed client-specific files in this repo.
 - Backend is Rust/Axum (see `backend/src/`). Frontend is Next.js 15 / React 18 / Tailwind (see `frontend/src/`).
 - Anthropic Claude is the LLM (called via `backend/src/anthropic.rs`). No other LLM providers.
 - Existing system designs: `system_design/SD-001_agent_config_management.md`, `SD-002_integrations_and_credentials.md`, `SD-003_orchestrator_primitives_and_learning.md`.
@@ -96,7 +96,7 @@ These should be visually distinct in the plan UI -- not buried in prose.
 
 The thesis states: "These best GTM engineers are now building extensive knowledge banks in markdowns of meetings, designs, contracts, decision points, claude conversation summaries. We can push this further by collecting browser data." And: "Expert/team uploads full knowledge bank always... direct access to the file system, or a connector to always consume the new info."
 
-Currently, the expert's knowledge lives in `lele/` as manually curated markdown files committed to git. The browser extension (`extension/`) captures workflow events (clicks, navigation, screenshots) and streams them to `POST /api/observe/session/:id/events`. The overlay system stores learned lessons in Postgres. But there is no:
+Expert knowledge is expected to live primarily in the **uploaded knowledge corpus** (and connected sources), not in git-tracked client folders. The browser extension (`extension/`) captures workflow events (clicks, navigation, screenshots) and streams them to `POST /api/observe/session/:id/events`. The overlay system stores learned lessons in Postgres. Historically some teams kept a local markdown corpus; that content should be **uploaded** for RAG rather than baked into agent prompts. Gaps that may remain:
 
 - Bulk upload mechanism for a knowledge bank
 - Incremental sync from an external source
@@ -110,9 +110,8 @@ Design and implement a **knowledge ingestion pipeline** that continuously captur
 
 ### Key files to read first
 
-- `lele/` -- the existing knowledge corpus structure (me/, client/, skills/, progress/)
-- `lele/CLAUDE.md` -- how the agent currently uses the corpus (session start reads, on-demand loading)
-- `lele/config.json` -- configuration for the corpus
+- `frontend/src/app/knowledge/page.tsx` -- knowledge upload and browse UI
+- `backend/src/routes.rs` -- `knowledge_document_upload`, search, and related APIs
 - `backend/src/agent_runner.rs` -- how agents get context injected (upstream outputs, client context, credentials, skill overlays)
 - `backend/migrations/001_agent_catalog.sql` -- existing pgvector embeddings for agent catalog
 - `backend/src/feedback.rs` -- synthesize_feedback uses Claude to analyze signals
@@ -159,7 +158,7 @@ The system must detect when the expert's local corpus has new information that h
 
 - pgvector is already a dependency. Use it for embeddings.
 - The ingestion pipeline should be async (background jobs, not blocking the API).
-- Respect the existing `lele/` directory structure -- don't force experts to restructure their knowledge bank.
+- Support flexible folder and metadata from uploads; do not require a single fixed on-disk layout in the repo.
 - Start with markdown as the primary format. PDF/doc parsing can come later.
 - The RAG retrieval must be fast enough to be called mid-agent-execution without noticeable delay.
 
@@ -345,7 +344,7 @@ A repair agent is a specialized agent that:
 
 The thesis states: "Future agents have access to all previous agents/project artifacts -- this is the interconnected knowledge work that exposes their GTM tech stack as operable/navigatable 'code'."
 
-Currently, execution outputs are stored as JSONB on `execution_nodes.output`. Overlays promote patterns across projects. Past work is documented in `lele/me/past-work/`. But there is no explicit registry of artifacts, no cross-project linking, and no way for an agent to "navigate" the full history of what's been built.
+Currently, execution outputs are stored as JSONB on `execution_nodes.output`. Overlays promote patterns across projects. Past work may also be captured in the **uploaded knowledge corpus** (briefs, methodology, deliverable notes). But there is no explicit registry of artifacts, no cross-project linking, and no way for an agent to "navigate" the full history of what's been built.
 
 ### Task
 
@@ -355,8 +354,7 @@ Design and implement an **artifact registry and knowledge graph** that makes eve
 
 - `backend/migrations/003_execution.sql` -- execution_sessions, execution_nodes, execution_events
 - `backend/src/agent_runner.rs` -- how outputs/artifacts are persisted
-- `lele/me/past-work/` -- manually documented past deliverables
-- `lele/client/heyreach/` -- client-specific artifacts (program docs, access info)
+- Uploaded knowledge documents -- client briefs, program docs, access runbooks (scoped per tenant/project)
 - `backend/migrations/008_learning.sql` -- clients, workflows, agent_run_history
 - `system_design/SD-003_orchestrator_primitives_and_learning.md` -- overlay system
 
@@ -429,8 +427,7 @@ Design a **structured input flow** for creating execution sessions from contract
 - `backend/src/routes.rs` -- execution_create handler
 - `backend/src/planner.rs` -- how request_text feeds into plan generation
 - `frontend/src/app/execute/page.tsx` -- session creation UI
-- `lele/client/heyreach/brief.md` -- example of a client brief
-- `lele/me/methodology/scoping.md` -- how the expert actually scopes work
+- Example client briefs or scoping templates **as uploaded knowledge** for a workspace (not hardcoded in-repo examples)
 
 ### What structured input means
 

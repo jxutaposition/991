@@ -25,6 +25,7 @@ const CATEGORIES = [
 ];
 
 const EXAMPLE_PROMPTS = [
+  "Build a lead enrichment pipeline: create a Notion project brief, a Clay workbook with company enrichment + lead scoring + ICP routing, an n8n webhook workflow that syncs qualified leads to a Supabase table, and a React dashboard showing pipeline funnel, score distribution, and outreach priorities. Target series A-C B2B SaaS companies with 50-500 employees.",
   "Run cold outbound to fintech companies 50-500 employees in NYC",
   "Launch a lead gen campaign on Meta and Google, $5k budget",
   "Qualify 200 SaaStr leads and reach out via email and LinkedIn",

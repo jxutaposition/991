@@ -1,7 +1,7 @@
 /// Inbound Slack HTTP handlers for slash commands, interactions, and events.
 ///
 /// Three endpoints:
-///   POST /api/slack/commands     — slash command handler (/lele run, status, etc.)
+///   POST /api/slack/commands     — slash command handler (/99percent run, status, etc.)
 ///   POST /api/slack/interactions — button click handler (approve/reject)
 ///   POST /api/slack/events       — Events API (thread replies, url_verification)
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use crate::slack_messages;
 use crate::slack_notifier;
 use crate::state::AppState;
 
-// ── Slash Commands (/lele) ───────────────────────────────────────────────────
+// ── Slash Commands (/99percent) ────────────────────────────────────────────────
 
 /// POST /api/slack/commands
 ///
@@ -60,7 +60,7 @@ pub async fn commands_handler(
             if arg.is_empty() {
                 return Json(json!({
                     "response_type": "ephemeral",
-                    "text": "Usage: `/lele run <describe your GTM goal>`"
+                    "text": "Usage: `/99percent run <describe your GTM goal>`"
                 }))
                 .into_response();
             }
@@ -95,7 +95,7 @@ pub async fn commands_handler(
         _ => {
             Json(json!({
                 "response_type": "ephemeral",
-                "text": "Available commands:\n`/lele run <goal>` — Start a new GTM workflow\n`/lele status [session_id]` — Check execution status"
+                "text": "Available commands:\n`/99percent run <goal>` — Start a new GTM workflow\n`/99percent status [session_id]` — Check execution status"
             }))
             .into_response()
         }
@@ -126,7 +126,7 @@ async fn handle_run_command(
     {
         Ok(p) => p,
         Err(e) => {
-            error!(error = %e, "Slack /lele run: planner failed");
+            error!(error = %e, "Slack /99percent run: planner failed");
             let blocks = slack_messages::error_blocks(&format!("Planning failed: {e}"));
             let _ = slack.post_message(channel_id, &blocks, "Planning failed", None).await;
             return;
@@ -139,6 +139,7 @@ async fn handle_run_command(
         session_id,
         state.catalog.git_sha(),
         &state.catalog,
+        None,
     ) {
         Ok(n) => n,
         Err(e) => {

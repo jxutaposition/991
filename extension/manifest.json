@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "lele — GTM Observer",
+  "name": "99percent — GTM Observer",
   "version": "0.1.0",
   "description": "Captures GTM expert workflow sessions and streams real-time AI narration",
   "permissions": ["activeTab", "tabs", "storage", "alarms", "sidePanel"],
@@ -42,7 +42,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "lele Observer",
+    "default_title": "99percent Observer",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

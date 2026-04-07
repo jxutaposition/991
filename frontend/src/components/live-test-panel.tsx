@@ -8,7 +8,7 @@ function useExtensionDetected(): boolean {
 
   useEffect(() => {
     function check() {
-      setDetected(document.documentElement.dataset.leleObserver === "active");
+      setDetected(document.documentElement.dataset.percent99Observer === "active");
     }
     check();
     // Re-check periodically (extension may load after page)

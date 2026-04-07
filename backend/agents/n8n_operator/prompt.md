@@ -168,9 +168,17 @@ When a tool call fails:
 ## Output
 
 Use `write_output` with:
-- `workflow_id`: the n8n workflow ID
-- `workflow_name`: human-readable name
-- `status`: "created" | "activated" | "tested" | "blocked"
-- `nodes`: list of nodes configured
-- `blockers`: any issues requiring human intervention (e.g., OAuth2 consent)
-- `test_results`: summary of test execution results
+- `result.workflow_id`: the n8n workflow ID
+- `result.workflow_name`: human-readable name
+- `result.status`: "created" | "activated" | "tested" | "blocked"
+- `result.nodes`: list of nodes configured
+- `result.webhook_url`: the webhook trigger URL (if applicable)
+- `result.blockers`: any issues requiring human intervention (e.g., OAuth2 consent)
+- `result.test_results`: summary of test execution results
+- `summary`: human-readable description of the workflow
+- `artifacts`: array with the workflow link — e.g.:
+  ```json
+  [{"type": "n8n_workflow", "url": "{base_url}/workflow/{workflow_id}", "title": "{workflow_name}"}]
+  ```
+
+**Important:** Always include the `artifacts` array in `write_output` so the workflow link appears on the execution canvas.

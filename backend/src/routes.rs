@@ -650,6 +650,7 @@ pub async fn execution_create(
         session_id,
         state.catalog.git_sha(),
         &state.catalog,
+        Some(model),
     )
     .map_err(|e| {
         (
@@ -1869,156 +1870,6 @@ pub async fn data_table_rows(
     }
 }
 
-// ── Demo ─────────────────────────────────────────────────────────────────────
-
-/// POST /api/demo/run — run a scripted demo session through the full pipeline.
-/// Creates an observation session, sends 3 batches of realistic events,
-/// ends the session (triggering extraction). Returns session_id immediately.
-pub async fn demo_run(
-    State(state): State<Arc<AppState>>,
-) -> Json<Value> {
-    let session_id = Uuid::new_v4();
-    let expert_id = Uuid::new_v4();
-
-    // Create observation session
-    let sql = format!(
-        "INSERT INTO observation_sessions (id, expert_id, started_at, status) VALUES ('{session_id}', '{expert_id}', NOW(), 'recording')"
-    );
-    if let Err(e) = state.db.execute(&sql).await {
-        return Json(json!({"error": format!("Failed to create session: {e}")}));
-    }
-
-    // Create SSE channel
-    state.event_bus.create_channel(&session_id.to_string()).await;
-
-    info!(session = %session_id, "demo session started");
-
-    // Spawn background task that sends events and runs pipeline
-    let db = state.db.clone();
-    let api_key = state.settings.anthropic_api_key.clone();
-    let model = state.settings.anthropic_model.clone();
-    let catalog = state.catalog.clone();
-    let event_bus = state.event_bus.clone();
-    let sid = session_id.to_string();
-
-    tokio::spawn(async move {
-        let ts = chrono::Utc::now().timestamp_millis();
-
-        // Batch 1: ICP definition on Sales Navigator
-        let batch1 = serde_json::json!([
-            {"event_type": "navigation", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"page_title": "Sales Navigator - Lead Search"}, "sequence_number": 1, "timestamp": ts},
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Industry: Financial Technology", "class": "search-filter-btn"}, "sequence_number": 2, "timestamp": ts + 1},
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Company size: 51-200 employees", "class": "search-filter-btn"}, "sequence_number": 3, "timestamp": ts + 2},
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "button", "text": "Funding: Series A, Series B", "class": "search-filter-btn"}, "sequence_number": 4, "timestamp": ts + 3}
-        ]);
-        ingest_demo_events(&db, &sid, &batch1).await;
-        run_narrator(&db, &api_key, &model, &sid, &batch1, &event_bus).await;
-        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-
-        // Batch 2: Company research
-        let batch2 = serde_json::json!([
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/search", "dom_context": {"element": "a", "text": "Sarah Chen - VP Engineering at FinFlow", "class": "result-lockup__name"}, "sequence_number": 5, "timestamp": ts + 10000},
-            {"event_type": "navigation", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"page_title": "FinFlow - Crunchbase"}, "sequence_number": 6, "timestamp": ts + 10001},
-            {"event_type": "click", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"element": "div", "text": "Series B: $45M led by Sequoia Capital", "section": "funding_rounds"}, "sequence_number": 7, "timestamp": ts + 10002},
-            {"event_type": "click", "url": "http://localhost:4000/crunchbase/finflow", "dom_context": {"element": "span", "text": "Salesforce CRM", "class": "tech-item"}, "sequence_number": 8, "timestamp": ts + 10003}
-        ]);
-        ingest_demo_events(&db, &sid, &batch2).await;
-        run_narrator(&db, &api_key, &model, &sid, &batch2, &event_bus).await;
-        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-
-        // Batch 3: Contact finding + email
-        let batch3 = serde_json::json!([
-            {"event_type": "navigation", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"page_title": "Sarah Chen | Sales Navigator"}, "sequence_number": 9, "timestamp": ts + 20000},
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"element": "button", "text": "Save to list", "class": "save-lead-btn"}, "sequence_number": 10, "timestamp": ts + 20001},
-            {"event_type": "click", "url": "http://localhost:4000/sales-nav/profile/sarah-chen", "dom_context": {"element": "button", "text": "Copy email", "class": "copy-email-btn", "data-email": "sarah.chen@finflow.com"}, "sequence_number": 11, "timestamp": ts + 20002},
-            {"event_type": "navigation", "url": "http://localhost:4000/gmail/compose", "dom_context": {"page_title": "Gmail - Compose"}, "sequence_number": 12, "timestamp": ts + 20003},
-            {"event_type": "form_submit", "url": "http://localhost:4000/gmail/compose", "dom_context": {"form_data": {"to": "sarah.chen@finflow.com", "subject": "scaling eng at FinFlow", "body_preview": "Saw your post about growing the eng team post-Series B..."}}, "sequence_number": 13, "timestamp": ts + 20004}
-        ]);
-        ingest_demo_events(&db, &sid, &batch3).await;
-        run_narrator(&db, &api_key, &model, &sid, &batch3, &event_bus).await;
-        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-
-        // End session + trigger extraction
-        let coverage = crate::narrator::compute_coverage_score(&db, &sid).await;
-        let _ = db.execute_with(
-            "UPDATE observation_sessions SET status = 'completed', ended_at = NOW(), coverage_score = $1 WHERE id = $2",
-            crate::pg_args!(coverage, sid.to_string()),
-        ).await;
-
-        info!(session = %sid, "demo session ended, starting extraction");
-
-        if let Err(e) = crate::extraction::run_extraction(&db, &catalog, &api_key, &model, &sid, None).await {
-            tracing::warn!(session = %sid, error = %e, "demo extraction failed");
-        }
-
-        info!(session = %sid, "demo pipeline complete");
-    });
-
-    Json(json!({
-        "session_id": session_id.to_string(),
-        "estimated_seconds": 90,
-    }))
-}
-
-/// Ingest demo events into action_events table.
-async fn ingest_demo_events(db: &crate::pg::PgClient, session_id: &str, events: &Value) {
-    let events_arr = match events.as_array() {
-        Some(arr) => arr,
-        None => return,
-    };
-    for event in events_arr {
-        let url = event.get("url").and_then(Value::as_str).unwrap_or("").to_string();
-        let domain = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
-        let dom_ctx = event.get("dom_context").cloned().unwrap_or(Value::Null);
-        let event_type = event.get("event_type").and_then(Value::as_str).unwrap_or("").to_string();
-        let seq = event.get("sequence_number").and_then(Value::as_i64).unwrap_or(0) as i32;
-
-        let _ = db.execute_with(
-            "INSERT INTO action_events (session_id, sequence_number, event_type, url, domain, dom_context, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (session_id, sequence_number) DO NOTHING",
-            crate::pg_args!(session_id.to_string(), seq, event_type, url, domain, dom_ctx),
-        ).await;
-    }
-    let _ = db.execute_with(
-        "UPDATE observation_sessions SET event_count = (SELECT COUNT(*) FROM action_events WHERE session_id = $1) WHERE id = $1",
-        crate::pg_args!(session_id.to_string()),
-    ).await;
-}
-
-/// Run narrator on a batch of events.
-async fn run_narrator(
-    db: &crate::pg::PgClient,
-    api_key: &str,
-    model: &str,
-    session_id: &str,
-    events: &Value,
-    event_bus: &crate::session::EventBus,
-) {
-    use crate::narrator::{self, CapturedEvent};
-
-    let captured: Vec<CapturedEvent> = events.as_array().unwrap_or(&vec![]).iter().filter_map(|e| {
-        serde_json::from_value(e.clone()).ok()
-    }).collect();
-
-    if captured.is_empty() { return; }
-
-    let meaningful: Vec<&CapturedEvent> = captured.iter().filter(|e| e.event_type != "heartbeat").collect();
-    if meaningful.is_empty() { return; }
-
-    let max_seq = meaningful.iter().map(|e| e.sequence_number).max().unwrap_or(0);
-    let prior = narrator::load_prior_narrations(db, session_id, 5).await;
-    let narr = narrator::Narrator::new(api_key.to_string(), model.to_string());
-    let meaningful_owned: Vec<CapturedEvent> = meaningful.iter().map(|e| (*e).clone()).collect();
-
-    match narr.narrate(&meaningful_owned, &prior, None).await {
-        Ok(text) => {
-            let _ = narrator::persist_narration(db, session_id, max_seq, &text, model).await;
-            event_bus.send(session_id, serde_json::json!({"type": "narration_chunk", "text": &text, "sequence_ref": max_seq})).await;
-        }
-        Err(e) => tracing::warn!(session = %session_id, error = %e, "demo narrator failed"),
-    }
-}
-
 // ── Workflow Routes ──────────────────────────────────────────────────────────
 
 /// GET /api/workflows — list all workflows.
@@ -2575,6 +2426,31 @@ pub struct UpdateNodeRequest {
     pub integration_overrides: Option<Value>,
 }
 
+/// GET /api/nodes/:node_id — get a single node by ID (no session required).
+/// Used by the dashboard renderer to load a node's output/artifacts.
+pub async fn get_node_by_id(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
+    })?;
+
+    let rows = state.db.execute_with(
+        "SELECT id, session_id, agent_slug, status, output, artifacts, task_description, started_at, completed_at \
+         FROM execution_nodes WHERE id = $1",
+        pg_args!(node_uuid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    let row = rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Node not found"})))
+    })?;
+
+    Ok(Json(json!({"node": row})))
+}
+
 /// PATCH /api/execute/:session_id/nodes/:node_id — update a node (DAG editor).
 pub async fn execution_node_update(
     State(state): State<Arc<AppState>>,
@@ -2917,14 +2793,30 @@ pub async fn execution_node_reply(
     tokio::spawn(async move {
         let result = runner.resume_with_reply(&sid, &target_nid, &reply_text).await;
 
-        // Persist result
+        // Extract artifacts from write_output (if any) and persist them
         let status = result.status.as_str().to_string();
-        let _ = runner.db().execute_with(
-            r#"UPDATE execution_nodes
-               SET status = $1, output = COALESCE($2, output), completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
-               WHERE id = $3 AND session_id = $4"#,
-            crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid),
-        ).await;
+        let new_artifacts: Option<serde_json::Value> = result.output.as_ref()
+            .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
+            .filter(|a| a.as_array().map_or(false, |arr| !arr.is_empty()))
+            .cloned();
+
+        if let Some(ref artifacts) = new_artifacts {
+            let _ = runner.db().execute_with(
+                r#"UPDATE execution_nodes
+                   SET status = $1, output = COALESCE($2, output), artifacts = $5,
+                       completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
+                   WHERE id = $3 AND session_id = $4"#,
+                crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid, artifacts.clone()),
+            ).await;
+        } else {
+            let _ = runner.db().execute_with(
+                r#"UPDATE execution_nodes
+                   SET status = $1, output = COALESCE($2, output),
+                       completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
+                   WHERE id = $3 AND session_id = $4"#,
+                crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid),
+            ).await;
+        }
 
         // Broadcast completion for the target node
         runner.event_bus().send(
@@ -3023,9 +2915,12 @@ pub async fn execution_session_chat(
     let project_id = session_row.get("project_id").and_then(Value::as_str)
         .and_then(|s| s.parse::<Uuid>().ok());
 
-    if session_status != "awaiting_approval" && session_status != "planning" {
+    let is_pre_execution = session_status == "awaiting_approval" || session_status == "planning";
+    let is_post_execution = session_status == "completed" || session_status == "executing" || session_status == "failed" || session_status == "stopped";
+
+    if !is_pre_execution && !is_post_execution {
         return Err((StatusCode::CONFLICT, Json(json!({
-            "error": "Chat is only available before execution starts"
+            "error": format!("Chat is not available in session status '{}'", session_status)
         }))).into());
     }
 
@@ -3055,8 +2950,8 @@ pub async fn execution_session_chat(
         format!("- {slug}: {desc}")
     }).collect();
 
-    // Persist user message on the master node's stream
-    let user_meta = json!({"source": "human_reply", "phase": "pre_execution"});
+    let phase = if is_post_execution { "post_execution" } else { "pre_execution" };
+    let user_meta = json!({"source": "human_reply", "phase": phase});
     state.db.execute_with(
         "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'user', $3, $4)",
         pg_args!(session_uuid, master_uuid, body.message.clone(), user_meta.clone()),
@@ -3080,6 +2975,331 @@ pub async fn execution_session_chat(
             }
         }),
     ).await;
+
+    // ── Post-execution chat: full agent tool loop ────────────────────────────
+    if is_post_execution {
+        // Check for child nodes still awaiting reply — route there first
+        let awaiting_rows = state.db.execute_with(
+            "SELECT id FROM execution_nodes \
+             WHERE parent_uid = $1 AND session_id = $2 AND status = 'awaiting_reply' \
+               AND conversation_state IS NOT NULL \
+             ORDER BY created_at DESC LIMIT 1",
+            pg_args!(master_uuid, session_uuid),
+        ).await.unwrap_or_default();
+
+        if let Some(child_row) = awaiting_rows.first() {
+            if let Some(child_id_str) = child_row.get("id").and_then(|v| v.as_str()) {
+                if let Ok(child_uuid) = child_id_str.parse::<Uuid>() {
+                    tracing::info!(
+                        parent = %master_node_id, child = %child_id_str,
+                        "post-exec chat routing reply to awaiting child node"
+                    );
+
+                    let _ = state.db.execute_with(
+                        "UPDATE execution_nodes SET status = 'running' WHERE id = $1 AND session_id = $2",
+                        pg_args!(child_uuid, session_uuid),
+                    ).await;
+                    state.event_bus.send(&session_id, json!({
+                        "type": "node_resumed", "node_uid": child_id_str,
+                    })).await;
+
+                    let runner = crate::agent_runner::AgentRunner::new(
+                        state.settings.clone(),
+                        state.db.clone(),
+                        state.catalog.clone(),
+                        state.skill_catalog.clone(),
+                        state.tool_catalog.clone(),
+                        state.event_bus.clone(),
+                    );
+                    let sid = session_id.clone();
+                    let child_nid = child_id_str.to_string();
+                    let reply_text = body.message.clone();
+                    let parent_nid = master_node_id.clone();
+
+                    tokio::spawn(async move {
+                        let result = runner.resume_with_reply(&sid, &child_nid, &reply_text).await;
+                        let status = result.status.as_str().to_string();
+
+                        let new_artifacts: Option<serde_json::Value> = result.output.as_ref()
+                            .and_then(|o| o.get("artifacts").or_else(|| o.get("result").and_then(|r| r.get("artifacts"))))
+                            .filter(|a| a.as_array().map_or(false, |arr| !arr.is_empty()))
+                            .cloned();
+
+                        if let Some(ref artifacts) = new_artifacts {
+                            let _ = runner.db().execute_with(
+                                r#"UPDATE execution_nodes
+                                   SET status = $1, output = COALESCE($2, output), artifacts = $5,
+                                       completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
+                                   WHERE id = $3 AND session_id = $4"#,
+                                crate::pg_args!(status.clone(), result.output.clone(), child_uuid, session_uuid, artifacts.clone()),
+                            ).await;
+                        } else {
+                            let _ = runner.db().execute_with(
+                                r#"UPDATE execution_nodes
+                                   SET status = $1, output = COALESCE($2, output),
+                                       completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
+                                   WHERE id = $3 AND session_id = $4"#,
+                                crate::pg_args!(status.clone(), result.output.clone(), child_uuid, session_uuid),
+                            ).await;
+                        }
+
+                        runner.event_bus().send(&sid, json!({
+                            "type": if result.status.is_terminal() { "node_completed" } else { "node_awaiting_reply" },
+                            "node_uid": child_nid, "status": status,
+                        })).await;
+
+                        // Check if parent has more awaiting children
+                        if result.status.is_terminal() {
+                            let remaining = runner.db().execute_with(
+                                "SELECT COUNT(*) as cnt FROM execution_nodes \
+                                 WHERE parent_uid = $1 AND session_id = $2 AND status = 'awaiting_reply'",
+                                crate::pg_args!(master_uuid, session_uuid),
+                            ).await.unwrap_or_default();
+                            let still_awaiting = remaining.first()
+                                .and_then(|r| r.get("cnt").and_then(serde_json::Value::as_i64))
+                                .unwrap_or(0);
+                            if still_awaiting == 0 {
+                                runner.event_bus().send(&sid, json!({
+                                    "type": "all_children_resolved", "node_uid": parent_nid,
+                                })).await;
+                            }
+                        }
+                    });
+
+                    return Ok(Json(json!({"ok": true, "routed_to_child": child_id_str})));
+                }
+            }
+        }
+
+        let child_outputs = state.db.execute_with(
+            "SELECT agent_slug, task_description, status, output, artifacts \
+             FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2 \
+             ORDER BY created_at ASC",
+            pg_args!(session_uuid, master_uuid),
+        ).await.unwrap_or_default();
+
+        let mut system_context = String::from(
+            "## Built System Summary\nThese are the components that were built during execution. \
+             You have full access to inspect, modify, or troubleshoot any of them.\n\n"
+        );
+        for row in &child_outputs {
+            let slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("?");
+            let desc = row.get("task_description").and_then(Value::as_str).unwrap_or("?");
+            let status = row.get("status").and_then(Value::as_str).unwrap_or("?");
+            let output_summary = row.get("output")
+                .and_then(Value::as_object)
+                .and_then(|o| o.get("summary").and_then(Value::as_str))
+                .unwrap_or("(no summary)");
+            let artifacts_json = row.get("artifacts").cloned().unwrap_or(json!([]));
+            system_context.push_str(&format!(
+                "### {slug} [{status}]\n**Task**: {desc}\n**Output**: {output_summary}\n**Artifacts**: {artifacts_json}\n\n"
+            ));
+        }
+
+        let history_rows = state.db.execute_with(
+            "SELECT role, content FROM node_messages WHERE session_id = $1 AND node_id = $2 ORDER BY created_at ASC",
+            pg_args!(session_uuid, master_uuid),
+        ).await.unwrap_or_default();
+
+        let mut messages: Vec<Value> = history_rows.iter().filter_map(|r| {
+            let role = r.get("role").and_then(Value::as_str).unwrap_or("user");
+            if role == "system" {
+                return None;
+            }
+            let content = r.get("content").and_then(Value::as_str).unwrap_or("");
+            Some(json!({"role": role, "content": content}))
+        }).collect();
+
+        let mut deduped: Vec<Value> = Vec::new();
+        for msg in messages.drain(..) {
+            let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+            if let Some(last) = deduped.last_mut() {
+                let last_role = last.get("role").and_then(Value::as_str).unwrap_or("");
+                if last_role == role {
+                    let prev = last.get("content").and_then(Value::as_str).unwrap_or("").to_string();
+                    let curr = msg.get("content").and_then(Value::as_str).unwrap_or("");
+                    last["content"] = json!(format!("{prev}\n\n{curr}"));
+                    continue;
+                }
+            }
+            deduped.push(msg);
+        }
+        messages = deduped;
+
+        // Ensure messages start with user role (Anthropic requirement)
+        if messages.first().and_then(|m| m.get("role")).and_then(Value::as_str) == Some("assistant") {
+            messages.insert(0, json!({"role": "user", "content": "(conversation resumed)"}));
+        }
+
+        let catalog_summary = state.catalog.catalog_summary();
+        let orchestrator_prompt = state.catalog.get(MASTER_ORCHESTRATOR_SLUG)
+            .map(|a| a.system_prompt.clone())
+            .unwrap_or_else(|| "You are a helpful orchestrator.".to_string());
+
+        let system_prompt = format!(
+            "{orchestrator_prompt}\n\n\
+            ## Current Mode: Post-Execution Operations\n\
+            The system has been built and is live. You are now the ongoing operator of this system. \
+            The user can ask you questions, request status reports, troubleshoot issues, or ask for modifications.\n\n\
+            {system_context}\n\
+            ## Original Request\n{request_text}\n\n\
+            ## Available Agents\n{catalog_summary}\n\n\
+            ## Guidelines\n\
+            - For questions about the system, answer directly using the context above.\n\
+            - For status checks, use your tools (http_request, clay_* tools) to query live system state.\n\
+            - For modifications, spawn the appropriate subagent(s) with full context.\n\
+            - For troubleshooting, investigate first (query APIs, check status) then fix.\n\
+            - Always reference specific artifact IDs/URLs from the built system context above.\n\n\
+            ## Troubleshooting Procedure\n\
+            When the user reports something is broken or not working:\n\
+            1. **Investigate** — use `clay_get_table_schema` on relevant tables to check column structure, \
+            `clay_read_rows` to verify data flow, and `http_request` to test any n8n/API endpoints.\n\
+            2. **Diagnose** — compare what you find against the original build output. Identify missing columns, \
+            broken enrichments, disconnected sources, or data gaps.\n\
+            3. **Fix** — use `clay_create_field` to recreate missing columns, `clay_trigger_enrichment` to re-run \
+            stalled enrichments, or spawn a subagent for larger repairs.\n\
+            4. **Verify** — after fixing, re-read the schema/data to confirm the fix worked.\n\
+            Always explain what you found and what you fixed."
+        );
+
+        let bg_state = state.clone();
+        let bg_session_id = session_id.clone();
+        let bg_master_node_id = master_node_id.clone();
+        let bg_master_uuid = master_uuid;
+        let bg_session_uuid = session_uuid;
+
+        tokio::spawn(async move {
+            let runner = crate::agent_runner::AgentRunner::new(
+                bg_state.settings.clone(),
+                bg_state.db.clone(),
+                bg_state.catalog.clone(),
+                bg_state.skill_catalog.clone(),
+                bg_state.tool_catalog.clone(),
+                bg_state.event_bus.clone(),
+            );
+
+            let client = crate::anthropic::AnthropicClient::new(
+                bg_state.settings.anthropic_api_key.clone(),
+                bg_state.settings.anthropic_model.clone(),
+            );
+
+            let all_tools = crate::actions::all_action_defs();
+            let max_tool_rounds = 15;
+            let mut response_text = String::new();
+
+            for round in 0..=max_tool_rounds {
+                let (mut delta_rx, response_handle) = client.messages_stream(
+                    &system_prompt,
+                    &messages,
+                    &all_tools,
+                    8192,
+                    Some(&bg_state.settings.anthropic_model),
+                    None,
+                );
+
+                while let Some(event) = delta_rx.recv().await {
+                    if matches!(event, crate::anthropic::StreamEvent::MessageStop) {
+                        continue;
+                    }
+                    crate::agent_runner::forward_stream_delta_pub(
+                        &bg_state.event_bus,
+                        &bg_session_id,
+                        &bg_master_node_id,
+                        round,
+                        &event,
+                    ).await;
+                }
+
+                let response = match response_handle.await {
+                    Ok(Ok(r)) => r,
+                    Ok(Err(e)) => {
+                        warn!(error = %e, "post-execution chat LLM call failed");
+                        let error_msg = format!("Sorry, I encountered an error: {e}");
+                        let _ = bg_state.db.execute_with(
+                            "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
+                            pg_args!(bg_session_uuid, bg_master_uuid, error_msg.clone(), json!({"phase": "post_execution"})),
+                        ).await;
+                        bg_state.event_bus.send(&bg_session_id, json!({
+                            "type": "stream_entry", "node_uid": bg_master_node_id,
+                            "stream_entry": {"stream_type": "message", "sub_type": "assistant", "content": error_msg, "role": "assistant", "created_at": chrono::Utc::now().to_rfc3339()}
+                        })).await;
+                        bg_state.event_bus.send(&bg_session_id, json!({
+                            "type": "stream_entry", "node_uid": bg_master_node_id,
+                            "stream_entry": {"stream_type": "message_stop", "sub_type": "message_stop", "created_at": chrono::Utc::now().to_rfc3339()}
+                        })).await;
+                        return;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "post-execution chat task join failed");
+                        bg_state.event_bus.send(&bg_session_id, json!({
+                            "type": "stream_entry", "node_uid": bg_master_node_id,
+                            "stream_entry": {"stream_type": "message_stop", "sub_type": "message_stop", "created_at": chrono::Utc::now().to_rfc3339()}
+                        })).await;
+                        return;
+                    }
+                };
+
+                response_text = response.text();
+
+                let tool_uses: Vec<(String, String, Value)> = response.content.iter().filter_map(|block| {
+                    if block.get("type")?.as_str()? == "tool_use" {
+                        Some((
+                            block.get("id")?.as_str()?.to_string(),
+                            block.get("name")?.as_str()?.to_string(),
+                            block.get("input").cloned().unwrap_or(json!({})),
+                        ))
+                    } else {
+                        None
+                    }
+                }).collect();
+
+                if tool_uses.is_empty() || round == max_tool_rounds {
+                    break;
+                }
+
+                messages.push(crate::anthropic::assistant_message_from_response(&response.content));
+
+                let mut tool_results: Vec<(String, String)> = Vec::new();
+                for (tool_use_id, tool_name, tool_input) in &tool_uses {
+                    let result = runner.execute_tool_pub(
+                        &bg_session_id, &bg_master_node_id, tool_name, tool_input, client_id, project_id,
+                    ).await;
+                    info!(tool = %tool_name, "post-execution chat tool executed");
+                    tool_results.push((tool_use_id.clone(), result));
+                }
+
+                messages.push(crate::anthropic::tool_results_message(&tool_results));
+            }
+
+            let _ = bg_state.db.execute_with(
+                "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
+                pg_args!(bg_session_uuid, bg_master_uuid, response_text.clone(), json!({"phase": "post_execution"})),
+            ).await;
+
+            bg_state.event_bus.send(&bg_session_id, json!({
+                "type": "stream_entry", "node_uid": bg_master_node_id,
+                "stream_entry": {
+                    "stream_type": "message", "sub_type": "assistant", "content": response_text,
+                    "role": "assistant", "metadata": {"phase": "post_execution"},
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                }
+            })).await;
+            bg_state.event_bus.send(&bg_session_id, json!({
+                "type": "stream_entry", "node_uid": bg_master_node_id,
+                "stream_entry": {
+                    "stream_type": "message_stop", "sub_type": "message_stop",
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                }
+            })).await;
+        });
+
+        return Ok(Json(json!({
+            "ok": true,
+            "message": "Processing your message...",
+        })));
+    }
+
+    // ── Pre-execution chat (existing behavior) ───────────────────────────────
 
     // Load full conversation history for this node
     let history_rows = state.db.execute_with(
@@ -5601,6 +5821,7 @@ pub async fn project_execute_rich(
         session_id,
         state.catalog.git_sha(),
         &state.catalog,
+        None,
     ).map_err(|e| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Plan validation failed: {e}")})))
     })?;
@@ -6175,6 +6396,409 @@ pub async fn scope_narratives_list(
     })?;
 
     Ok(Json(json!({ "narratives": rows })))
+}
+
+// ── Knowledge Observatory (SD-006 Part 8) ───────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ObservatoryQuery {
+    pub tenant_id: Option<String>,
+}
+
+/// GET /api/knowledge/observatory — aggregated counts for the knowledge tree
+pub async fn knowledge_observatory(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<ObservatoryQuery>,
+) -> Result<Json<Value>, InternalError> {
+    let tenant_id = match &query.tenant_id {
+        Some(tid) => resolve_tenant_id(tid, &state.db).await?,
+        None => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "tenant_id required"}))).into()),
+    };
+    let tid = tenant_id.to_string();
+
+    // Pre-format SQL strings that use dynamic values
+    let chat_sql = format!(
+        "SELECT \
+         (SELECT COUNT(*) FROM execution_sessions WHERE learning_analyzed_at IS NOT NULL AND client_id = '{tid}') as sessions_analyzed, \
+         (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
+            WHERE es.client_id = '{tid}' AND cl.status IN ('applied', 'distilled')) as applied, \
+         (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
+            WHERE es.client_id = '{tid}' AND cl.status = 'conflict') as conflicts, \
+         (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
+            WHERE es.client_id = '{tid}' AND cl.status = 'pending') as pending, \
+         (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
+            WHERE es.client_id = '{tid}' AND cl.status = 'rejected') as rejected"
+    );
+
+    // Run all counts in parallel
+    let (
+        corpus_stats,
+        chunk_count,
+        chat_stats,
+        feedback_stats,
+        pattern_count,
+        pr_stats,
+        overlay_stats,
+        narrative_count,
+        observation_stats,
+        retrieval_stats,
+        project_stats,
+        agent_knowledge,
+    ) = tokio::join!(
+        state.db.execute_with(
+            "SELECT status, COUNT(*) as count FROM knowledge_documents WHERE tenant_id = $1 GROUP BY status",
+            pg_args!(tenant_id),
+        ),
+        state.db.execute_with(
+            "SELECT COUNT(*) as count FROM knowledge_chunks WHERE tenant_id = $1",
+            pg_args!(tenant_id),
+        ),
+        state.db.execute(&chat_sql),
+        state.db.execute(
+            "SELECT signal_type, COUNT(*) as count FROM feedback_signals GROUP BY signal_type",
+        ),
+        state.db.execute(
+            "SELECT COUNT(*) as count FROM feedback_patterns WHERE status = 'active'",
+        ),
+        state.db.execute(
+            "SELECT status, COUNT(*) as count FROM agent_prs GROUP BY status",
+        ),
+        state.db.execute(
+            "SELECT source, scope, COUNT(*) as count FROM overlays WHERE retired_at IS NULL GROUP BY source, scope",
+        ),
+        state.db.execute(
+            "SELECT COUNT(*) as count FROM scope_narratives",
+        ),
+        state.db.execute(
+            "SELECT \
+             (SELECT COUNT(*) FROM observation_sessions) as sessions, \
+             (SELECT COUNT(*) FROM distillations) as distillations",
+        ),
+        state.db.execute_with(
+            "SELECT COUNT(*)::bigint as total, \
+                    l.resource_id, \
+                    MAX(l.accessed_at) as last_accessed \
+             FROM knowledge_access_log l \
+             INNER JOIN knowledge_chunks c ON l.resource_id = c.id \
+             WHERE l.access_type = 'chunk_retrieval' \
+               AND l.accessed_at > NOW() - INTERVAL '7 days' \
+               AND c.tenant_id = $1 \
+             GROUP BY l.resource_id ORDER BY COUNT(*) DESC LIMIT 10",
+            pg_args!(tenant_id),
+        ),
+        state.db.execute_with(
+            "SELECT p.id, p.name, \
+                    (SELECT COUNT(*) FROM knowledge_documents WHERE project_id = p.id AND tenant_id = $1) as corpus_docs, \
+                    (SELECT COUNT(*) FROM knowledge_chunks WHERE project_id = p.id AND tenant_id = $1) as corpus_chunks, \
+                    (SELECT COUNT(*) FROM overlays WHERE scope = 'project' AND scope_id = p.id::text AND retired_at IS NULL) as overlays \
+             FROM projects p WHERE p.client_id = $1 ORDER BY p.name",
+            pg_args!(tenant_id),
+        ),
+        state.db.execute(
+            "SELECT slug, name, array_length(knowledge_docs, 1) as doc_count FROM agent_definitions WHERE knowledge_docs IS NOT NULL AND array_length(knowledge_docs, 1) > 0 ORDER BY slug",
+        ),
+    );
+
+    // Assemble corpus
+    let mut by_status: HashMap<String, i64> = HashMap::new();
+    let mut total_docs: i64 = 0;
+    if let Ok(rows) = &corpus_stats {
+        for row in rows {
+            let s = row.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let c = row.get("count").and_then(Value::as_i64).unwrap_or(0);
+            total_docs += c;
+            by_status.insert(s, c);
+        }
+    }
+    let chunks = chunk_count.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+
+    // Chat learning
+    let chat = chat_stats.ok().and_then(|r| r.into_iter().next()).unwrap_or(json!({}));
+
+    // Feedback
+    let mut feedback_by_type: HashMap<String, i64> = HashMap::new();
+    let mut total_signals: i64 = 0;
+    if let Ok(rows) = &feedback_stats {
+        for row in rows {
+            let t = row.get("signal_type").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let c = row.get("count").and_then(Value::as_i64).unwrap_or(0);
+            total_signals += c;
+            feedback_by_type.insert(t, c);
+        }
+    }
+    let patterns = pattern_count.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+    let mut prs_by_status: HashMap<String, i64> = HashMap::new();
+    if let Ok(rows) = &pr_stats {
+        for row in rows {
+            let s = row.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let c = row.get("count").and_then(Value::as_i64).unwrap_or(0);
+            prs_by_status.insert(s, c);
+        }
+    }
+
+    // Overlays
+    let mut by_source: HashMap<String, i64> = HashMap::new();
+    let mut by_scope: HashMap<String, i64> = HashMap::new();
+    let mut total_overlays: i64 = 0;
+    if let Ok(rows) = &overlay_stats {
+        for row in rows {
+            let src = row.get("source").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let scp = row.get("scope").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let c = row.get("count").and_then(Value::as_i64).unwrap_or(0);
+            total_overlays += c;
+            *by_source.entry(src).or_default() += c;
+            *by_scope.entry(scp).or_default() += c;
+        }
+    }
+    let narratives = narrative_count.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+
+    // Observations
+    let obs = observation_stats.ok().and_then(|r| r.into_iter().next()).unwrap_or(json!({}));
+
+    // Retrieval
+    let retrieval_total: i64 = retrieval_stats.as_ref().ok().map(|rows| rows.iter().filter_map(|r| r.get("total").and_then(Value::as_i64)).sum()).unwrap_or(0);
+    let top_chunks: Vec<Value> = retrieval_stats.ok().unwrap_or_default();
+
+    Ok(Json(json!({
+        "expert": {
+            "agents_with_knowledge": agent_knowledge.ok().unwrap_or_default(),
+        },
+        "workspace": {
+            "corpus": {
+                "total_documents": total_docs,
+                "total_chunks": chunks,
+                "by_status": by_status,
+            },
+            "chat_learning": {
+                "sessions_analyzed": chat.get("sessions_analyzed"),
+                "by_status": {
+                    "applied": chat.get("applied"),
+                    "conflict": chat.get("conflicts"),
+                    "pending": chat.get("pending"),
+                    "rejected": chat.get("rejected"),
+                },
+                "narratives": narratives,
+            },
+            "feedback": {
+                "total_signals": total_signals,
+                "by_type": feedback_by_type,
+                "active_patterns": patterns,
+                "agent_prs": prs_by_status,
+            },
+            "observations": {
+                "sessions": obs.get("sessions"),
+                "distillations": obs.get("distillations"),
+            },
+            "overlays": {
+                "total_active": total_overlays,
+                "by_source": by_source,
+                "by_scope": by_scope,
+            },
+            "retrieval_activity": {
+                "total_7d": retrieval_total,
+                "top_chunks": top_chunks,
+            },
+            "projects": project_stats.ok().unwrap_or_default(),
+        },
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct ObservatoryDetailQuery {
+    pub tenant_id: Option<String>,
+    pub page: Option<u64>,
+    pub limit: Option<u64>,
+    pub scope: Option<String>,
+    pub source: Option<String>,
+    pub status: Option<String>,
+}
+
+/// GET /api/knowledge/observatory/:section — paginated drill-down rows
+pub async fn knowledge_observatory_detail(
+    State(state): State<Arc<AppState>>,
+    Path(section): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<ObservatoryDetailQuery>,
+) -> Result<Json<Value>, InternalError> {
+    let tenant_id = match &query.tenant_id {
+        Some(tid) => resolve_tenant_id(tid, &state.db).await?,
+        None => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "tenant_id required"}))).into()),
+    };
+    let page = query.page.unwrap_or(1).max(1);
+    let limit = query.limit.unwrap_or(20).min(100);
+    let offset = (page - 1) * limit;
+
+    match section.as_str() {
+        "corpus_documents" => {
+            let rows = state.db.execute_with(
+                &format!(
+                    "SELECT id, source_filename, source_path, source_folder, mime_type, status, \
+                            chunk_count, inferred_scope, created_at, updated_at \
+                     FROM knowledge_documents WHERE tenant_id = $1 \
+                     ORDER BY source_path ASC LIMIT {} OFFSET {}", limit, offset
+                ),
+                pg_args!(tenant_id),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute_with(
+                "SELECT COUNT(*) as count FROM knowledge_documents WHERE tenant_id = $1",
+                pg_args!(tenant_id),
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "corpus_chunks" => {
+            let rows = state.db.execute_with(
+                &format!(
+                    "SELECT c.id, LEFT(c.content, 200) as content_preview, c.section_title, \
+                            c.chunk_index, c.token_count, d.source_filename \
+                     FROM knowledge_chunks c \
+                     JOIN knowledge_documents d ON c.document_id = d.id \
+                     WHERE c.tenant_id = $1 \
+                     ORDER BY d.source_filename, c.chunk_index LIMIT {} OFFSET {}", limit, offset
+                ),
+                pg_args!(tenant_id),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute_with(
+                "SELECT COUNT(*) as count FROM knowledge_chunks WHERE tenant_id = $1",
+                pg_args!(tenant_id),
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "chat_learnings" => {
+            let status_filter = query.status.as_deref()
+                .filter(|s| ["applied", "conflict", "pending", "rejected", "distilled"].contains(s))
+                .map(|s| format!(" AND cl.status = '{s}'"))
+                .unwrap_or_default();
+            let rows = state.db.execute_with(
+                &format!(
+                    "SELECT cl.id, cl.session_id, cl.learning_text, cl.status, \
+                            cl.suggested_scope as scope, cl.created_at \
+                     FROM chat_learnings cl \
+                     INNER JOIN execution_sessions es ON cl.session_id = es.id \
+                     WHERE es.client_id = $1 {status_filter} \
+                     ORDER BY cl.created_at DESC LIMIT {limit} OFFSET {offset}"
+                ),
+                pg_args!(tenant_id),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute_with(
+                &format!(
+                    "SELECT COUNT(*) as count FROM chat_learnings cl \
+                     INNER JOIN execution_sessions es ON cl.session_id = es.id \
+                     WHERE es.client_id = $1 {status_filter}"
+                ),
+                pg_args!(tenant_id),
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "feedback_signals" => {
+            let rows = state.db.execute(
+                &format!(
+                    "SELECT id, signal_type, authority, weight, agent_slug, description, created_at \
+                     FROM feedback_signals \
+                     ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
+                ),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute(
+                "SELECT COUNT(*) as count FROM feedback_signals",
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "feedback_patterns" => {
+            let rows = state.db.execute(
+                &format!(
+                    "SELECT id, agent_slug, pattern_type, description, session_count, severity, status, created_at \
+                     FROM feedback_patterns WHERE status = 'active' \
+                     ORDER BY session_count DESC LIMIT {limit} OFFSET {offset}"
+                ),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute(
+                "SELECT COUNT(*) as count FROM feedback_patterns WHERE status = 'active'",
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "agent_prs" => {
+            let rows = state.db.execute(
+                &format!(
+                    "SELECT id, pr_type, target_agent_slug, gap_summary, confidence, \
+                            evidence_count, status, auto_merge_eligible, created_at \
+                     FROM agent_prs \
+                     ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
+                ),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute(
+                "SELECT COUNT(*) as count FROM agent_prs",
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "overlays" => {
+            let mut filters = String::from("retired_at IS NULL");
+            if let Some(ref src) = query.source {
+                let escaped = src.replace('\'', "''");
+                filters.push_str(&format!(" AND source = '{escaped}'"));
+            }
+            if let Some(ref scp) = query.scope {
+                let escaped = scp.replace('\'', "''");
+                filters.push_str(&format!(" AND scope = '{escaped}'"));
+            }
+            let rows = state.db.execute(
+                &format!(
+                    "SELECT o.id, o.primitive_type, o.scope, o.source, o.content, o.created_at, \
+                            s.slug as skill_slug, s.name as skill_name \
+                     FROM overlays o \
+                     LEFT JOIN skills s ON o.primitive_id = s.id \
+                     WHERE {filters} \
+                     ORDER BY o.created_at DESC LIMIT {limit} OFFSET {offset}"
+                ),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute(
+                &format!("SELECT COUNT(*) as count FROM overlays WHERE {filters}"),
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "scope_narratives" => {
+            let rows = state.db.execute(
+                &format!(
+                    "SELECT id, scope, scope_id, narrative_text, source_overlay_count, generated_at \
+                     FROM scope_narratives \
+                     ORDER BY scope, generated_at DESC LIMIT {limit} OFFSET {offset}"
+                ),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            let total = state.db.execute(
+                "SELECT COUNT(*) as count FROM scope_narratives",
+            ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
+            Ok(Json(json!({"rows": rows, "total": total})))
+        }
+        "retrieval_hits" => {
+            let rows = state.db.execute_with(
+                &format!(
+                    "SELECT l.resource_id as chunk_id, COUNT(*) as hit_count, \
+                            MAX(l.accessed_at) as last_accessed, \
+                            AVG(l.similarity_score) as avg_similarity, \
+                            LEFT(c.content, 200) as content_preview, \
+                            d.source_filename \
+                     FROM knowledge_access_log l \
+                     JOIN knowledge_chunks c ON l.resource_id = c.id \
+                     JOIN knowledge_documents d ON c.document_id = d.id \
+                     WHERE l.access_type = 'chunk_retrieval' \
+                       AND l.accessed_at > NOW() - INTERVAL '30 days' \
+                       AND d.tenant_id = $1 \
+                     GROUP BY l.resource_id, c.content, d.source_filename \
+                     ORDER BY hit_count DESC \
+                     LIMIT {limit} OFFSET {offset}"
+                ),
+                pg_args!(tenant_id),
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            Ok(Json(json!({"rows": rows, "total": rows.len()})))
+        }
+        "agent_knowledge" => {
+            let rows = state.db.execute(
+                "SELECT slug, name, array_length(knowledge_docs, 1) as doc_count \
+                 FROM agent_definitions \
+                 WHERE knowledge_docs IS NOT NULL AND array_length(knowledge_docs, 1) > 0 \
+                 ORDER BY slug",
+            ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+            Ok(Json(json!({"rows": rows, "total": rows.len()})))
+        }
+        _ => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Unknown section: {section}")}))).into()),
+    }
 }
 
 /// POST /api/scope-narratives/:id/regenerate — force regeneration

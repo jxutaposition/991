@@ -2,6 +2,24 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 
+const AUTH_TOKEN_KEY = "99percent_token";
+const AUTH_ACTIVE_CLIENT_KEY = "99percent_active_client";
+/** Legacy keys — migrated once on load */
+const LEGACY_TOKEN_KEY = "lele_token";
+const LEGACY_ACTIVE_CLIENT_KEY = "lele_active_client";
+
+function migrateLegacyAuthStorage(): void {
+  if (typeof window === "undefined") return;
+  if (!localStorage.getItem(AUTH_TOKEN_KEY) && localStorage.getItem(LEGACY_TOKEN_KEY)) {
+    localStorage.setItem(AUTH_TOKEN_KEY, localStorage.getItem(LEGACY_TOKEN_KEY)!);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  }
+  if (!localStorage.getItem(AUTH_ACTIVE_CLIENT_KEY) && localStorage.getItem(LEGACY_ACTIVE_CLIENT_KEY)) {
+    localStorage.setItem(AUTH_ACTIVE_CLIENT_KEY, localStorage.getItem(LEGACY_ACTIVE_CLIENT_KEY)!);
+    localStorage.removeItem(LEGACY_ACTIVE_CLIENT_KEY);
+  }
+}
+
 interface User {
   id: string;
   email: string;
@@ -62,12 +80,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.clients?.length > 0) {
         setActiveClientState(prev => {
           if (prev) return prev;
-          const stored = localStorage.getItem("lele_active_client");
+          const stored = localStorage.getItem(AUTH_ACTIVE_CLIENT_KEY);
           return stored ?? data.clients[0].slug;
         });
       }
     } catch {
-      localStorage.removeItem("lele_token");
+      localStorage.removeItem(AUTH_TOKEN_KEY);
       setUser(null);
       setToken(null);
     } finally {
@@ -76,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const stored = localStorage.getItem("lele_token");
+    migrateLegacyAuthStorage();
+    const stored = localStorage.getItem(AUTH_TOKEN_KEY);
     if (stored) {
       loadUser(stored);
     } else {
@@ -92,13 +111,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!res.ok) throw new Error("Authentication failed");
     const data = await res.json();
-    localStorage.setItem("lele_token", data.token);
+    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
     await loadUser(data.token);
   }, [loadUser]);
 
   const signOut = useCallback(() => {
-    localStorage.removeItem("lele_token");
-    localStorage.removeItem("lele_active_client");
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_ACTIVE_CLIENT_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_ACTIVE_CLIENT_KEY);
     setUser(null);
     setToken(null);
     setClients([]);
@@ -107,11 +128,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveClient = useCallback((slug: string) => {
     setActiveClientState(slug);
-    localStorage.setItem("lele_active_client", slug);
+    localStorage.setItem(AUTH_ACTIVE_CLIENT_KEY, slug);
   }, []);
 
   const refreshClients = useCallback(async () => {
-    const jwt = tokenRef.current ?? localStorage.getItem("lele_token");
+    const jwt = tokenRef.current ?? localStorage.getItem(AUTH_TOKEN_KEY);
     if (!jwt) return;
     try {
       const res = await fetch("/api/auth/me", {

@@ -1,10 +1,9 @@
 /// GTM action definitions for the agent executor.
 ///
 /// Each tool is defined here with its name, description, and input schema.
-/// In Phase 0 (MVP), tools return mock/stub responses.
-/// Real integrations (HubSpot, LinkedIn, Meta Ads, etc.) are added in later phases.
+/// Integrations call real APIs when credentials are configured; otherwise they return explicit errors (no synthetic success payloads).
 use serde_json::{json, Value};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::anthropic::ToolDef;
 use crate::credentials::DecryptedCredential;
@@ -807,11 +806,9 @@ fn parse_clay_cred(cred: &crate::credentials::DecryptedCredential) -> (String, O
     (api_key, session_cookie, workspace_id)
 }
 
-// ── Tool execution (Phase 0: mock responses) ──────────────────────────────────
+// ── Tool execution ────────────────────────────────────────────────────────────
 
 /// Execute a tool call and return the result as a JSON string.
-/// Phase 0: Returns realistic mock data for all GTM tools.
-/// Phase 1+: Calls real integrations.
 pub async fn execute_action(
     name: &str,
     input: &Value,
@@ -846,7 +843,6 @@ async fn execute_action_inner(
     match name {
         "search_linkedin_profile" => {
             let query = input.get("query").and_then(Value::as_str).unwrap_or("");
-            // Try Apollo people/match API first, fall back to mock
             if let Some(cred) = credentials.get("apollo") {
                 let client = http_client;
                 let body = if query.contains("linkedin.com") {
@@ -870,13 +866,7 @@ async fn execute_action_inner(
                 }
             } else {
                 json!({
-                    "error": "No Apollo credential configured. Add an Apollo API key to enable LinkedIn profile search.",
-                    "fallback_mock": true,
-                    "name": "Alex Johnson",
-                    "title": "VP of Sales",
-                    "company": "Acme Corp",
-                    "location": "San Francisco, CA",
-                    "summary": "10 years building sales teams at high-growth SaaS companies"
+                    "error": "No Apollo credential configured. Add an Apollo API key in Settings → Integrations to enable LinkedIn profile search."
                 }).to_string()
             }
         }
@@ -937,11 +927,7 @@ async fn execute_action_inner(
                 }
             } else {
                 json!({
-                    "error": "No Apollo credential configured. Add an Apollo API key to enable company enrichment.",
-                    "fallback_mock": true,
-                    "company": company,
-                    "employees": 120,
-                    "industry": "B2B SaaS"
+                    "error": "No Apollo credential configured. Add an Apollo API key in Settings → Integrations to enable company enrichment."
                 }).to_string()
             }
         }
@@ -980,13 +966,7 @@ async fn execute_action_inner(
                 }
             } else {
                 json!({
-                    "error": "No Apollo credential configured. Add an Apollo API key to enable contact search.",
-                    "fallback_mock": true,
-                    "company": company,
-                    "contacts": [
-                        {"name": "Sarah Chen", "title": "VP Sales", "email": "sarah@example.com"},
-                        {"name": "Marcus Williams", "title": "Head of Growth", "email": "marcus@example.com"}
-                    ]
+                    "error": "No Apollo credential configured. Add an Apollo API key in Settings → Integrations to enable contact search."
                 }).to_string()
             }
         }
@@ -1239,28 +1219,13 @@ async fn execute_action_inner(
 
         "fetch_ad_performance" => {
             json!({
-                "platform": "all",
-                "metrics": {
-                    "impressions": 45000,
-                    "clicks": 1200,
-                    "ctr": 2.67,
-                    "cpc": 4.20,
-                    "conversions": 48,
-                    "cpa": 105.00,
-                    "roas": 3.2
-                },
-                "top_performing_ad": "Your recent funding round ad copy variant B"
+                "error": "fetch_ad_performance is not wired to a live ads API. Configure the relevant integration and implement the provider call in execute_action, or use a different tool."
             }).to_string()
         }
 
         "meta_ads_api" | "google_ads_api" => {
-            let action = input.get("action").and_then(Value::as_str).unwrap_or("create");
             json!({
-                "success": true,
-                "action": action,
-                "id": format!("mock_{}", uuid::Uuid::new_v4()),
-                "status": "active",
-                "note": "Mock response — Phase 0. Real API integration in Phase 3."
+                "error": "This ads API tool is not implemented yet. Use provider-specific credentials and HTTP tools, or extend execute_action with the official Meta/Google Marketing APIs."
             }).to_string()
         }
 
@@ -1687,7 +1652,7 @@ async fn execute_action_inner(
                     "fieldIds": field_ids,
                     "runRecords": { "recordIds": record_ids },
                     "forceRun": force_run,
-                    "callerName": "lele-agent"
+                    "callerName": "99percent-agent"
                 });
                 match http_client.patch(&url)
                     .header("Cookie", cookie.as_str())
@@ -2053,10 +2018,19 @@ async fn execute_action_inner(
                     }
                 } else if url.contains(".n8n.cloud") || url.contains("n8n.") || url.contains("/api/v1/workflows") || url.contains("/api/v1/executions") || url.contains("/api/v1/credentials") || settings.n8n_base_url.as_deref().map_or(false, |base| url.starts_with(base)) {
                     let api_key = credentials.get("n8n")
-                        .map(|cred| extract_bearer_token(cred))
-                        .or_else(|| settings.n8n_api_key.clone());
-                    if let Some(key) = api_key {
-                        request = request.header("X-N8N-API-KEY", &key);
+                        .map(|cred| {
+                            debug!(n8n_cred_type = %cred.credential_type, n8n_cred_len = cred.value.len(), "n8n credential found");
+                            extract_bearer_token(cred)
+                        })
+                        .or_else(|| {
+                            debug!("n8n credential not in map, falling back to settings.n8n_api_key");
+                            settings.n8n_api_key.clone()
+                        });
+                    if let Some(ref key) = api_key {
+                        debug!(key_len = key.len(), "injecting X-N8N-API-KEY header");
+                        request = request.header("X-N8N-API-KEY", key.as_str());
+                    } else {
+                        warn!("n8n URL detected but no API key available");
                     }
                 } else if url.contains("graph.facebook.com") {
                     if let Some(cred) = credentials.get("meta") {
@@ -2125,7 +2099,7 @@ async fn execute_action_inner(
         }
 
         _ => {
-            json!({"error": format!("Unknown tool: {}", name), "note": "This tool may not be implemented yet in Phase 0"}).to_string()
+            json!({"error": format!("Unknown or unimplemented tool: {}", name)}).to_string()
         }
     }
 }

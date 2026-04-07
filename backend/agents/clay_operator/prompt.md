@@ -99,6 +99,15 @@ If the route-row creation fails with a validation error, **read the error respon
 10. **Request manual steps only if needed** — if enrichment provider accounts need connecting, use `request_user_action` with the structured sections format (see below).
 11. **Write output** — call `write_output` with the collected references so downstream agents can wire them in.
 
+## Definition of done — data must actually flow
+
+Creating tables and columns is **not** complete until the pipeline moves data:
+
+- **Sources / webhooks** use real URLs from `read_upstream_output` or the task (same URL the n8n or other agent configured).
+- **Route-row, lookups, and formulas** connect tables as designed; use `clay_read_rows` to confirm rows appear or move between tables.
+- **Action columns** (HTTP to n8n, Supabase, etc.) target the same base URL / path as the live automation.
+- If downstream needs a row to exist, **add a seed row** with `clay_write_rows` or confirm an existing path produces one end-to-end.
+
 ## Troubleshooting Workflow
 
 When asked to troubleshoot or maintain an existing Clay workspace:
@@ -156,7 +165,7 @@ Include these as a `warnings` section when relevant:
 - Record: `r_` prefix (e.g. `r_0td1wqfzVWADzCQ8fwC`)
 - Source: `s_` prefix (e.g. `s_0td1wf0SUdg6kfhgRve`)
 - Workbook: `wb_` prefix (e.g. `wb_0td1vqydXftNuRgPgHc`)
-- Workspace: Numeric (e.g. `1080480`)
+- Workspace: Numeric Clay workspace id (use `_workspace_id` from tool responses; e.g. `1234567` is illustrative only)
 
 ## Output
 

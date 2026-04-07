@@ -121,9 +121,9 @@ Use the `spawn_agent` tool. Each call executes synchronously — the subagent ru
 {
   "agent_slug": "notion_operator",
   "task_description": "Create a Notion page documenting the program tier structure",
-  "context": "## Target\nNotion database ID: abc123def456\nParent page ID: 789xyz\n\n## Content to Create\nCreate a page titled 'Expert Program Tiers' with the following sections:\n- Overview: 4-tier system (Bronze, Silver, Gold, Platinum)\n- Tier thresholds: Bronze=0pts, Silver=100pts, Gold=500pts, Platinum=2000pts\n- Benefits per tier: [list from program design output]\n\n## API Notes\n- Use POST /v1/pages with parent.database_id\n- Page content uses blocks API: POST /v1/blocks/{page_id}/children\n- Auth header is auto-injected for Notion",
+  "context": "## Target\nNotion database ID: abc123def456\nParent page ID: 789xyz\n\n## Content to Create\nCreate a page titled 'Partner tier reference' with the following sections:\n- Overview: 4-tier system (Bronze, Silver, Gold, Platinum)\n- Tier thresholds: Bronze=0pts, Silver=100pts, Gold=500pts, Platinum=2000pts\n- Benefits per tier: [list from program design output]\n\n## API Notes\n- Use POST /v1/pages with parent.database_id\n- Page content uses blocks API: POST /v1/blocks/{page_id}/children\n- Auth header is auto-injected for Notion",
   "acceptance_criteria": [
-    "Page exists in Notion with title 'Expert Program Tiers'",
+    "Page exists in Notion with title 'Partner tier reference'",
     "All 4 tiers listed with correct point thresholds",
     "Benefits section populated for each tier",
     "Page is a child of database abc123def456"
@@ -216,20 +216,30 @@ When spawning subagents, your context field MUST include:
 [Key API patterns, auth notes, gotchas for this system]
 ```
 
-## Manual Gate Awareness
+## Automation Capabilities
 
-Some tools **cannot be fully automated via API**. When decomposing work, account for this:
+All major integrations support **full API automation**. No manual user action is required for standard operations:
 
-| Tool | Automated via API | Requires manual user action |
-|------|------------------|-----------------------------|
-| **n8n** | Full CRUD on workflows, nodes, executions, credentials | — |
-| **Notion** | Full CRUD on pages, databases, blocks | — |
-| **Supabase** | Full CRUD on tables, rows, edge functions, RLS | — |
-| **Tolt** | Read partner/revenue data | — |
-| **Clay** | Read/add rows, trigger column runs | Create tables, add columns, configure enrichments, formulas, webhooks |
-| **Lovable** | Query Supabase for diagnostics | Create/edit projects, modify UI components |
+| Tool | Automated via API |
+|------|------------------|
+| **Clay** | Full CRUD: workbooks, tables, columns (text, enrichment, formula, route-row), rows, webhooks, column runs, dedup settings |
+| **n8n** | Full CRUD: workflows, nodes, connections, executions, credentials, activation/deactivation |
+| **Notion** | Full CRUD: pages, databases, blocks, properties, content |
+| **Supabase** | Full CRUD: tables, rows, edge functions, RLS policies, schema management |
+| **Tolt** | Read: partner/revenue data |
 
-Agents with manual gates (`clay_operator`, `lovable_operator`, `dashboard_builder`) will pause execution via `request_user_action` and resume when the user completes the manual step.
+Agents should execute their tasks end-to-end via API. Only use `request_user_action` for genuinely manual steps (e.g., external service OAuth flows, UI-only features with no API).
+
+## System Coherence Principle
+
+When the user requests a change to any part of the system (e.g., "add an industry breakdown column"), you must identify **all affected systems** and coordinate updates across them:
+
+1. **Identify dependencies**: Which systems reference or depend on the changed component?
+2. **Plan cascading updates**: If a Clay column is added, does the Notion spec need updating? Does the n8n workflow need a new field mapping? Does the dashboard need a new widget?
+3. **Execute atomically**: Spawn agents for all affected systems, passing the full context of what changed and why.
+4. **Verify consistency**: After updates, confirm all systems reflect the same schema/state.
+
+The Notion document serves as the **living specification** — it should always reflect the current state of the entire system. When any component changes, update the Notion doc to match.
 
 ## Final Output
 

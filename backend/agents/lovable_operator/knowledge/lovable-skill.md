@@ -1,127 +1,79 @@
 # Skill: Lovable
 
-Use this skill for any task that touches a Lovable project — reading code, making changes, diagnosing issues, or working with the linked Supabase backend.
+Use this skill for tasks that touch a Lovable (lovable.dev) project: navigating the cloud editor, diagnosing UI or data issues, drafting precise change requests, or reasoning about the linked Supabase backend.
 
----
+## Project identity
 
-## Project registry (HeyReach)
-
-| Name | Project ID | Live URL | Owner |
-|------|-----------|----------|-------|
-| Social Listening | `c0e75eb7-7d23-49da-b18d-04beaf2001be` | expert-pulse-dashboard-21.lovable.app | Umer |
-| Expert Points | `a3afa877-ccae-4d99-9ddd-bf18f09dd24e` | preview--experts-points-leaderboard.lovable.app | Lele |
-
-**Never infer which project from context alone. If the task says "the Lovable dashboard" or "the dashboard" without specifying — ask Lele before proceeding.**
-
----
+- **Do not infer** Lovable project ID, preview URL, or environment from this generic skill alone.
+- Use the **task description**, **upstream agent output**, **credential metadata**, or **tenant-uploaded knowledge** for project UUIDs, URLs, and which app to modify.
+- If the task says “the dashboard” or “the Lovable app” and multiple projects exist for the workspace, **ask the user** which project before running high-impact steps.
 
 ## Source code access
 
-Lovable project source lives in Lovable's cloud editor, not in any local git repo. To read or edit code:
+Source lives in Lovable’s cloud editor unless the customer has connected GitHub sync.
 
-1. Navigate to `https://lovable.dev/projects/{id}?view=codeEditor`
-2. Use the file tree on the left to browse files
-3. Click a file to open it in the code panel on the right
+1. Open the project in the editor (URL from context, typically `https://lovable.dev/projects/{project_id}` with code view).
+2. Browse the file tree; open files in the code panel.
 
-**Never** delegate a "find code in this Lovable project" task to an Explore subagent pointing at local repos — the code is not there.
+Do not assume Lovable source exists in a local git checkout for routine tasks.
 
 ### Typical project structure
+
 ```
 src/
-  pages/          <- page components (routes)
-  components/     <- UI components
-  hooks/          <- data-fetching hooks
+  pages/          <- route components
+  components/
+  hooks/
   integrations/
     supabase/
-      client.ts   <- Supabase client (reads VITE_ env vars)
-      types.ts    <- full DB schema as TypeScript types ← READ THIS FIRST
-  data/           <- static data or mock fixtures
-  lib/            <- utilities
+      client.ts
+      types.ts    <- often mirrors DB schema; read early for data tasks
 supabase/
-  migrations/     <- SQL schema (timestamped)
-  functions/      <- Edge Functions (backend TypeScript)
+  migrations/
+  functions/
 public/
-vite-env.d.ts     <- env var type declarations
+vite-env.d.ts     <- Vite env var declarations
 ```
 
-**Start every T-002-style task by reading `types.ts`** — it contains the full authoritative Supabase schema as TypeScript interfaces.
+## Making changes
 
----
+**Method A — Lovable chat (common):** Describe the change with file paths, symbols, and expected behavior. Prefer small, verifiable requests.
 
-## Making code changes
+**Method B — GitHub sync:** Use only when the project is connected to a repo and batch/diff workflow is appropriate.
 
-Two methods. Use the one that fits the change:
+Treat chat-driven rebuilds as **potentially immediate deploys** to the preview/production surface the project uses.
 
-### Method A — Lovable chat (preferred for most changes)
-Type the change request in the chat box at the bottom left. Be specific:
-- Good: "In `src/pages/Admin.tsx`, change the Supabase URL in the `addExpert` function from `qufxpoyoukzvddtpfbxa` to `ygtdnpnizmpthgwtvbjw`"
-- Bad: "Fix the expert URL"
+## Supabase
 
-Lovable will rebuild and show the change in the live preview on the right. Verify before moving on.
+Each Lovable app is usually paired with a Supabase project. Connection details (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, or equivalents) are set in Lovable project settings and reflected in `vite-env.d.ts` / client code.
 
-### Method B — GitHub sync (for larger changes or batch edits)
-Connect the project to GitHub (`GitHub` button top right), push changes via git. Lovable auto-pulls from the connected branch.
+- Use URLs and keys from **integrations / task context / uploaded docs** — never placeholder or guessed credentials.
+- For REST or SQL checks, use the same key tier the app uses (anon vs service) per customer policy.
 
-Only use Method B if the change spans many files or requires a diff review. For this project (Expert Points, owner: Lele), GitHub is not yet connected — use Method A.
+Example of a **good** Lovable chat instruction (values are fake):
 
----
+> In `src/pages/Admin.tsx`, change the Supabase client initialization so `addExpert` uses the URL from `import.meta.env.VITE_SUPABASE_URL` instead of a hardcoded string.
 
-## Supabase integration
+## Diagnosing “data not showing”
 
-Each Lovable project has its own linked Supabase project. The frontend connects via two env vars set in Lovable's project settings:
-- `VITE_SUPABASE_URL` — the project URL
-- `VITE_SUPABASE_PUBLISHABLE_KEY` — the anon/public key
+1. Read `types.ts` (or generated schema types) for tables and columns.
+2. Trace the hook or page query (filters, RLS-sensitive queries).
+3. Verify rows exist via approved Supabase access paths.
+4. If empty, trace upstream writers (Clay, n8n, forms, etc.).
+5. If rows exist but UI is blank, inspect RLS policies in `supabase/migrations/`.
 
-For the **Expert Points** project:
-- Supabase project ID: `ygtdnpnizmpthgwtvbjw`
-- URL: `https://ygtdnpnizmpthgwtvbjw.supabase.co`
-- Clay API key: `R7MEfUGzJCClQJ2nD49ejXUniMz8YQZl`
-- Agent API key (direct REST): `_N45i.6_pxn3_P2`
-- UI access: only through Lovable editor (no direct Supabase dashboard access)
+## Risk tiers (guidance)
 
-### Direct REST calls (when Lovable UI doesn't work)
-Use the Agent API key with standard Supabase REST:
-```
-GET/POST https://ygtdnpnizmpthgwtvbjw.supabase.co/rest/v1/{table}
-Headers:
-  apikey: _N45i.6_pxn3_P2
-  Authorization: Bearer _N45i.6_pxn3_P2
-  Content-Type: application/json
-```
-
-### Reading the schema
-Always read `types.ts` (in the code editor) before writing any SQL or REST call. The TypeScript interfaces map 1:1 to the actual table columns.
-
----
-
-## Diagnosing "data not showing" issues
-
-1. Open the code editor → read `types.ts` for table schema
-2. Find the relevant hook/query (usually in `src/hooks/` or `src/pages/Index.tsx`)
-3. Identify which Supabase table + columns are queried and what filters apply
-4. Check whether the table is actually populated — use direct REST GET with Agent API key
-5. If table is empty: identify which external system should be writing to it (Clay, n8n, manual) and trace the gap
-
----
-
-## Tier assignment for Lovable tasks
-
-| Action | Tier |
+| Action | Risk |
 |--------|------|
-| Read code (editor view only) | 1 |
-| Read Supabase data via REST GET | 1 |
-| Diagnose issue, draft plan | 1 |
-| Make code change via Lovable chat | 3 (irreversible — builds and deploys) |
-| Insert/update data via REST POST/PATCH | 3 |
-| Run SQL migration | 3 |
-
----
+| Read-only navigation in editor | Lower |
+| Diagnose + draft chat prompts | Lower |
+| Lovable chat that triggers rebuild/deploy | Higher |
+| Data writes or migrations | Higher |
 
 ## Common gotchas
 
-- **Source not in local git.** Always use the Lovable editor UI for reading code.
-- **Two Lovable projects, one HeyReach workspace.** Social Listening (Umer's) vs. Expert Points (Lele's). Always confirm which one.
-- **Lovable chat changes deploy immediately.** There is no staging — the live preview IS the deployed app. Treat every Lovable chat prompt as an irreversible action.
-- **Supabase and Clay are separate.** Clay does not auto-sync to Supabase. If a table is empty, the Clay → Supabase write step is missing.
-- **RLS policies control data visibility.** If data exists in Supabase but doesn't appear in the dashboard, check RLS policies in `supabase/migrations/`.
-- **VITE_ prefix required.** Only env vars starting with `VITE_` are accessible in frontend code. Backend secrets go in Supabase Edge Function secrets.
+- **No local source of truth** unless GitHub sync is on.
+- **Vite exposure:** only `VITE_*` (or configured) env vars are available in browser bundles.
+- **External pipelines:** Clay, spreadsheets, and other tools do not automatically populate Supabase; missing data usually means a broken or missing sync step.
+- **RLS:** Data can exist but be invisible to the anon key used by the frontend.

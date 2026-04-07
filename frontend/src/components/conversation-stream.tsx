@@ -167,6 +167,51 @@ function toolResultIsError(entries: StreamEntry[], fromIdx: number): boolean {
   return false;
 }
 
+function extractClayResultSummary(toolName: string, content: string | null | undefined): string | null {
+  if (!content || !toolName.startsWith("clay_")) return null;
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.error) return null;
+
+    if (toolName === "clay_get_table_schema") {
+      const name = parsed.name || parsed.title || "";
+      const fieldCount = Array.isArray(parsed.fields) ? parsed.fields.length : 0;
+      const viewCount = Array.isArray(parsed.views) ? parsed.views.length : 0;
+      return name ? `${name} (${fieldCount} columns, ${viewCount} views)` : `${fieldCount} columns`;
+    }
+    if (toolName === "clay_read_rows") {
+      const records = Array.isArray(parsed.records) ? parsed.records.length : Array.isArray(parsed) ? parsed.length : 0;
+      return `${records} rows returned`;
+    }
+    if (toolName === "clay_list_tables") {
+      const tables = Array.isArray(parsed.tables) ? parsed.tables.length : Array.isArray(parsed) ? parsed.length : 0;
+      return `${tables} tables found`;
+    }
+    if (toolName === "clay_create_table") {
+      const name = parsed.name || parsed.title || "";
+      const id = parsed.id || parsed._id || "";
+      return name ? `Created "${name}"${id ? ` (${id})` : ""}` : id ? `Table ${id}` : "Table created";
+    }
+    if (toolName === "clay_create_field") {
+      const name = parsed.name || parsed.title || "";
+      return name ? `Column "${name}" added` : "Column added";
+    }
+    if (toolName === "clay_write_rows") {
+      return "Rows written";
+    }
+    if (toolName === "clay_get_workspace") {
+      const name = parsed.name || "";
+      return name ? `Workspace: ${name}` : null;
+    }
+    if (parsed._workspace_url_base) {
+      return parsed._workspace_url_base;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function formatToolError(content: string): string {
   try {
     const parsed = JSON.parse(content);
@@ -555,6 +600,14 @@ function ActionItem({
     if (content.length > 0) {
       detail = content;
       hasExpandable = true;
+    }
+    // Extract result summary for Clay tools
+    const resultEntry = allEntries.slice(index + 1).find(
+      (e) => e.sub_type === "tool_result" && (e.metadata as Record<string, unknown>)?.tool_name === toolName
+    );
+    const claySummary = resultEntry ? extractClayResultSummary(toolName, resultEntry.content) : null;
+    if (claySummary) {
+      label = `${label} — ${claySummary}`;
     }
   } else if (entry.sub_type === "tool_result") {
     if (!isToolResultError(entry.content)) return null;

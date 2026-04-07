@@ -123,7 +123,7 @@ impl Settings {
             storage_secret_key: env::var("STORAGE_SECRET_KEY")
                 .unwrap_or_default(),
             storage_bucket: env::var("STORAGE_BUCKET")
-                .unwrap_or_else(|_| "lele-screenshots".to_string()),
+                .unwrap_or_else(|_| "99percent-screenshots".to_string()),
             openai_api_key: env::var("OPENAI_API_KEY").ok().filter(|s| !s.is_empty()),
             tavily_api_key: env::var("TAVILY_API_KEY").ok().filter(|s| !s.is_empty()),
             agents_dir,

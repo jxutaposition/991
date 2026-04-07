@@ -7,7 +7,7 @@ import { AuthProvider } from "@/lib/auth-context";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "lele — GTM Agent Platform",
+  title: "99percent — GTM Agent Platform",
   description: "Expert-trained GTM agents for the whole funnel",
 };
 

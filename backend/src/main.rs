@@ -142,8 +142,7 @@ async fn main() -> anyhow::Result<()> {
     let public_routes = Router::new()
         .route("/health", get(routes::health))
         .route("/api/auth/google", post(routes::auth_google))
-        .route("/api/oauth/:provider/callback", get(routes::oauth_callback))
-        .route("/api/demo/run", post(routes::demo_run));
+        .route("/api/oauth/:provider/callback", get(routes::oauth_callback));
 
     // Protected routes (auth middleware applied)
     let protected_routes = Router::new()
@@ -217,6 +216,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/me", get(routes::auth_me))
         .route("/api/auth/workspaces", post(routes::auth_create_workspace))
         .route("/api/auth/workspaces/:slug", axum::routing::delete(routes::auth_delete_workspace))
+        // Node lookup (by ID only, used by dashboard renderer)
+        .route("/api/execute/nodes/:node_id", get(routes::get_node_by_id))
         // DAG editor
         .route("/api/execute/:session_id/nodes", post(routes::execution_node_add))
         .route("/api/execute/:session_id/nodes/:node_id", axum::routing::patch(routes::execution_node_update))
@@ -265,6 +266,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/knowledge/folders", get(routes::knowledge_folders))
         .route("/api/knowledge/folders/delete", post(routes::knowledge_folder_delete))
         .route("/api/knowledge/search", post(routes::knowledge_search))
+        .route("/api/knowledge/observatory", get(routes::knowledge_observatory))
+        .route("/api/knowledge/observatory/:section", get(routes::knowledge_observatory_detail))
         .route("/api/knowledge/reprocess-bulk", post(routes::knowledge_reprocess_bulk))
         .merge(
             Router::new()

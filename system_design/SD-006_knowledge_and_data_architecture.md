@@ -162,7 +162,7 @@ Before embedding, each chunk receives a Claude-generated context prefix that anc
 
 Chunk content: "Premium partners receive amber badges and priority support"
 
-Context prefix: "This chunk is from the HeyReach Expert Program tiering document, which defines four recognition tiers based on LinkedIn engagement, Tolt referrals, and MRR contribution."
+Context prefix: "This chunk is from an uploaded partner tiering playbook, which defines recognition tiers based on engagement signals, referrals, and revenue contribution."
 
 The embedding now carries document-level meaning. The BM25 index also benefits from the prefix terms.
 
@@ -242,7 +242,7 @@ The core query uses two CTEs (vector_results, bm25_results) merged via FULL OUTE
 
 ### Why Hybrid Search
 
-Vector-only search fails on exact terms common in GTM content: product names ("HeyReach", "Clay"), acronyms ("ICP", "MRR", "ARR"), and technical identifiers ("n8n", "RLS"). BM25 catches these via exact keyword matching. RRF combines both signals without requiring score normalization.
+Vector-only search fails on exact terms common in GTM content: product names ("Clay", customer names), acronyms ("ICP", "MRR", "ARR"), and technical identifiers ("n8n", "RLS"). BM25 catches these via exact keyword matching. RRF combines both signals without requiring score normalization.
 
 Industry benchmarks show hybrid search improves recall by 15-20% on keyword-heavy queries compared to vector-only.
 
@@ -389,4 +389,323 @@ When an overlay has been promoted to `scope='base'` with strong evidence (10+ so
 | Execution Reviewer | Designed (SD-003 Part 8) | Not implemented |
 | Transcript Analyzer (Chat Learning Pipeline) | Built | `backend/src/chat_analyzer.rs`, see [SD-007](SD-007_chat_learning_pipeline.md) |
 | HTTP search endpoint hybrid upgrade | Pending | `backend/src/routes.rs` `knowledge_search()` still uses vector-only |
-| Local `lele/` directory auto-sync | Designed (GAP WS2) | Not implemented |
+| Local workspace directory auto-sync into corpus | Designed (GAP WS2) | Not implemented |
+| Knowledge Observatory UI | Designed (Part 8) | Not implemented |
+| Knowledge Access Log (`knowledge_access_log`) | Designed (Part 8) | Not implemented |
+
+---
+
+## Part 8: Knowledge Observatory
+
+### Motivation
+
+The system has five memory layers (Part 1), a multi-channel learning pipeline (Part 5), and a corpus with hybrid search (Parts 2-4). But there is no unified view that shows a user what the system knows, how that knowledge was acquired, how it has been transformed, and whether it is actually being used. Each piece — corpus documents, chat learnings, feedback signals, overlays, scope narratives — lives behind separate API endpoints and UI pages with no connective tissue.
+
+The Knowledge Observatory is a single page that renders the **complete knowledge hierarchy** for a workspace as a collapsible accordion tree. Each level shows real row counts and can be expanded to inspect the actual data. The structure mirrors the data flow: raw sources at the top, processing in the middle, distilled knowledge at the bottom.
+
+### Design Principle: The Knowledge Tree
+
+The observatory presents knowledge as a nested tree that maps directly to the scope hierarchy and data flow. The user sees the same mental model an engineer would draw on a whiteboard, but populated with live data.
+
+```
+Expert: jordan@company.com
+│
+├── Your Knowledge (expert-scoped — follows you to every workspace)
+│   ├── Uploaded Corpus
+│   │   └── me/ — N documents → M chunks
+│   │       └── [expand: document list with status, chunk count, last accessed]
+│   ├── Learned Overlays (scope=expert)
+│   │   ├── N promoted from workspaces (source=promoted)
+│   │   └── M manual (source=manual)
+│   │       └── [expand: overlay content + provenance]
+│   └── Agent Knowledge (static, bundled per agent)
+│       ├── clay_operator — 3 docs
+│       ├── n8n_operator — 7 docs
+│       └── ...
+│           └── [expand: markdown preview of each knowledge doc]
+│
+├── Workspace: "Acme Corp" (client-scoped)
+│   │
+│   ├── 1. Knowledge Corpus
+│   │   ├── Summary: N documents (ready/pending/error) → M chunks
+│   │   ├── By folder:
+│   │   │   ├── client/acme/ — K docs
+│   │   │   └── client/acme/q2-campaign/ — J docs
+│   │   │       └── [expand: document list with filename, status, chunk count, created_at]
+│   │   ├── Chunks: M total across N documents
+│   │   │   └── [expand: chunks grouped by document, showing content preview
+│   │   │        + section_title + token_count]
+│   │   └── Retrieval Activity
+│   │       ├── N retrievals (last 7 days)
+│   │       └── Top accessed:
+│   │           └── [expand: chunk content preview + document name
+│   │                + hit count + avg similarity]
+│   │
+│   ├── 2. Chat Learning
+│   │   ├── Summary: N sessions analyzed → M learnings extracted
+│   │   ├── Learnings by status:
+│   │   │   ├── Applied → overlays: K
+│   │   │   ├── Pending conflicts: J
+│   │   │   ├── Pending review: I
+│   │   │   └── Rejected: H
+│   │   │       └── [expand: learning text + source session + status + created_at]
+│   │   └── Scope Narratives: N generated
+│   │       └── [expand: narrative text + scope + source_overlay_count + generated_at]
+│   │
+│   ├── 3. Feedback
+│   │   ├── Summary: N signals → M patterns → K PRs
+│   │   ├── Signals by type:
+│   │   │   ├── Expert corrections: N (weight: ground_truth)
+│   │   │   ├── User thumbs: M (weight: user)
+│   │   │   ├── Automated checks: K (weight: automated)
+│   │   │   └── Inferred: J (weight: inferred)
+│   │   │       └── [expand: signal text + authority + weight
+│   │   │            + agent_slug + created_at]
+│   │   ├── Active Patterns: N detected
+│   │   │   └── [expand: pattern description + session_count
+│   │   │        + severity + agent_slug]
+│   │   └── Agent PRs: N proposed
+│   │       ├── Open: K
+│   │       └── Applied: J
+│   │           └── [expand: PR summary + target_agent + confidence
+│   │                + evidence_count + diff]
+│   │
+│   ├── 4. Observations
+│   │   ├── Summary: N sessions → M distillations
+│   │   └── [expand: session list with distillation count + created_at]
+│   │
+│   ├── 5. Learned Knowledge (overlays, client-scoped)
+│   │   ├── Summary: N active overlays
+│   │   ├── By source:
+│   │   │   ├── transcript: N (from chat learning)
+│   │   │   ├── feedback: M (from user corrections)
+│   │   │   ├── corpus: K (distilled from uploads)
+│   │   │   ├── promoted: J (generalized from projects)
+│   │   │   ├── manual: I (hand-written)
+│   │   │   └── execution: H (from execution review)
+│   │   │       └── [expand: overlay content + source + scope
+│   │   │            + skill_slug + created_at]
+│   │   ├── Inherited from expert-scope: M overlays (dimmed)
+│   │   └── Scope Narratives: K
+│   │       └── [expand: narrative text]
+│   │
+│   └── Projects
+│       ├── "Q2 Campaign"
+│       │   ├── Corpus: N docs → M chunks
+│       │   ├── Overlays (project-scoped): K
+│       │   │   └── Inherited from client-scope: J (dimmed)
+│       │   └── [same sub-structure as workspace level]
+│       └── "Onboarding Flow"
+│           └── ...
+```
+
+### Why This Structure
+
+The tree maps 1:1 to the scope hierarchy from SD-003:
+
+```
+base > expert > client > project
+```
+
+At each scope level, the user sees:
+
+1. **What raw data exists** — corpus documents, chat sessions, feedback signals
+2. **How it was processed** — chunks, learnings, patterns
+3. **What knowledge was distilled** — overlays, narratives, PRs
+4. **What the system inherited** from broader scopes (shown dimmed)
+
+This answers three core questions:
+
+- **What does the system know?** — expand any section to see the actual content
+- **Where did it come from?** — overlay `source` field traces provenance (feedback, transcript, corpus, promoted, manual)
+- **Is it being used?** — retrieval activity section shows hit counts per chunk (requires access logging, see below)
+
+### Knowledge Access Logging
+
+Currently there is no tracking of which chunks or overlays are actually retrieved at runtime. Adding a lightweight access log enables the "Retrieval Activity" section and surfaces which knowledge is high-value versus dead weight.
+
+**Schema:**
+
+```sql
+CREATE TABLE IF NOT EXISTS knowledge_access_log (
+    id BIGSERIAL PRIMARY KEY,
+    access_type TEXT NOT NULL
+        CHECK (access_type IN (
+            'chunk_retrieval',
+            'overlay_injection',
+            'narrative_injection'
+        )),
+    resource_id UUID NOT NULL,      -- chunk_id, overlay_id, or narrative_id
+    session_id UUID,                -- execution session that triggered the retrieval
+    node_id UUID,                   -- specific node within the session
+    query_text TEXT,                -- the search query (for chunk_retrieval only)
+    similarity_score REAL,          -- cosine similarity at retrieval time
+    accessed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_kal_resource ON knowledge_access_log(resource_id);
+CREATE INDEX idx_kal_type_time ON knowledge_access_log(access_type, accessed_at DESC);
+```
+
+**Instrumentation points:**
+
+| Code path | What to log | access_type |
+|-----------|-------------|-------------|
+| `agent_runner.rs` `execute_search_knowledge()` | Each chunk returned after reranking | `chunk_retrieval` |
+| `planner.rs` `gather_planner_context()` | Each chunk used in planner context | `chunk_retrieval` |
+| `agent_runner.rs` overlay resolution in prompt | Each overlay resolved into the prompt | `overlay_injection` |
+| `agent_runner.rs` narrative injection in prompt | Each narrative injected | `narrative_injection` |
+
+All logging is fire-and-forget (`tokio::spawn`) so it never blocks the hot path.
+
+**Surfacing high-value knowledge:**
+
+```sql
+-- Top accessed chunks in the last 7 days
+SELECT resource_id, COUNT(*) as hit_count,
+       MAX(accessed_at) as last_accessed,
+       AVG(similarity_score) as avg_similarity
+FROM knowledge_access_log
+WHERE access_type = 'chunk_retrieval'
+  AND accessed_at > NOW() - INTERVAL '7 days'
+GROUP BY resource_id
+ORDER BY hit_count DESC
+LIMIT 20
+```
+
+High hit-count chunks are candidates for overlay distillation: if the system keeps retrieving the same chunk, its content should be promoted into a compact overlay that gets injected directly into the prompt rather than retrieved via RAG every time.
+
+### Observatory API
+
+**`GET /api/knowledge/observatory?tenant_id=X`**
+
+Returns the full tree structure with counts at every level. Single Rust handler with ~8 parallel queries via `tokio::join!`. The response mirrors the tree:
+
+```json
+{
+  "expert": {
+    "corpus_docs": 10,
+    "corpus_chunks": 320,
+    "overlays": {
+      "total": 20,
+      "by_source": { "promoted": 15, "manual": 5 }
+    },
+    "agents_with_knowledge": 6
+  },
+  "workspace": {
+    "corpus": {
+      "total_documents": 32,
+      "total_chunks": 960,
+      "by_status": { "ready": 30, "pending": 1, "error": 1 },
+      "by_folder": [
+        { "folder": "client/acme", "doc_count": 25 },
+        { "folder": "client/acme/q2-campaign", "doc_count": 7 }
+      ]
+    },
+    "chat_learning": {
+      "sessions_analyzed": 156,
+      "total_learnings": 89,
+      "by_status": {
+        "applied": 45, "conflict": 3,
+        "pending": 29, "rejected": 12
+      },
+      "narratives": 12
+    },
+    "feedback": {
+      "total_signals": 234,
+      "by_type": {
+        "expert_correction": 50,
+        "user_thumbs_down": 30,
+        "automated": 80,
+        "inferred": 74
+      },
+      "active_patterns": 8,
+      "agent_prs": { "open": 2, "applied": 1 }
+    },
+    "observations": {
+      "sessions": 18,
+      "distillations": 45
+    },
+    "overlays": {
+      "total_active": 60,
+      "by_source": {
+        "transcript": 20, "feedback": 15, "corpus": 5,
+        "promoted": 10, "manual": 10
+      },
+      "inherited_expert": 20
+    },
+    "retrieval_activity": {
+      "total_7d": 890,
+      "top_chunks": [
+        {
+          "chunk_id": "...",
+          "document_name": "...",
+          "content_preview": "...",
+          "hit_count": 45,
+          "avg_similarity": 0.72
+        }
+      ]
+    },
+    "projects": [
+      {
+        "id": "...",
+        "name": "Q2 Campaign",
+        "corpus_docs": 7,
+        "corpus_chunks": 210,
+        "overlays": 35,
+        "inherited_client": 60
+      }
+    ]
+  }
+}
+```
+
+**`GET /api/knowledge/observatory/:section?tenant_id=X&page=1&limit=20`**
+
+Returns paginated rows for drill-down when a user expands a leaf section. The `section` path param maps to:
+
+| Section value | Table(s) queried | Key fields returned |
+|---------------|------------------|---------------------|
+| `corpus_documents` | `knowledge_documents` | filename, status, chunk_count, scope, folder, created_at |
+| `corpus_chunks` | `knowledge_chunks` JOIN `knowledge_documents` | content preview (200 chars), section_title, token_count, document name |
+| `chat_learnings` | `chat_learnings` | learning text, status, session_id, created_at |
+| `feedback_signals` | `feedback_signals` | signal_type, authority, weight, agent_slug, text, created_at |
+| `feedback_patterns` | `feedback_patterns` | description, session_count, severity, agent_slug |
+| `agent_prs` | `agent_prs` | pr_type, target_agent, gap_summary, confidence, status |
+| `overlays` | `overlays` LEFT JOIN `skills` | content, source, scope, skill_name, created_at |
+| `scope_narratives` | `scope_narratives` | narrative_text, scope, source_overlay_count, generated_at |
+| `retrieval_hits` | `knowledge_access_log` JOIN `knowledge_chunks` | chunk content, document name, hit_count, last_accessed, avg_similarity |
+| `agent_knowledge` | `agent_definitions` | agent slug, name, knowledge_doc count, doc previews |
+
+### UI Implementation
+
+**Route:** `/knowledge/observatory`
+
+**Approach:** Collapsible accordion sections using the existing Tailwind + Radix primitive stack. No additional UI libraries required.
+
+**Layout:**
+
+- Full-width page with the tree structure rendered as nested collapsible sections
+- Each section header shows: icon + label + count badge + expand/collapse chevron
+- Expanding a summary section reveals sub-sections or a paginated data table
+- Inherited overlays (from broader scopes) appear dimmed with a small "inherited" badge
+- The "Retrieval Activity" section highlights high-value chunks with a heat indicator (hit count mapped to opacity/color intensity)
+
+**Interaction pattern:**
+
+- Default state: all top-level sections collapsed, showing only counts — the page loads fast
+- Click a section header to expand; reveals sub-sections or data rows
+- Leaf-level data loads on-demand via the `/:section` API (not preloaded with the summary)
+- Each data row is a compact card: content preview (2-3 lines), metadata pills (status, source, scope), timestamp
+- Clicking a document row navigates to `/knowledge` filtered to that document for management actions
+
+### Relationship to Existing Pages
+
+| Route | Purpose | Relationship |
+|-------|---------|--------------|
+| `/knowledge` | Document manager — upload, browse folders, search, preview markdown | Write-oriented |
+| `/knowledge/observatory` | Knowledge landscape — understand what the system knows and how | Read-oriented |
+| `/feedback` | Feedback signals list | Subset of observatory section 3 |
+| `/agent-prs` | PR review queue | Subset of observatory section 3 |
+
+The observatory links to these pages for actions (uploading, approving PRs) but is itself read-only. A tab or link in the nav connects `/knowledge` and `/knowledge/observatory`.

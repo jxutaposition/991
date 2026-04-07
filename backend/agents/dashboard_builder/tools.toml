@@ -1,1 +1,1 @@
-tools = ["http_request", "write_output", "read_upstream_output", "request_user_action"]
+tools = ["http_request", "write_output", "read_upstream_output", "request_user_action", "clay_get_table_schema", "clay_read_rows", "clay_list_tables"]

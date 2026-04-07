@@ -106,6 +106,6 @@ document.addEventListener("copy", () => {
 });
 
 // Mark presence so the web app can detect the extension
-document.documentElement.dataset.leleObserver = "active";
+document.documentElement.dataset.percent99Observer = "active";
 
-console.log("[lele] Content script loaded on", getDomain());
+console.log("[99percent] Content script loaded on", getDomain());

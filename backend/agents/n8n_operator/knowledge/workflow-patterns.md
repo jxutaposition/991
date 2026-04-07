@@ -114,3 +114,13 @@ When: Recurring reports, periodic data fetch, maintenance
 
 ## Build Loop
 Pick pattern → choose nodes → wire → validate → test → activate → monitor
+
+---
+
+## n8n Cloud and multiple projects
+
+Some hosted n8n setups expose **more than one project** (e.g. personal vs team). The REST API may only return workflows for the default project unless you pass a project scope.
+
+- If list/get workflow calls return empty lists or **404** for workflows you know exist, check whether the instance requires a query parameter such as `?projectId=<uuid-or-slug>` on list/get endpoints.
+- **Do not hardcode** a project name or id in generic automation: read the correct value from **credential metadata**, **task context**, or **tenant-uploaded runbooks**, or discover it via the n8n UI/API for that instance.
+- After creating or updating a workflow, **GET** it back once to confirm the server persisted the expected `nodes` and `connections` before activating.

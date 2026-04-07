@@ -55,7 +55,7 @@ Step 1: Create the page
 Tool call: http_request
   url: https://api.notion.com/v1/pages
   method: POST
-  body: {"parent": {"page_id": "..."}, "properties": {"title": {"title": [{"text": {"content": "Expert Program Tiers"}}]}}, "children": [...]}
+  body: {"parent": {"page_id": "..."}, "properties": {"title": {"title": [{"text": {"content": "Partner tier reference"}}]}}, "children": [...]}
 
 Expected: 200 with {"id": "page-id", ...}
 
@@ -91,10 +91,31 @@ When creating community-facing or client-facing documentation:
 - Link related pages rather than duplicating content
 - Mark data gaps explicitly with callout blocks rather than omitting them
 
+## Content Organization — Single Parent Page
+
+**Always create ONE parent page** that serves as the hub for all content. All sub-pages, databases, and documentation go beneath this parent. This gives the user a single entry point.
+
+Structure:
+```
+📄 Parent Page (e.g. "Lead Enrichment Pipeline")  ← This is the only artifact link
+  📄 Sub-page 1 (e.g. "Project Brief")
+  📄 Sub-page 2 (e.g. "Pipeline Architecture")
+  📄 Sub-page 3 (e.g. "Data Schema Reference")
+  ...
+```
+
+The parent page should contain:
+- A brief overview/table of contents
+- Links to each sub-page (Notion handles this automatically when pages are nested)
+
 ## Output
 
 Use `write_output` with:
-- `page_id` or `database_id`: the Notion resource created/modified
-- `url`: the Notion URL
-- `operation`: what was done (created, updated, queried)
-- `summary`: human-readable description of the change
+- `result.page_id`: the **parent** Notion page ID
+- `result.url`: the **parent** Notion page URL
+- `result.operation`: what was done (created, updated, queried)
+- `result.child_pages`: list of child pages created (for reference)
+- `summary`: human-readable description of what was built
+- `artifacts`: array with **only the parent page** — e.g. `[{"type": "notion_page", "url": "https://notion.so/...", "title": "Lead Enrichment Pipeline"}]`
+
+**Important:** Only include the parent page URL in `artifacts`. Do NOT list every sub-page as a separate artifact — the parent page already links to everything beneath it.

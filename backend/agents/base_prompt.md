@@ -86,7 +86,7 @@ Your `write_output` call MUST include a `verification` field:
 {
   "result": { ... your actual deliverable ... },
   "artifacts": [
-    {"type": "notion_page", "url": "https://notion.so/abc123", "title": "Expert Program Tiers"},
+    {"type": "notion_page", "url": "https://notion.so/abc123", "title": "Partner tier reference"},
     {"type": "n8n_workflow", "url": "https://n8n.example.com/workflow/42", "title": "Lead Scoring Pipeline"}
   ],
   "verification": {

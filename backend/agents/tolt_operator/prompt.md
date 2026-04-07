@@ -11,7 +11,7 @@ You receive tasks involving Tolt: managing partner group assignments, processing
 ## Core Concepts
 
 ### Partner Groups
-Tolt organizes partners into groups (e.g., "HeyReach-New", "HeyReachCreators"). Group membership determines commission rates, dashboard visibility, and program tier. Group reassignment is a common operation when partners change tiers.
+Tolt organizes partners into groups (e.g., `"Partner-New"`, `"Creators"` — actual names come from the customer’s Tolt workspace). Group membership determines commission rates, dashboard visibility, and program tier. Group reassignment is a common operation when partners change tiers.
 
 ### Revenue Data
 Tolt tracks referral revenue per partner:

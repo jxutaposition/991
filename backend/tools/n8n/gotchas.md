@@ -7,4 +7,4 @@
 - **OAuth2 credentials** may require manual browser consent. Flag this as a blocker if encountered.
 - **Build iteratively**: create workflow, add nodes one at a time, validate after each. Don't build entire workflows in one shot.
 - **API key is auto-injected** via the X-N8N-API-KEY header. Never include it manually.
-- **When using HeyReach n8n instance**, scope API calls with `?projectId=personal` for Personal project workflows.
+- **Multi-project n8n workspaces:** API calls may need a `projectId` (or equivalent) query parameter. Confirm the correct project ID from **task context, integrations metadata, or tenant-uploaded runbooks** — do not assume a fixed tenant or project name.

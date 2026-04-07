@@ -27,15 +27,15 @@ test.describe("Extension Activation", () => {
     await page.goto("http://localhost:4000/sales-nav/search");
     await page.waitForLoadState("domcontentloaded");
 
-    // The content script sets data-lele-observer="active" on <html>
+    // The content script sets data-percent99-observer="active" on <html>
     await page.waitForFunction(
-      () => document.documentElement.dataset.leleObserver === "active",
+      () => document.documentElement.dataset.percent99Observer === "active",
       null,
       { timeout: 5000 },
     );
 
     const attr = await page.evaluate(
-      () => document.documentElement.dataset.leleObserver,
+      () => document.documentElement.dataset.percent99Observer,
     );
     expect(attr).toBe("active");
   });
@@ -48,13 +48,13 @@ test.describe("Extension Activation", () => {
     await page.waitForLoadState("domcontentloaded");
 
     await page.waitForFunction(
-      () => document.documentElement.dataset.leleObserver === "active",
+      () => document.documentElement.dataset.percent99Observer === "active",
       null,
       { timeout: 5000 },
     );
 
     const attr = await page.evaluate(
-      () => document.documentElement.dataset.leleObserver,
+      () => document.documentElement.dataset.percent99Observer,
     );
     expect(attr).toBe("active");
   });

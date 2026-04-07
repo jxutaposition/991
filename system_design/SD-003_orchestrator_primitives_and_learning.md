@@ -56,11 +56,11 @@ The `spawn_agent` tool accepts rich context beyond a task string:
 ```json
 {
   "agent_slug": "program_designer",
-  "task_description": "Design the 4-tier expert scoring system for HeyReach",
-  "context": "HeyReach is a LinkedIn outreach SaaS with 59 active experts...",
+  "task_description": "Design the 4-tier expert scoring system for Client Acme",
+  "context": "Acme is a B2B SaaS with an active partner/expert community...",
   "acceptance_criteria": [
     "Must define exactly 4 tiers with point thresholds",
-    "Must include 3 scoring vectors: LinkedIn reactions, Tolt referral, HeyReach MRR"
+    "Must include 3 scoring vectors: social engagement, referral activity, product MRR"
   ],
   "examples": "Reference: Clay used 4 tiers (Artisan through Elite Studio)..."
 }
@@ -217,8 +217,8 @@ overlays (
 | Scope | Content | Source |
 |-------|---------|--------|
 | base | "Legend labels must match data series column names exactly" | promoted |
-| expert(lele) | "Use clean, minimal chart styles. Lead with the data, not decoration." | manual |
-| client(heyreach) | "Use tier names (Expert, Pro Expert, Elite Expert, Premium Partner) in all legends and labels, not point ranges" | feedback |
+| expert(alpha) | "Use clean, minimal chart styles. Lead with the data, not decoration." | manual |
+| client(acme) | "Use tier names (e.g. Tier A–D) in all legends and labels, not raw point ranges" | feedback |
 | project(expert-leaderboard) | "Premium partners get amber pill badge. 24 names hardcoded." | feedback |
 
 **Skill: "clay-lead-gen"**
@@ -281,13 +281,13 @@ Day 1:  Feedback "don't include VPs" on banking-lead-gen
 Day 15: Same feedback surfaces on fintech-lead-gen
         → Project Learner stores at project(fintech-lead-gen)
 
-Day 30: Pattern Promoter runs, finds 3 HeyReach projects with "exclude VPs"
-        → Proposes promotion to client(heyreach)
+Day 30: Pattern Promoter runs, finds 3 Acme projects with "exclude VPs"
+        → Proposes promotion to client(acme)
         → Human confirms (or auto-applies)
-        → New overlay at client(heyreach), promoted_from = original
+        → New overlay at client(acme), promoted_from = original
 
 Day 60: Another client's projects show same pattern
-        → Pattern Promoter proposes promotion to expert(lele)
+        → Pattern Promoter proposes promotion to expert(alpha)
 
 Day 90: Multiple experts see it
         → Pattern Promoter proposes promotion to base
@@ -320,22 +320,22 @@ Lessons start at the most specific scope and earn promotion through observed evi
 
 ### Dashboard example (fully traced)
 
-User request: "Build an expert leaderboard dashboard for HeyReach with public and internal views."
+User request: "Build an expert leaderboard dashboard for Client Acme with public and internal views."
 
 ```
 Master Orchestrator
 │ Parses: 1 deliverable (dashboard), needs skills: dashboard-design, lovable-building, chart-building
-│ Resolves overlays for HeyReach + expert-leaderboard project
+│ Resolves overlays for Acme + expert-leaderboard project
 │
 ├── spawn sub-orchestrator("Build expert leaderboard dashboard") {
-│     context: program design output + HeyReach client context + resolved skill overlays
+│     context: program design output + Acme client context + resolved skill overlays
 │     acceptance_criteria: [public view no MRR, internal view with MRR, premium badges, time filters]
 │   }
 │   │
 │   ├── spawn worker("Read Supabase schema") {
 │   │     skills: [lovable-building]
 │   │     tools: [supabase_query]
-│   │     context: "Supabase project ygtdnpnizmpthgwtvbjw" (from project overlay)
+│   │     context: "Supabase project ID from credentials / uploaded knowledge" (from project overlay or integrations)
 │   │   }
 │   │   └── Returns: full types.ts schema
 │   │
@@ -345,7 +345,7 @@ Master Orchestrator
 │   │     context: schema from step 1 + tier structure + resolved overlays
 │   │     acceptance_criteria: [specific routes, components, queries, auth]
 │   │     overlays injected:
-│   │       chart-building.client(heyreach): "Use tier names in legends"
+│   │       chart-building.client(acme): "Use tier names in legends"
 │   │       chart-building.project(expert-leaderboard): "24 premium partners get amber badge"
 │   │   }
 │   │   └── Returns: project URL, routes created, components built

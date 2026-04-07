@@ -56,7 +56,9 @@
 **Priority:** Medium
 **Component:** frontend/src/lib/auth-context.tsx, backend/src/routes.rs (auth middleware)
 **Risk:** localStorage is accessible to any JavaScript on the page. An XSS vulnerability would leak the auth token.
-**Fix:** Set JWT as `HttpOnly; Secure; SameSite=Strict` cookie from the backend. Remove `localStorage.setItem("lele_token", ...)` from frontend. Auth middleware reads from cookie header instead of `Authorization` header.
+**Fix:** Set JWT as `HttpOnly; Secure; SameSite=Strict` cookie from the backend. Remove `localStorage.setItem("99percent_token", ...)` from frontend. Auth middleware reads from cookie header instead of `Authorization` header.
+
+**Credential rotation (2026):** Supabase URLs/keys and a Clay API key were once committed in `backend/tools/lovable/lovable-skill.md` (removed). Rotate those Supabase and Clay credentials if that revision was ever pushed or shared.
 **Effort:** Medium (1 day — touches both frontend and backend auth flow)
 
 ---
