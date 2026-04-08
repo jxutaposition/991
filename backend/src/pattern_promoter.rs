@@ -71,7 +71,7 @@ pub async fn run_promotion_scan(
         ORDER BY o.primitive_id, o.created_at
     "#;
 
-    let rows = db.execute(sql).await?;
+    let rows = db.execute_unparameterized(sql).await?;
     if rows.is_empty() {
         return Ok(0);
     }
@@ -351,24 +351,24 @@ async fn check_existing_overlay(
     scope: &str,
     scope_id: Uuid,
 ) -> bool {
-    let sql = format!(
+    db.execute_with(
         "SELECT 1 FROM overlays \
-         WHERE primitive_id = '{primitive_id}' AND scope = '{scope}' \
-         AND scope_id = '{scope_id}' AND source = 'promoted' LIMIT 1"
-    );
-    db.execute(&sql)
+         WHERE primitive_id = $1 AND scope = $2 \
+         AND scope_id = $3 AND source = 'promoted' LIMIT 1",
+        crate::pg_args!(primitive_id, scope.to_string(), scope_id),
+    )
         .await
         .map(|rows| !rows.is_empty())
         .unwrap_or(false)
 }
 
 async fn check_existing_base_overlay(db: &PgClient, primitive_id: Uuid) -> bool {
-    let sql = format!(
+    db.execute_with(
         "SELECT 1 FROM overlays \
-         WHERE primitive_id = '{primitive_id}' AND scope = 'base' \
-         AND source = 'promoted' LIMIT 1"
-    );
-    db.execute(&sql)
+         WHERE primitive_id = $1 AND scope = 'base' \
+         AND source = 'promoted' LIMIT 1",
+        crate::pg_args!(primitive_id),
+    )
         .await
         .map(|rows| !rows.is_empty())
         .unwrap_or(false)
@@ -383,21 +383,14 @@ async fn create_promoted_overlay(
     promoted_from: Uuid,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
-    let content_escaped = content.replace('\'', "''");
-    let scope_id_val = if scope == "base" {
-        "NULL".to_string()
-    } else {
-        format!("'{scope_id}'")
-    };
+    let scope_id_opt: Option<Uuid> = if scope == "base" { None } else { Some(scope_id) };
 
-    let sql = format!(
+    db.execute_with(
         r#"INSERT INTO overlays
             (id, primitive_type, primitive_id, scope, scope_id, content, source, promoted_from)
            VALUES
-            ('{id}', 'skill', '{primitive_id}', '{scope}', {scope_id_val},
-             '{content_escaped}', 'promoted', '{promoted_from}')"#,
-    );
-
-    db.execute(&sql).await?;
+            ($1, 'skill', $2, $3, $4, $5, 'promoted', $6)"#,
+        crate::pg_args!(id, primitive_id, scope.to_string(), scope_id_opt, content.to_string(), promoted_from),
+    ).await?;
     Ok(id)
 }

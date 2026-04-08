@@ -92,18 +92,101 @@ Instead of generating UI code, you output a **dashboard spec JSON** that the pla
 }
 ```
 
+**Live dashboard with views (Supabase-connected):**
+
+```json
+{
+  "title": "Agency Research Dashboard",
+  "supabaseUrl": "https://xxxxx.supabase.co",
+  "supabaseAnonKey": "eyJ...",
+  "refreshInterval": 30,
+  "views": [
+    {
+      "id": "overview",
+      "label": "Funnel Overview",
+      "widgets": [
+        {
+          "id": "total-agencies",
+          "type": "stat",
+          "title": "Total Agencies",
+          "span": 1,
+          "dataSource": { "table": "agencies", "aggregate": "count" }
+        },
+        {
+          "id": "funnel",
+          "type": "funnel",
+          "title": "Agency Pipeline",
+          "span": 2,
+          "data": [
+            {"name": "Identified", "value": 120},
+            {"name": "Qualified", "value": 45},
+            {"name": "In Outreach", "value": 28},
+            {"name": "Booked", "value": 12}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "intelligence",
+      "label": "Agency Intelligence",
+      "widgets": [
+        {
+          "id": "tier-breakdown",
+          "type": "pie",
+          "title": "Agency Tier Distribution",
+          "span": 2,
+          "config": { "variant": "donut", "nameKey": "tier", "valueKey": "count" },
+          "dataSource": { "table": "agency_tier_counts" }
+        },
+        {
+          "id": "top-agencies",
+          "type": "table",
+          "title": "Top 20 Agencies by Fit Score",
+          "span": 4,
+          "dataSource": {
+            "table": "agencies",
+            "select": "company_name,agency_tier,agency_category,headcount,agency_fit_score",
+            "orderBy": "agency_fit_score.desc",
+            "limit": 20
+          }
+        }
+      ]
+    },
+    {
+      "id": "insights",
+      "label": "Interview Insights",
+      "widgets": [
+        {
+          "id": "key-quotes",
+          "type": "quote",
+          "title": "Key Quotes from Interviews",
+          "span": 4,
+          "dataSource": { "table": "interview_quotes", "limit": 10 }
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Widget Types
 
 | Type | Description | Required Fields |
 |------|-------------|----------------|
 | `stat` | Single metric card | `value`, optional `description` |
-| `bar` | Bar chart | `data[]`, `config.xKey`, `config.yKeys` |
+| `stats` | Multi-metric card group | `cards[]` each with `title`, `value`, optional `description`, `trend` |
+| `bar` | Bar chart (supports grouped bars via multiple `yKeys`) | `data[]`, `config.xKey`, `config.yKeys` |
 | `line` | Line chart | `data[]`, `config.xKey`, `config.yKeys` |
 | `area` | Area chart | `data[]`, `config.xKey`, `config.yKeys` |
-| `pie` | Pie/donut chart | `data[]`, `config.nameKey`, `config.valueKey` |
+| `pie` | Pie chart (add `config.variant: "donut"` for donut style) | `data[]`, `config.nameKey`, `config.valueKey` |
 | `funnel` | Funnel visualization | `data[]`, `config.nameKey`, `config.valueKey` |
 | `table` | Data table | `data[]` (columns inferred from keys) |
 | `text` | Text/markdown block | `description` |
+| `quote` | Pull-quote cards | `data[]` each with `text`, optional `attribution`, `source` |
+
+**Donut charts:** Use `type: "pie"` with `config: { variant: "donut" }` (or `config: { innerRadius: 60 }` for custom sizing).
+
+**Grouped bar charts:** Pass multiple keys in `config.yKeys` (e.g. `["tier_a_pct", "tier_b_pct", "tier_c_pct"]`) to render bars side by side with a legend.
 
 ### Grid Layout
 
@@ -112,6 +195,100 @@ Each widget has a `span` (1-4) controlling its column width in a 4-column grid:
 - `span: 2` = half width (medium charts)
 - `span: 3` = three-quarter width
 - `span: 4` = full width (tables, wide charts)
+
+### Multi-View Dashboards
+
+For dashboards with distinct logical sections, use `views` instead of a flat `widgets` array. The renderer shows tabs the user can switch between.
+
+```json
+{
+  "title": "Agency Research Dashboard",
+  "views": [
+    {
+      "id": "funnel",
+      "label": "Funnel Overview",
+      "widgets": [...]
+    },
+    {
+      "id": "intelligence",
+      "label": "Agency Intelligence",
+      "widgets": [...]
+    }
+  ]
+}
+```
+
+When `views` is present, the `widgets` array is ignored. Use views when the dashboard has 3+ logical groupings. For simpler dashboards, use the flat `widgets` array.
+
+### Live Dashboards (Supabase-Connected)
+
+When the dashboard should show live data that updates as the underlying tables change, use Supabase as the data backend and include connection details in the spec:
+
+```json
+{
+  "title": "Live Pipeline Dashboard",
+  "supabaseUrl": "https://xxxxx.supabase.co",
+  "supabaseAnonKey": "eyJ...",
+  "refreshInterval": 30,
+  "widgets": [...]
+}
+```
+
+- `supabaseUrl` + `supabaseAnonKey`: the renderer creates a Supabase client and widgets fetch data directly from the database
+- `refreshInterval`: seconds between auto-refreshes (0 or omitted = no auto-refresh)
+
+**Widget `dataSource` field:** Instead of embedding data in `data[]`, point a widget at a Supabase table:
+
+```json
+{
+  "id": "agency-table",
+  "type": "table",
+  "title": "Top Agencies",
+  "span": 4,
+  "dataSource": {
+    "table": "agencies",
+    "select": "company_name,agency_fit_score,agency_tier,agency_category,headcount",
+    "filters": { "agency_tier": "eq.A" },
+    "orderBy": "agency_fit_score.desc",
+    "limit": 20
+  }
+}
+```
+
+The `dataSource` fields:
+- `table` (required): Supabase table name
+- `select`: PostgREST select clause (default `*`)
+- `filters`: key-value pairs using PostgREST filter syntax (e.g. `"score": "gt.50"`, `"tier": "in.(A,B)"`)
+- `orderBy`: e.g. `"score.desc"`
+- `limit`: row cap
+
+For stat widgets that need aggregates:
+```json
+{
+  "id": "total-agencies",
+  "type": "stat",
+  "title": "Total A-Tier Agencies",
+  "dataSource": {
+    "table": "agencies",
+    "filters": { "agency_tier": "eq.A" },
+    "aggregate": "count"
+  }
+}
+```
+
+Supported `aggregate` values: `count`, `sum`, `avg`, `min`, `max`. Use `aggregateColumn` to specify which column (required for sum/avg/min/max).
+
+**When to use live vs static:**
+- **Live** (`dataSource` + `supabaseUrl`): when the underlying data changes over time (status updates, new rows added, ongoing campaign tracking)
+- **Static** (`data[]`): when the dashboard is a one-time snapshot (report, analysis summary)
+- You can mix both in the same dashboard — some widgets live, some static
+
+**Workflow for live dashboards:**
+1. Create Supabase tables with the right schema
+2. Configure RLS policies (use `public_read` for dashboards visible without auth)
+3. Insert the data (from Clay reads, API calls, etc.)
+4. Build the spec with `supabaseUrl`, `supabaseAnonKey`, `refreshInterval`, and `dataSource` on each widget
+5. Test by querying the Supabase tables to verify data is accessible via the anon key
 
 ## Workflow
 
@@ -156,8 +333,26 @@ When a tool call fails:
    - **Validation error** (400/422): Read the error body
    - **Server error** (500+): Retry once, then document as blocker
 
+## Integration Requirements Check
+
+Before building a dashboard, verify you have all the runtime configuration you need.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+**Pre-flight checklist:**
+1. If reading from Clay: verify Clay credentials are configured — no additional user input needed
+2. If reading from Supabase: verify Supabase credentials (project URL + API key) are configured
+3. If the dashboard needs a Supabase backend: create tables and RLS policies as needed — no user input required
+4. If the task references specific existing tables or databases, verify they exist before building widgets around them
+
+Dashboards typically don't require user input for runtime configuration since they read from existing data sources. Focus on verifying data source availability.
+
 ## Anti-Patterns
 - Don't assume tables exist — always check first
 - Don't output a dashboard spec without verifying the data layer works
 - Don't expose MRR or revenue data on external dashboards
-- Don't generate empty widgets — always populate with real or realistic sample data
+- **NEVER populate widgets with fabricated or sample data** — if data sources are empty, report it as a blocker and fail the task

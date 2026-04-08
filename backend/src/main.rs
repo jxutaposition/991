@@ -210,6 +210,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/clients/:slug/credentials", get(routes::client_credentials_list))
         .route("/api/clients/:slug/credentials", post(routes::client_credential_set))
         .route("/api/clients/:slug/credentials/:integration_slug", axum::routing::delete(routes::client_credential_delete))
+        // Integration resource listings (smart pickers)
+        .route("/api/clients/:slug/integrations/slack/channels", get(routes::integration_slack_channels))
+        .route("/api/clients/:slug/integrations/notion/databases", get(routes::integration_notion_databases))
+        .route("/api/clients/:slug/integrations/notion/pages", get(routes::integration_notion_pages))
         // OAuth
         .route("/api/oauth/:provider/authorize", get(routes::oauth_authorize))
         // Auth
@@ -244,6 +248,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/projects/:project_id/credentials", post(routes::project_credential_set))
         .route("/api/projects/:project_id/credentials/:integration_slug", axum::routing::delete(routes::project_credential_delete))
         .route("/api/projects/:project_id/credential-check", get(routes::project_credential_check))
+        // Project resources (SD-008)
+        .route("/api/projects/:project_id/resources", get(routes::project_resources_list))
+        .route("/api/projects/:project_id/resources", post(routes::project_resource_create))
+        .route("/api/projects/:project_id/resources/:resource_id", axum::routing::delete(routes::project_resource_delete))
+        .route("/api/projects/:project_id/resources/:resource_id/sync", post(routes::project_resource_sync))
+        // Integration discovery (SD-008)
+        .route("/api/integrations/:slug/discover", get(routes::integration_discover))
         // Project members
         .route("/api/projects/:project_id/members", get(routes::project_members_list))
         .route("/api/projects/:project_id/members", post(routes::project_member_invite))
@@ -288,6 +299,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/execute/:session_id/threads/:thread_id", get(routes::thread_get).patch(routes::thread_update))
         // Chat Learnings
         .route("/api/chat-learnings/stats", get(routes::chat_learnings_stats))
+        .route("/api/chat-learnings/sessions", get(routes::chat_learnings_sessions))
+        .route("/api/chat-learnings/analyze-recent", post(routes::chat_learnings_analyze_recent))
         .route("/api/chat-learnings/analyze/:session_id", post(routes::chat_learnings_analyze))
         .route("/api/chat-learnings/:session_id", get(routes::chat_learnings_list))
         .route("/api/chat-learnings/:id/reject", post(routes::chat_learning_reject))

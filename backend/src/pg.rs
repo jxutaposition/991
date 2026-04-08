@@ -27,7 +27,25 @@ impl PgClient {
         Ok(Self { pool })
     }
 
-    pub async fn execute(&self, sql: &str) -> anyhow::Result<Vec<Value>> {
+    /// Execute a raw SQL string with NO parameter binding.
+    ///
+    /// # ⚠️ SQL INJECTION HAZARD
+    ///
+    /// This method takes a raw SQL string and runs it verbatim. **Do NOT pass
+    /// any value built with `format!()`, string concatenation, or any other
+    /// runtime interpolation of user-controlled data — that is a SQL injection
+    /// vulnerability.**
+    ///
+    /// Use [`PgClient::execute_with`] + [`pg_args!`] for anything that
+    /// interpolates a value. This method exists only for:
+    ///   - fully-static SQL literals (e.g. `"SELECT * FROM tool_categories"`)
+    ///   - migration / admin scripts where the SQL is hardcoded at build time
+    ///   - SQL composed from a server-controlled allowlist (and even then,
+    ///     prefer parameter binding when possible)
+    ///
+    /// New code should not call this. The name is intentionally ugly so
+    /// reviewers can spot it. See `CLAUDE.md` → "SQL safety".
+    pub async fn execute_unparameterized(&self, sql: &str) -> anyhow::Result<Vec<Value>> {
         let rows = sqlx::query(sql)
             .fetch_all(&self.pool)
             .await
@@ -35,11 +53,12 @@ impl PgClient {
         Ok(rows.iter().map(pg_row_to_json).collect())
     }
 
-    pub async fn execute_with_id(
+    /// See [`PgClient::execute_unparameterized`] — same SQL-injection caveats apply.
+    pub async fn execute_unparameterized_with_id(
         &self,
         sql: &str,
     ) -> anyhow::Result<(Vec<Value>, Option<String>)> {
-        let rows = self.execute(sql).await?;
+        let rows = self.execute_unparameterized(sql).await?;
         let query_id = uuid::Uuid::new_v4().to_string();
         Ok((rows, Some(query_id)))
     }

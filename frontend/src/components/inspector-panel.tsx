@@ -23,6 +23,7 @@ import {
   Bot,
   Wrench,
   Loader2,
+  X,
 } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
 import { ModelSelector } from "@/components/ui/model-selector";
@@ -142,9 +143,141 @@ interface InspectorPanelProps {
   planningMessages?: string[];
   planningError?: string | null;
   chatPending?: boolean;
+  projectResources?: Array<{id: string; display_name: string; integration_slug: string; resource_type: string}>;
+  onNodeDescriptionUpdate?: (nodeId: string, description: Record<string, unknown>) => Promise<void>;
+  clientSlug?: string;
 }
 
 const INTERNAL_TOOLS = ["read_upstream_output", "write_output", "spawn_agent"];
+
+function DependencyEditor({
+  selectedNode,
+  allNodes,
+  onNodeUpdate,
+}: {
+  selectedNode: ExecutionNode;
+  allNodes: ExecutionNode[];
+  onNodeUpdate: (nodeId: string, patch: Record<string, unknown>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const otherNodes = allNodes.filter((n) => n.id !== selectedNode.id);
+  const currentRequires = selectedNode.requires ?? [];
+
+  const handleToggle = (nodeId: string) => {
+    const next = currentRequires.includes(nodeId)
+      ? currentRequires.filter((id) => id !== nodeId)
+      : [...currentRequires, nodeId];
+    onNodeUpdate(selectedNode.id, { requires: next });
+  };
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-ink-3 font-medium hover:text-ink transition-colors"
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        Dependencies ({currentRequires.length})
+      </button>
+      {open && (
+        <div className="space-y-1 pl-1 max-h-48 overflow-y-auto">
+          {otherNodes.length === 0 ? (
+            <p className="text-xs text-ink-3">No other nodes in session</p>
+          ) : (
+            otherNodes.map((node) => {
+              const checked = currentRequires.includes(node.id);
+              const label = node.description?.display_name || node.agent_slug;
+              return (
+                <label
+                  key={node.id}
+                  className="flex items-center gap-2 text-xs py-0.5 cursor-pointer hover:bg-surface rounded px-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => handleToggle(node.id)}
+                    className="rounded border-rim text-brand focus:ring-brand w-3 h-3"
+                  />
+                  <span className={`truncate ${checked ? "text-ink font-medium" : "text-ink-2"}`}>
+                    {label}
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssignedResourcesSection({
+  selectedNode,
+  isEditable,
+  projectResources,
+  onNodeDescriptionUpdate,
+}: {
+  selectedNode: ExecutionNode;
+  isEditable: boolean;
+  projectResources?: Array<{id: string; display_name: string; integration_slug: string; resource_type: string}>;
+  onNodeDescriptionUpdate?: (nodeId: string, description: Record<string, unknown>) => Promise<void>;
+}) {
+  const assignedResources = (selectedNode.description?.assigned_resources ?? []) as Array<{resource_id: string; role: string}>;
+  const hasResources = assignedResources.length > 0;
+
+  if (!isEditable && !hasResources) return null;
+
+  const handleUnassign = async (resourceId: string) => {
+    if (!onNodeDescriptionUpdate) return;
+    const updated = assignedResources.filter((r) => r.resource_id !== resourceId);
+    const desc = { ...(selectedNode.description ?? {}), assigned_resources: updated };
+    await onNodeDescriptionUpdate(selectedNode.id, desc);
+  };
+
+  const resourceLookup = (id: string) => projectResources?.find((r) => r.id === id);
+
+  return (
+    <CollapsibleSection title="Assigned Resources" defaultOpen={hasResources}>
+      {hasResources ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {assignedResources.map((ar) => {
+              const res = resourceLookup(ar.resource_id);
+              const label = res?.display_name || ar.resource_id.slice(0, 8);
+              return (
+                <span
+                  key={ar.resource_id}
+                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+                  title={`${ar.resource_id} (${ar.role})`}
+                >
+                  {res && <IntegrationIcon slug={res.integration_slug} size={12} />}
+                  <span className="font-medium">{label}</span>
+                  {ar.role && <span className="text-blue-500 text-[10px]">({ar.role})</span>}
+                  {isEditable && onNodeDescriptionUpdate && (
+                    <button
+                      onClick={() => handleUnassign(ar.resource_id)}
+                      className="ml-0.5 text-blue-400 hover:text-red-500 transition-colors"
+                      title="Unassign resource"
+                      aria-label={`Unassign ${label}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-ink-3">Assign resources from the Discovery panel</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="text-xs text-ink-3">No resources assigned</p>
+          <p className="text-[11px] text-ink-3">Assign resources from the Discovery panel</p>
+        </div>
+      )}
+    </CollapsibleSection>
+  );
+}
 
 function NodeDetailContent({
   selectedNode,
@@ -154,6 +287,8 @@ function NodeDetailContent({
   integrationAlternatives,
   sessionStatus,
   onNodeUpdate,
+  projectResources,
+  onNodeDescriptionUpdate,
 }: {
   selectedNode: ExecutionNode;
   allNodes: ExecutionNode[];
@@ -162,6 +297,8 @@ function NodeDetailContent({
   integrationAlternatives?: Record<string, string[]>;
   sessionStatus?: string;
   onNodeUpdate?: (nodeId: string, patch: Record<string, unknown>) => Promise<void>;
+  projectResources?: Array<{id: string; display_name: string; integration_slug: string; resource_type: string}>;
+  onNodeDescriptionUpdate?: (nodeId: string, description: Record<string, unknown>) => Promise<void>;
 }) {
   const isEditable = sessionStatus === "awaiting_approval" && !!onNodeUpdate;
   const [editingTask, setEditingTask] = useState(false);
@@ -542,11 +679,29 @@ function NodeDetailContent({
               />
             </>
           )}
-          {selectedNode.requires && selectedNode.requires.length > 0 && (
-            <ConfigRow
-              label="Depends on"
-              value={`${selectedNode.requires.length} node(s)`}
+          {/* Editable dependency editor */}
+          {isEditable ? (
+            <DependencyEditor
+              selectedNode={selectedNode}
+              allNodes={allNodes}
+              onNodeUpdate={onNodeUpdate!}
             />
+          ) : (
+            selectedNode.requires && selectedNode.requires.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-xs text-ink-3 font-medium">Dependencies</span>
+                <div className="space-y-0.5">
+                  {selectedNode.requires.map((depId) => {
+                    const depNode = allNodes.find((n) => n.id === depId);
+                    return (
+                      <div key={depId} className="text-xs text-ink font-mono">
+                        {depNode?.description?.display_name || depNode?.agent_slug || depId.slice(0, 8)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )
           )}
         </div>
       </CollapsibleSection>
@@ -557,6 +712,14 @@ function NodeDetailContent({
           <JsonBlock data={selectedNode.judge_config} />
         </CollapsibleSection>
       ) : null}
+
+      {/* Assigned Resources */}
+      <AssignedResourcesSection
+        selectedNode={selectedNode}
+        isEditable={isEditable}
+        projectResources={projectResources}
+        onNodeDescriptionUpdate={onNodeDescriptionUpdate}
+      />
 
       {/* Variant info */}
       {selectedNode.variant_group && (
@@ -1024,6 +1187,9 @@ export const InspectorPanel = React.memo(function InspectorPanel({
   planningMessages = [],
   planningError,
   chatPending = false,
+  projectResources,
+  onNodeDescriptionUpdate,
+  clientSlug,
 }: InspectorPanelProps) {
   const [_selectedEvent, _setSelectedEvent] = useState<ExecutionEvent | null>(
     null
@@ -1177,6 +1343,8 @@ export const InspectorPanel = React.memo(function InspectorPanel({
                 integrationAlternatives={integrationAlternatives}
                 sessionStatus={sessionStatus}
                 onNodeUpdate={onNodeUpdate}
+                projectResources={projectResources}
+                onNodeDescriptionUpdate={onNodeDescriptionUpdate}
               />
             )}
           </ScrollArea>
@@ -1341,6 +1509,7 @@ export const InspectorPanel = React.memo(function InspectorPanel({
               onReply={onReply}
               liveThinkingChunks={liveThinkingChunks}
               liveTextChunks={liveTextChunks}
+              clientSlug={clientSlug}
             />
           ) : masterNode ? (
             <ConversationStream
@@ -1351,6 +1520,7 @@ export const InspectorPanel = React.memo(function InspectorPanel({
               liveThinkingChunks={masterLiveThinkingChunks}
               liveTextChunks={masterLiveTextChunks}
               chatPending={chatPending}
+              clientSlug={clientSlug}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-sm text-ink-3">

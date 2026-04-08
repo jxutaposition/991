@@ -83,6 +83,31 @@ Return ONLY a JSON array. No explanation, no markdown fences. Keep task_descript
   {"agent_slug": "n8n_operator", "task_description": "...", "depends_on": [0]}
 ]"#;
 
+/// Extract a JSON substring from LLM output that may contain prose preamble,
+/// markdown fences, and trailing explanation text.
+/// `open`/`close` should be `[`/`]` for arrays or `{`/`}` for objects.
+fn extract_json_substring(text: &str, open: char, close: char) -> String {
+    let trimmed = text.trim();
+
+    // Fast path: already starts with the expected delimiter
+    if trimmed.starts_with(open) {
+        if let Some(pos) = trimmed.rfind(close) {
+            return trimmed[..=pos].to_string();
+        }
+    }
+
+    // Find the first opening delimiter (skip anything before it — prose, markdown fences, etc.)
+    if let Some(start) = trimmed.find(open) {
+        let remainder = &trimmed[start..];
+        if let Some(end) = remainder.rfind(close) {
+            return remainder[..=end].to_string();
+        }
+    }
+
+    // Fallback: return the original text (will fail JSON parse, but with a useful error)
+    trimmed.to_string()
+}
+
 /// Call the LLM to decompose a customer request into a DAG of agent nodes.
 pub async fn plan_execution(
     request: &str,
@@ -113,14 +138,9 @@ pub async fn plan_execution(
             return Err(anyhow::anyhow!("planner returned empty response"));
         }
 
-        let cleaned = text
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
+        let cleaned = extract_json_substring(&text, '[', ']');
 
-        match serde_json::from_str::<Vec<PlannedNode>>(cleaned) {
+        match serde_json::from_str::<Vec<PlannedNode>>(&cleaned) {
             Ok(nodes) if !nodes.is_empty() => {
                 let mut nodes = nodes;
                 sanitize_depends_on(&mut nodes);
@@ -552,6 +572,12 @@ clay_operator owns the client's ENTIRE Clay workspace. Its description must refl
 
 In `io_contract`, list the workbook-level inputs and outputs (not per-table). In `acceptance_criteria`, include criteria for the full pipeline (e.g., "data flows end-to-end from signal capture to webhook output"), not just one table.
 
+## Existing Infrastructure
+When an "Existing Infrastructure" section is present in the context, follow these rules:
+- Generate components that reference those resources. Set `assigned_resources` on each component's description to include the relevant resource external_ids (as an array of `{"resource_id": "...", "role": "owner"|"reader"}`).
+- Do NOT create new infrastructure when an existing resource serves the same purpose.
+- When the user asks to "add" something, generate only the new component(s) — do not regenerate the entire plan.
+
 ## Description Structure
 Each component's "description" field is a structured object:
 - display_name: human-friendly name for the component
@@ -637,24 +663,36 @@ pub async fn gather_planner_context(
                 "[{}]",
                 embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
             );
-            let project_clause = project_id
-                .map(|p| format!("AND (c.project_id IS NULL OR c.project_id = '{p}')"))
-                .unwrap_or_default();
+            let result = if let Some(pid) = project_id {
+                db.execute_with(
+                    "SELECT c.id, c.content, c.section_title, d.source_filename, \
+                            1 - (c.embedding <=> $1::vector) AS similarity \
+                     FROM knowledge_chunks c \
+                     JOIN knowledge_documents d ON c.document_id = d.id \
+                     WHERE c.tenant_id = $2 \
+                       AND d.status = 'ready' \
+                       AND (c.project_id IS NULL OR c.project_id = $3) \
+                       AND 1 - (c.embedding <=> $1::vector) > 0.3 \
+                     ORDER BY c.embedding <=> $1::vector \
+                     LIMIT 8",
+                    crate::pg_args!(embedding_str.clone(), tenant_id, pid),
+                ).await
+            } else {
+                db.execute_with(
+                    "SELECT c.id, c.content, c.section_title, d.source_filename, \
+                            1 - (c.embedding <=> $1::vector) AS similarity \
+                     FROM knowledge_chunks c \
+                     JOIN knowledge_documents d ON c.document_id = d.id \
+                     WHERE c.tenant_id = $2 \
+                       AND d.status = 'ready' \
+                       AND 1 - (c.embedding <=> $1::vector) > 0.3 \
+                     ORDER BY c.embedding <=> $1::vector \
+                     LIMIT 8",
+                    crate::pg_args!(embedding_str.clone(), tenant_id),
+                ).await
+            };
 
-            let sql = format!(
-                "SELECT c.id, c.content, c.section_title, d.source_filename, \
-                        1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity \
-                 FROM knowledge_chunks c \
-                 JOIN knowledge_documents d ON c.document_id = d.id \
-                 WHERE c.tenant_id = '{tenant_id}' \
-                   AND d.status = 'ready' \
-                   {project_clause} \
-                   AND 1 - (c.embedding <=> '{embedding_str}'::vector) > 0.3 \
-                 ORDER BY c.embedding <=> '{embedding_str}'::vector \
-                 LIMIT 8"
-            );
-
-            if let Ok(rows) = db.execute(&sql).await {
+            if let Ok(rows) = result {
                 if !rows.is_empty() {
                     let mut knowledge_text = String::from("## Relevant Knowledge Base Results\n");
                     knowledge_text.push_str("Prior work, decisions, and reference material found in the knowledge base:\n\n");
@@ -709,6 +747,40 @@ pub async fn gather_planner_context(
         }
     }
 
+    // 4. Linked project resources (existing infrastructure)
+    if let Some(pid) = project_id {
+        let resources = db.execute_with(
+            "SELECT integration_slug, resource_type, display_name, external_id, \
+                    external_url, discovered_metadata \
+             FROM project_resources WHERE project_id = $1 ORDER BY integration_slug",
+            crate::pg_args!(pid),
+        ).await.unwrap_or_default();
+
+        if !resources.is_empty() {
+            let mut section = String::from(
+                "## Existing Infrastructure\n\
+                 This project has the following linked external resources. \
+                 Agents should use these directly rather than creating new ones.\n\n"
+            );
+
+            let mut current_integration = String::new();
+            for row in &resources {
+                let slug = row.get("integration_slug").and_then(serde_json::Value::as_str).unwrap_or("");
+                let rtype = row.get("resource_type").and_then(serde_json::Value::as_str).unwrap_or("");
+                let name = row.get("display_name").and_then(serde_json::Value::as_str).unwrap_or("");
+                let ext_id = row.get("external_id").and_then(serde_json::Value::as_str).unwrap_or("");
+
+                if slug != current_integration {
+                    section.push_str(&format!("### {slug}\n"));
+                    current_integration = slug.to_string();
+                }
+                section.push_str(&format!("- **{name}** ({rtype}, id: `{ext_id}`)\n"));
+            }
+
+            context_parts.push(section);
+        }
+    }
+
     tracing::debug!(sections = context_parts.len(), total_chars = context_parts.iter().map(|s| s.len()).sum::<usize>(), "planner context gathered");
     context_parts.join("\n\n")
 }
@@ -750,21 +822,9 @@ pub async fn plan_rich_description(
             return Err(anyhow::anyhow!("rich planner returned empty response"));
         }
 
-        let cleaned = text
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
+        let cleaned = extract_json_substring(&text, '{', '}');
 
-        // Strip trailing non-JSON text (LLM sometimes appends explanation after the closing brace)
-        let cleaned = if let Some(last_brace) = cleaned.rfind('}') {
-            &cleaned[..=last_brace]
-        } else {
-            cleaned
-        };
-
-        match serde_json::from_str::<RichPlanOutput>(cleaned) {
+        match serde_json::from_str::<RichPlanOutput>(&cleaned) {
             Ok(mut output) if !output.components.is_empty() => {
                 sanitize_depends_on(&mut output.components);
                 deduplicate_nodes(&mut output.components);

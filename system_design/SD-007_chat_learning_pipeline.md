@@ -186,10 +186,20 @@ This prevents unbounded prompt growth. The narrative absorbs historical overlays
 
 The chat analyzer runs every **2 hours** via `spawn_scheduler`, following the same pattern as `pattern_promoter.rs`: a tokio interval with shutdown signal.
 
+### High-water-mark model (migration 034)
+
+Sessions are treated as **living projects** that accumulate messages over time, not discrete runs that complete once. The analyzer uses a high-water-mark pattern via `learning_scanned_up_to` (TIMESTAMPTZ on `execution_sessions`):
+
+- **Session selection**: any session with `analysis_skip = FALSE`, at least one user message, and either `learning_scanned_up_to IS NULL` (never scanned) or messages newer than the watermark.
+- **No status filter**: sessions in any status (`executing`, `awaiting_approval`, `completed`, etc.) are eligible as long as they have user messages.
+- **On success**: `learning_scanned_up_to` advances to `MAX(node_messages.created_at)`.
+- **On failure**: watermark is left unchanged (previous successful scan position is preserved), only `analysis_failure_count` increments.
+- **Known limitation**: re-scans currently read the full transcript, not just messages after the watermark. The distill stage's dedup handles most duplicate extractions. Incremental-only transcript collection is a future optimization.
+
 ### Catch-up logic
 
 On each cycle:
-1. Count the backlog of unanalyzed sessions
+1. Count the backlog of sessions with new messages (watermark-based)
 2. If backlog > `CATCHUP_THRESHOLD` (default 20), increase batch size to `CHAT_ANALYZER_CATCHUP_BATCH_SIZE` (default 5)
 3. Otherwise use `CHAT_ANALYZER_BATCH_SIZE` (default 1)
 
@@ -201,7 +211,7 @@ This means a 100-session backlog clears in ~2 days instead of ~8.
 
 ### Failure handling
 
-- On analysis failure: reset `learning_analyzed_at` to NULL, increment `analysis_failure_count`
+- On analysis failure: increment `analysis_failure_count`, leave `learning_scanned_up_to` at its previous value
 - After 3 failures: set `analysis_skip = TRUE` (permanent exclusion)
 - `analysis_skip` is a dedicated boolean column, not an epoch timestamp hack
 

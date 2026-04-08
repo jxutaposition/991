@@ -18,13 +18,13 @@ Things we **cannot** do programmatically today that block a fully autonomous Cla
 - [x] TODO-021/030: Export file download — **RESOLVED**: `GET /v3/exports/{jobId}?download=true` → `downloadUrl` = signed S3 URL (24h expiry)
 - [ ] [TODO-022: Workspace users & permissions](TODO-022_workspace-users-permissions.md) — **P2** — READ confirmed. WRITE untested.
 - [ ] [TODO-023: Attributes catalog deep dive](TODO-023_attributes-catalog.md) — **P2** — READ confirmed. Full schema undocumented.
-- [ ] [TODO-024: Import job creation](TODO-024_import-creation.md) — **P2** — Endpoint exists (500 not 404). Needs correct payload.
+- [x] TODO-024: Import job creation — **RESOLVED (INV-020)** — `POST /v3/imports` confirmed working with `{workspaceId, config:{map, source:{key,type:"S3_CSV",filename,hasHeader,recordKeys,uploadMode,fieldDelimiter}, destination:{type:"TABLE",tableId}, isImportWithoutRun}}`. Synchronous. `GET /v3/imports/{id}` polls status. Remaining sub-gap: no v3 endpoint to upload the CSV to S3 (tracked as GAP-027).
 - [ ] [TODO-025: Table settings deep dive](TODO-025_table-settings-deep-dive.md) — **P1** — tableSettings is schemaless JSON blob. autoRun, dedupeFieldId, schedule, cronExpression all accepted.
 
 ### From Session 6 (TODO Attacks)
 - [x] TODO-026: Signal write — **RESOLVED NEGATIVE**: no POST/PATCH endpoints exist for signals
 - [x] TODO-027: Resource tags — **RESOLVED**: full CRUD confirmed. `POST {tagText, tagColor, isPublic}`, `DELETE /{tagId}`. Colors: nightshade/pomegranate/tangerine/lemon/matcha/blueberry/ube/dragonfruit
-- [ ] [TODO-028: Source scheduling](TODO-028_source-scheduling.md) — **P1** — tableSettings accepts schedule/cron keys but behavior unverified
+- [x] TODO-028: Source scheduling — **RESOLVED NEGATIVE (INV-022)** — `tableSettings` accepts and persists every schedule-shaped key (`schedule`, `cronExpression`, `scheduleEnabled`, `nextRunAt`, `lastRunAt`, `scheduleStatus`, `runFrequency`, `runFrequencyConfig`) via merge but they are pure UI scratch space; backend scheduler does not read them. `HAS_SCHEDULED_RUNS` is server-controlled (PATCH override silently dropped). Source `typeSettings` is validated and 500s on schedule keys; top-level source PATCH silently no-ops. 16 candidate `/v3/*schedul*`, `/v3/triggers`, `/v3/jobs`, `/v3/recurring-jobs` paths all 404. Workaround: external cron → `PATCH /v3/tables/{id}/run`.
 - [ ] [TODO-029: Deduplication behavior](TODO-029_table-deduplication-behavior.md) — **P1** — dedupeFieldId accepted but doesn't prevent direct-insert duplicates
 - [x] TODO-030: Export download — **RESOLVED** (merged with TODO-021)
 - [x] TODO-031: Enrichment column from scratch — **RESOLVED**: works with empty inputsBinding `[]` and actionPackageId from actions catalog
@@ -56,10 +56,10 @@ Things we **cannot** do programmatically today that block a fully autonomous Cla
 
 ## Score
 
-### Sessions 4-9 Combined
+### Sessions 4 through INV-026 Combined
 - **Total TODOs created**: 43
-- **Total resolved**: 35 (81%)
-- **Total open**: 8 (TODO-007, 022, 023, 024, 025, 028, 032, 038)
-- **Exhaustively searched**: 27 documented dead-ends + behavioral patterns
-- **Total registry endpoints**: 66+
-- **Investigation sessions**: 9
+- **Total resolved**: 38 (88%)  — TODO-024 closed by INV-020, TODO-028 closed by INV-022
+- **Total open**: 5 (TODO-007, 022, 023, 025, 029) + GAP-019, GAP-033, GAP-034, GAP-035
+- **Exhaustively searched**: 36 documented dead-ends + behavioral patterns
+- **Total registry endpoints**: 110
+- **Investigations completed**: INV-001 through INV-026

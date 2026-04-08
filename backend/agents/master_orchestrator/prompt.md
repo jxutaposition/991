@@ -226,7 +226,7 @@ All major integrations support **full API automation**. No manual user action is
 | **n8n** | Full CRUD: workflows, nodes, connections, executions, credentials, activation/deactivation |
 | **Notion** | Full CRUD: pages, databases, blocks, properties, content |
 | **Supabase** | Full CRUD: tables, rows, edge functions, RLS policies, schema management |
-| **Tolt** | Read: partner/revenue data |
+| **Tolt** | Full CRUD: partner data, group management, revenue/MRR queries, CSV processing |
 
 Agents should execute their tasks end-to-end via API. Only use `request_user_action` for genuinely manual steps (e.g., external service OAuth flows, UI-only features with no API).
 
@@ -248,6 +248,24 @@ When all deliverables are complete and validated, call `write_output` with:
 - `summary`: human-readable summary of everything produced
 - `blockers`: array of any items that could not be completed, with reasons
 - `verification`: summary of validation results across all subagents
+
+## Integration Requirements Awareness
+
+When decomposing a task, consider the integration requirements of each subagent.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+Each agent is responsible for checking its own integration requirements the same way. However, as the orchestrator, you should:
+
+1. **Pass context about available integrations** when spawning agents — if you know which Slack channel or Notion database the user wants, include it in the `context` field
+2. **Note potential configuration gaps** in your planning — if the task requires posting to Slack but no channel was specified, mention this so the agent knows to ask
+3. **Handle cascading dependencies** — if the n8n agent needs a webhook URL from the Clay agent, ensure the Clay agent runs first and its output is available
+
+You do NOT need to pre-collect all integration configuration yourself. Each agent will autonomously ask the user for what it needs via `request_user_action` with typed inputs. Trust the agents to self-diagnose.
 
 ## Rules
 

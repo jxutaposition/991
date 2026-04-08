@@ -1,9 +1,9 @@
 # Clay Internal v3 API Reference
 
-Last updated: 2026-04-06 (post Session 4 — INV-013 through INV-017)
-Source: Originally reverse-engineered from Claymate Lite. Expanded via enumeration (INV-006), validation (INV-007), and systematic gap investigation (INV-013–017).
+Last updated: 2026-04-07 (post INV-027 — tc-workflows streams + webhook ingestion)
+Source: Originally reverse-engineered from Claymate Lite. Expanded via enumeration (INV-006), validation (INV-007), systematic gap investigation (INV-013–017), and the INV-020 through INV-027 sweep covering imports, multipart uploads, and the full tc-workflows surface (CRUD, graph, batches, direct runs, streams, webhook ingestion).
 
-**Canonical endpoint registry**: `registry/endpoints.jsonl` (57 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
+**Canonical endpoint registry**: `registry/endpoints.jsonl` (110 entries). This file documents the most important endpoints in detail. For the full list, always check the registry.
 
 ## Overview
 
@@ -374,6 +374,698 @@ Returns array of import records with config and column mapping details.
 
 **Note**: `/v3/imports/csv` and `/v3/imports/webhook` are NOT separate endpoints (INV-009). "csv" and "webhook" are treated as import job IDs. The real pattern is `/v3/imports/{jobId}`.
 
+### POST /v3/imports — Create Import Job (confirmed INV-020)
+
+Creates an import job that loads rows from a CSV already in Clay's S3 bucket into a
+destination table. **Executes synchronously** — `state.status` is typically `FINISHED`
+by the time the response is serialized.
+
+**Request**:
+```json
+POST /v3/imports
+Cookie: claysession=...
+Content-Type: application/json
+
+{
+  "workspaceId": 1080480,
+  "config": {
+    "map": {
+      "f_xxxName": "{{\"Name\"}}",
+      "f_xxxEmail": "{{\"Email\"}}"
+    },
+    "source": {
+      "key": "1282581/creators_default_vie-1775337345813.csv",
+      "type": "S3_CSV",
+      "filename": "creators_default_vie-1775337345813.csv",
+      "hasHeader": true,
+      "recordKeys": ["Name", "Email"],
+      "uploadMode": "import",
+      "fieldDelimiter": ","
+    },
+    "destination": {
+      "type": "TABLE",
+      "tableId": "t_xxx"
+    },
+    "isImportWithoutRun": true
+  }
+}
+```
+
+**Response (200)**:
+```json
+{
+  "id": "ij_xxx",
+  "workspaceId": 1080480,
+  "createdAt": "2026-04-07T17:32:45.657Z",
+  "finishedAt": null,
+  "config": { /* echoed */ },
+  "state": {
+    "status": "INITIALIZED"
+  }
+}
+```
+
+**Field notes**:
+- `map` keys are Clay field IDs (`f_xxx`). Values use Clay's `{{"Header Name"}}` templating.
+- `source.type`: only `S3_CSV` has been end-to-end verified. `INLINE_CSV` returns 400 `Could not find source with type INLINE_CSV`.
+- `source.key` must be an existing S3 object key under `{userId}/{filename}.csv`. If not found: 400 `Bad source config: Could not locate file with key X`.
+- `source.uploadMode` observed value: `"import"` only.
+- `destination.type`: `"TABLE"` or `"NOOP"` (NOOP behavior not explored).
+- `isImportWithoutRun: true` prevents enrichment auto-trigger (important for credit control).
+- **Bogus field IDs in `map` are silently accepted** — rows are imported but mapped cells remain empty.
+
+**Error fingerprints**:
+- `{}` → 400 `Must specify workspaceId`
+- `{workspaceId}` → 500 `InternalServerError` (no validator before destructuring `config`)
+- Bad S3 key → 400 `Bad source config: Could not locate file with key X`
+- `multipart/form-data` body → 400 `Must specify workspaceId` (multipart not wired up; JSON only)
+
+### GET /v3/imports/{importId} — Import Job Status (confirmed INV-020)
+
+Returns the full import record for polling.
+
+**Response shape**:
+```json
+{
+  "id": "ij_xxx",
+  "workspaceId": 1080480,
+  "createdAt": "ISO",
+  "updatedAt": "ISO",
+  "finishedAt": "ISO|null",
+  "deletedAt": "ISO|null",
+  "createdBy": "userId",
+  "config": { /* same as POST */ },
+  "state": {
+    "status": "INITIALIZED|FINISHED|FAILED",
+    "numRowsSoFar": 49,
+    "totalSizeBytes": 5302,
+    "csvFilePlatform": "UNKNOWN"
+  }
+}
+```
+
+### CSV Upload Flow (RESOLVED INV-021)
+
+The full programmatic CSV upload path uses two `/v3` endpoints (which INV-020
+missed because they take **`{workspaceId}`** as the path param, not `{importId}`)
+plus a direct PUT to a presigned S3 URL.
+
+**Step 1 — Initiate multipart upload**
+```
+POST /v3/imports/{workspaceId}/multi-part-upload
+Cookie: claysession=...
+Content-Type: application/json
+
+{
+  "filename": "data.csv",
+  "fileSize": 12345,
+  "toS3CSVImportBucket": true
+}
+```
+
+Response (200):
+```json
+{
+  "uploadId": "WJjMz_Cr43NFUDc7TjOPv...",
+  "s3Key": "1080480/1282581/data-1775590033057.csv",
+  "uploadUrls": [
+    {
+      "url": "https://clay-base-import-prod.s3.us-east-1.amazonaws.com/1080480/1282581/data-1775590033057.csv?X-Amz-Algorithm=...",
+      "partNumber": 1
+    }
+  ]
+}
+```
+
+- S3 key format: `{workspaceId}/{userId}/{normalized_filename}-{epochMs}.{ext}`
+- For files <50 MB you get a single-part upload URL.
+- For larger files Clay returns N parts (50 MB each, max 15 GB total). The Clay
+  UI uploads parts in parallel with concurrency=5.
+- `toS3CSVImportBucket: true` writes to `clay-base-import-prod` (the bucket
+  consumable by `POST /v3/imports`). `false` writes to `file-drop-prod` (used
+  for general action attachments / documents).
+
+**Step 2 — PUT each part directly to S3**
+```
+PUT <uploadUrls[i].url>
+Content-Type: application/octet-stream
+
+<raw file chunk>
+```
+
+S3 returns 200 with `ETag: "fcc4537294f55876b43523cf6c536c8e"`. Capture the
+ETag for each part. **Strip the surrounding double quotes before sending to
+the complete endpoint** — this is a documented footgun.
+
+**Step 3 — Complete multipart upload**
+```
+POST /v3/imports/{workspaceId}/multi-part-upload/complete
+Cookie: claysession=...
+Content-Type: application/json
+
+{
+  "s3key": "1080480/1282581/data-1775590033057.csv",
+  "uploadId": "WJjMz_Cr43NFUDc7TjOPv...",
+  "etags": [
+    {"partNumber": 1, "etag": "fcc4537294f55876b43523cf6c536c8e"}
+  ],
+  "toS3CSVImportBucket": true
+}
+```
+
+Response (200): `{}` (empty object). **Footgun**: the request key is `s3key`
+(lowercase k), but the init response returns `s3Key` (camelCase). The
+`toS3CSVImportBucket` flag must match the init call.
+
+**Step 4 — Create the import job** (see `POST /v3/imports` above)
+
+Pass the `s3Key` from Step 1 as `config.source.key`. The flow is fully
+programmatic — no UI required.
+
+**End-to-end verified** in INV-021 with a 55-byte CSV: init → S3 PUT (200) →
+complete (200) → POST /v3/imports (200, `state.totalSizeBytes: 55`).
+
+#### Alternate upload pattern: S3 POST policy (INV-023)
+
+In addition to the multipart PUT flow above, Clay has a second upload
+mechanism returning S3 POST policy form fields — simpler (single-shot, no
+`/complete` step) but capped at S3's 5 GB POST limit. Two endpoints use it,
+both confirmed end-to-end in INV-023:
+
+**1) tc-workflows CSV upload** →
+`POST /v3/workspaces/{wsId}/tc-workflows/{wfId}/batches/csv-upload-url`
+
+Request: `{filename: string, fileSize: number}`
+Response 200:
+```json
+{
+  "uploadUrl": "https://clay-base-import-prod.s3.us-east-1.amazonaws.com/",
+  "fields": {
+    "bucket": "clay-base-import-prod",
+    "key": "...",
+    "Policy": "<base64>",
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": "...",
+    "X-Amz-Date": "...",
+    "X-Amz-Security-Token": "...",
+    "X-Amz-Signature": "..."
+  },
+  "uploadToken": "<uuid — passed to createWorkflowRunBatch (INV-024)>"
+}
+```
+Targets the SAME `clay-base-import-prod` S3 bucket as multi-part-upload with
+`toS3CSVImportBucket:true`.
+
+**2) Documents upload** →
+`POST /v3/documents/{wsId}/upload-url`
+
+Request: `{name: string (1-500 chars), folderId?: string|null, context?: string (default "agent_playground")}`
+Response 200:
+```json
+{
+  "documentId": "doc_0td531m9Z7tsq3a734n",
+  "uploadUrl": "https://file-drop-prod.s3.us-east-1.amazonaws.com/",
+  "fields": { "bucket": "file-drop-prod", "key": "...", "Policy": "...", "X-Amz-*": "..." }
+}
+```
+Targets the `file-drop-prod` bucket. After the S3 POST succeeds, the caller
+must call `POST /v3/documents/{wsId}/{documentId}/confirm-upload` (empty body)
+to make the document queryable — returns the full document record:
+```json
+{
+  "id": "doc_0td5...", "name": "...", "folderId": null,
+  "mimeType": "binary/octet-stream", "size": 42,
+  "context": "agent_playground",
+  "createdAt": "...", "updatedAt": "..."
+}
+```
+Delete with `DELETE /v3/documents/{wsId}/{documentId}?hard=true`.
+
+**POST-policy S3 upload mechanics (both endpoints)**:
+1. Build a `FormData` — append ALL of `response.fields` entries first (order matters for S3 POST policies), then append the actual `file` LAST.
+2. `fetch(uploadUrl, { method: "POST", body: formData })` — let `FormData` set
+   `Content-Type: multipart/form-data; boundary=...` itself. Do NOT override.
+3. S3 returns `204 No Content` on success (not 200, unlike the PUT flow).
+4. Single-shot — no `/complete` step on the Clay side.
+
+**When to pick which flow**:
+- POST policy (`csv-upload-url`, `documents/upload-url`) for files <5 GB —
+  simpler code path, fewer round-trips.
+- Multipart PUT (`multi-part-upload` + `/complete`) for files up to 15 GB,
+  when parallel chunk uploads matter, or when ingesting into tables via
+  `POST /v3/imports` (only the PUT flow produces an `s3Key` that
+  `POST /v3/imports` can consume).
+
+#### tc-workflows batch ingestion loop (INV-024)
+
+The `csv-upload-url` endpoint above produces an `uploadToken` that the
+`createWorkflowRunBatch` endpoint consumes to actually kick off a batch run
+against a workflow. The full ingestion loop:
+
+```
+POST .../tc-workflows/{wfId}/batches/csv-upload-url   {filename, fileSize}
+  → {uploadUrl, fields, uploadToken}
+S3 POST  uploadUrl  (multipart/form-data; fields first, file last)
+  → 204
+POST .../tc-workflows/{wfId}/batches                  {workflowSnapshotId, type, csvUploadToken, config?}
+  → {batch}
+GET  .../tc-workflows/{wfId}/batches/{batchId}        (poll status)
+  → {batch} with status: pending|running|completed|failed|cancelled
+GET  .../tc-workflows/{wfId}/batches/{batchId}/runs   (list spawned runs)
+  → {runs:[...], total}
+DELETE .../tc-workflows/{wfId}/batches/{batchId}      (body {})
+  → {success}
+```
+
+**`createWorkflowRunBatch` body** is a discriminated union on `type`:
+```jsonc
+// type=csv_import
+{ "workflowSnapshotId": "latest",
+  "type": "csv_import",
+  "csvUploadToken": "<uuid from csv-upload-url>",
+  "config": { "standaloneActions": [] } }
+// type=cpj_search (untested as of INV-024)
+{ "workflowSnapshotId": "latest",
+  "type": "cpj_search",
+  "config": { /* ... */ } }
+```
+
+**Server enrichment of the batch object**:
+- `workflowSnapshotId: 'latest'` is replaced with a real snapshot id `wfs_...`
+- `config.csvFile = {fileSize, filename}` is reconstructed from upload metadata
+- `config.parameterNames = string[]` is parsed from the CSV's first row
+- `state.lastOffsetProcessed: 0` is initialized (cursor for the row processor)
+
+**Status enum**: `pending | running | completed | failed | cancelled`.
+
+**Credit safety**: a batch against a workflow with **zero defined steps**
+transitions `pending → failed` within ~430ms with `totalRuns: 0` and
+`runs: []`. The executor never spawns work units, so zero credits are
+consumed. This makes empty workflows ideal as scratch resources for
+tc-workflows investigations.
+
+**Sibling endpoints in the batches router** (extracted from the bundle's
+`xwe` ts-rest router, all under `/v3/workspaces/{ws}/tc-workflows/{wf}`):
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| POST   | `/batches`                              | `{workflowSnapshotId, type, csvUploadToken?, config?}` | createWorkflowRunBatch — confirmed INV-024 |
+| GET    | `/batches`                              | query `{limit?, offset?, status?}` | list batches |
+| GET    | `/batches/{batchId}`                    | – | get one batch |
+| PATCH  | `/batches/{batchId}`                    | `{status?, config?, state?}` | **confirmed INV-025** — `{status:'cancelled'}` works; race the auto-fail (~430ms for empty workflows) |
+| DELETE | `/batches/{batchId}`                    | `{}` (empty body required) | – |
+| GET    | `/batches/{batchId}/runs`               | query `{limit?, offset?}` | list runs spawned by the batch |
+| POST   | `/batches/csv-upload-url`               | `{filename, fileSize}` | INV-023 |
+
+#### tc-workflows graph (nodes + edges) and snapshots (INV-025)
+
+The `mYe` ts-rest router exposes the workflow definition surface. The
+`uYe` router adds read-only snapshot routes. Both are under
+`/v3/workspaces/{ws}/tc-workflows/{wf}`.
+
+```
+GET    /graph                                       → {nodes, edges, validation, workflowInputVariables}
+POST   /nodes                                       → {node}
+PATCH  /nodes/{nodeId}                              → {node}
+PATCH  /nodes              {updates:[{nodeId,position}]} → {nodes,success}    (batch reposition)
+DELETE /nodes/{nodeId}     body {}                  → {success}
+DELETE /nodes              body {nodeIds[]}         → {deletedCount,success}  (batch delete)
+POST   /nodes/{nodeId}/duplicate  {position?}       → {node, edges}           (suspected)
+GET    /nodes/{nodeId}/code/download                → raw Python source       (suspected, code nodes)
+
+POST   /edges              {sourceNodeId,targetNodeId,metadata?:{conditionalSourceHandle?}} → {edge}
+PATCH  /edges/{edgeId}     {metadata:{handoffConfig?}}  → {edge}              (suspected)
+DELETE /edges/{edgeId}     body {}                  → {success}
+
+GET    /snapshots                                   → {snapshots:[Snapshot]}
+GET    /snapshots/{snapshotId}                      → {snapshot:Snapshot}
+
+POST   /v3/workspaces/{ws}/tc-workflows/from-snapshot/{snapshotId}  {name} → {workflow}  (suspected)
+POST   /v3/workspaces/{ws}/tc-workflows/{wf}/restore/{snapshotId}   {}     → {success}    (suspected)
+POST   /v3/workspaces/{ws}/tc-workflows/from-preset/{presetId}      {name} → {workflow}  (suspected)
+POST   /v3/workspaces/{ws}/tc-workflows/{wf}/duplicate              {name} → {workflow}  (suspected)
+PATCH  /v3/workspaces/{ws}/tc-workflows/{wf}    {name?, defaultModelId?, lastRunAt?} → {workflow}
+```
+
+**Node creation body**:
+```jsonc
+{
+  "name": "first node",                  // required, max 255
+  "description": "optional",
+  "nodeType": "regular",                 // 'regular'|'code'|'conditional'|'map'|'reduce'|'tool'  (default 'regular')
+  "modelId": "...",                      // optional
+  "promptVersionId": "...",              // optional
+  "position": { "x": 100, "y": 100 },    // optional
+  "isInitial": true,                     // optional
+  "isTerminal": false                    // optional
+}
+```
+
+The full read enum for `nodeType` (in graph responses) also includes
+`fork | join | collect`. **Inert `regular` nodes** (no `modelId` /
+`promptVersionId` / `toolIds` / `inlineScript`) consume zero credits and
+are safe scratch resources.
+
+**Node response shape**:
+```jsonc
+{
+  "node": {
+    "id": "wfn_0td5643dp3GRSygz3Ri",
+    "workspaceId": "1080480",
+    "workflowId": "wf_...",
+    "name": "...", "description": null,
+    "nodeType": "regular",
+    "tools": [],
+    "nodeConfig": { "nodeType": "regular" },
+    "subroutineIds": [],
+    "position": { "x": 100, "y": 100 },
+    "isInitial": true, "isTerminal": false,
+    "createdAt": "...", "updatedAt": "..."
+  }
+}
+```
+
+**`PATCH /nodes/{nodeId}` accepts** (all optional): `name`, `description`,
+`nodeType`, `modelId`, `modelOverrides`, discriminated `source`
+(`prompt_version`/`inline_prompt`/`input_schema`), `toolIds`,
+`subroutineIds`, `isInitial`, `isTerminal`, `position`, `nodeConfig`,
+`interventionSettings`, `retryConfig`, `scriptVersionId`, `inlineScript`
+(`{code, language?, inputSchema?, outputSchema?, packages?, allowedToolIds?,
+timeoutMs?, shouldIndexStdout?}`).
+
+**Graph response includes server-side validation** — a free pre-flight
+static analysis:
+```jsonc
+{
+  "nodes": [...], "edges": [...],
+  "validation": {
+    "isValid": false,
+    "errors": [
+      { "type": "terminal_node_missing_tool_or_output_schema",
+        "message": "Terminal node \"...\" must have either a destination tool or an output schema defined",
+        "nodeId": "wfn_..." }
+    ],
+    "warnings": [
+      { "type": "missing_model",  "message": "...", "nodeId": "wfn_..." },
+      { "type": "missing_prompt", "message": "...", "nodeId": "wfn_..." }
+    ],
+    "suggestions": []
+  },
+  "workflowInputVariables": []
+}
+```
+
+**Snapshots are server-managed** — there is no `publishWorkflow` or
+`createSnapshot` mutation. A snapshot is auto-created the first time a
+batch is created with `workflowSnapshotId: 'latest'`. The snapshot embeds
+the full workflow definition (deep copy of nodes/edges) and is sha256-hashed
+for content addressing:
+
+```jsonc
+{
+  "snapshot": {
+    "id": "wfs_0td5646iBTS96RT7jyJ",
+    "workflowId": "wf_...",
+    "content": {
+      "edges": [...],
+      "nodes": [...],
+      "workflow": {
+        "id": "wf_...", "name": "...",
+        "workspaceId": 1080480,
+        "creatorUserId": 1282581,
+        "maxConcurrentBranches": 0
+      },
+      "createdAt": "...",
+      "containsCycles": false
+    },
+    "hash": "74a1d52f47089c20e660f2d69112b5120989a7eb3fd5b1d02ca48bb58184c166",
+    "createdAt": "...",
+    "updatedAt": "..."
+  }
+}
+```
+
+**`cpj_search` batch type is server-stubbed** (INV-025):
+```jsonc
+// POST .../batches { workflowSnapshotId:'latest', type:'cpj_search', config:{} }
+// 405 Method Not Allowed
+{ "type":"MethodNotAllowed",
+  "message":"CPJ Search batch type is not yet implemented",
+  "details":null }
+```
+The discriminator and React `CreateBatchModal` UI both exist; the server
+handler is stubbed. Re-probe after future bundle drops.
+
+**Sibling routers in the same region**:
+
+- `Swe` **direct workflow runs — RESOLVED INV-026**. Seven routes under `/v3/workspaces/{ws}/tc-workflows/{wf}`: `POST /runs`, `GET /runs`, `GET /runs/{runId}`, `POST /runs/{runId}/pause`, `POST /runs/{runId}/unpause`, `POST /runs/{runId}/steps/{stepId}/continue`, `GET /steps/waiting`. See "tc-workflows direct runs (INV-026)" section below. (INV-025 guessed the name was `Ewe`; that was wrong — `Ewe` is the batches body discriminator.)
+- `lKe` **workflow run streams — RESOLVED INV-027**. Six CRUD routes under `/v3/workspaces/{ws}/tc-workflows/{wf}/streams[/{id}]` plus `GET .../streams/{id}/runs`. Sibling root-path router `uKe` exposes `POST /v3/tc-workflows/streams/{streamId}/webhook[/batch]` for live ingestion. See "tc-workflows streams + webhook ingestion (INV-027)" section below. (INV-025/026 guessed the streams router was `sKe`; that's actually the request body Zod schema, same trap as `Ewe`/`Swe`.)
+
+#### tc-workflows direct runs (INV-026)
+
+The `Swe` router (bundle `index-D2XXxr_J.js` offset ~361931) exposes a
+single-run API sibling to the batch-based runs from INV-024. This is the
+right primitive for chat-style / agentic integrations — one row, one
+agent turn, synchronous polling, pause/resume, human-in-the-loop.
+
+```
+POST   .../tc-workflows/{wf}/runs                          {inputs?, batchId?, standaloneActions?}  → {workflowRun}
+GET    .../tc-workflows/{wf}/runs                          (query: limit=50, offset=0)              → {runs[], total}
+GET    .../tc-workflows/{wf}/runs/{runId}                  → discriminated {type:'current',workflowRun,workflowRunSteps[],workflowSnapshot} | {type:'archived',archivedAgentRun}
+POST   .../tc-workflows/{wf}/runs/{runId}/pause            {}  → {success,runId,status}
+POST   .../tc-workflows/{wf}/runs/{runId}/unpause          {}  → {success,runId,status}
+POST   .../tc-workflows/{wf}/runs/{runId}/steps/{stepId}/continue  {humanFeedbackInput}  → {success,stepId,status}
+GET    .../tc-workflows/{wf}/steps/waiting                 → {waitingSteps[]}
+```
+
+**No cancel/delete on direct runs.** The Swe router is append-only. To
+cancel a single run, wrap the invocation in a 1-row csv_import batch
+(INV-024) and PATCH the batch per INV-025. Individual runs can only be
+paused / unpaused once started.
+
+**WorkflowRun shape (`Q_` in bundle)**:
+```ts
+{
+  id: string,                       // wfr_...
+  workflowId: string,               // wf_...
+  workflowName: string | null,
+  workflowSnapshotId: string,       // wfs_... (server auto-resolves 'latest')
+  batchId: string | null,
+  streamId: string | null,
+  runStatus: 'pending'|'running'|'paused'|'completed'|'failed'|'waiting',
+  runState: {
+    status: 'running'|'paused'|'completed'|'failed',
+    currentNodeId?: string,
+    inputs: object, globalContext: object, startedAt: string,
+    // if completed: outputs, completedAt, completedByStepId?, completedByNodeId?
+    // if failed:    failedAt, error, failedByStepId?, failedByNodeId?
+  },
+  maxUninterruptedSteps: number,
+  createdAt: string, updatedAt: string,
+  langsmithTraceHeader?: string | null,
+}
+```
+
+Note the two status enums are not 1:1 — top-level `runStatus` includes
+`pending` + `waiting`; the inner `runState.status` does not.
+
+**Observed lifecycle** (2-node inert graph, 1 row, INV-026):
+`running → completed` in ~9.3s. Two `workflowRunSteps` persisted with
+complete telemetry: system/user prompts (~2 KB each), tool name +
+params, reasoning text, `threadContext {threadId,threadPath,threadType,
+uninterruptedStepCount}`, token usage (`anthropic:claude-haiku-4-5`
+~12k total across 2 nodes), and `executionMetadata`. This is enough
+data to build observability/replay features without any extra endpoints.
+
+**Body shape gotchas**:
+- `standaloneActions` is an **object** (`J_` in bundle), not an array —
+  passing `[]` returns a 400 with `"Expected object, received array"`.
+- Explicit `workflowSnapshotId` in body is silently ignored; server
+  always resolves its own `'latest'`.
+- Empty body `{}` is accepted; `inputs` defaults to `{}`.
+- React caller (`createWorkflowRun.useMutation`) uses `body: {inputs: n}`
+  where `n = runState.inputs || {}`.
+
+**"Inert regular nodes" are not actually inert — just free on this
+workspace.** INV-025 called `regular` nodes with no `modelId` "credit-safe
+scratch resources". INV-026 proved they DO execute: the server injects
+`anthropic:claude-haiku-4-5` with a detailed system prompt (memory
+search, transition routing, fail_node, etc.) and the node runs a full
+LLM turn. Token usage was ~12k across the 2-node test. Despite this, the
+workspace balance was unchanged (`basic: 1934.4 → 1934.4`,
+`actionExecution: 999999999897 → 999999999897`), but workspace 1080480
+appears to be a dev/unlimited account. **Do not generalise the
+credit-safe claim to production workspaces without re-measuring.** See
+GAP-034.
+
+**`continueWorkflowRunStep` body** — discriminated union on `type`
+(called `hCe` in bundle, offset 342410):
+```ts
+humanFeedbackInput:
+  | { type:'ApproveToolCall', toolName, approveToolCallForEntireRun:boolean }
+  | { type:'RejectToolCall', ... }
+  | { type:'DenyToolCall', preventFutureToolCallsWithThisTool:boolean, toolName, feedback?:string }
+  | { type:'DenyTransition', targetNodeId, feedback?:string }
+  // + 2 more (fCe, pCe) not yet unminified
+```
+INV-026 verified the route is reachable (404 `"Workflow run step not
+found"` on a fake stepId) but did not drive the happy path — that needs
+a workflow whose step actually ends in `waiting` state, which requires
+`interventionSettings` on a node (tracked as GAP-035). `GET /steps/waiting`
+returns the live list of steps awaiting human input, with
+`callbackData` discriminated on 10 variants
+(`human_input_tool_decision`, `human_input_transition_decision`,
+`async_tool_execution`, `max_uninterrupted_steps_reached`,
+`workflow_run_paused`, `wait_tool_execution`, `code_execution_pending`,
+`code_execution_complete`, `tool_node_execution_pending`,
+`tool_node_execution_complete`).
+
+#### tc-workflows streams + webhook ingestion (INV-027)
+
+The third invocation primitive for tc-workflows (alongside batches and
+direct runs) is **streams** — long-lived stream objects scoped to a
+workflow snapshot, fed by external producers. For `streamType='webhook'`
+the stream object exposes a public ingestion URL that accepts arbitrary
+JSON; each POST creates a new workflow run whose `runState.inputs` is
+the request body verbatim.
+
+Two routers in the current bundle (`index-BS8vlUPJ.js`, offsets
+~623100–625900):
+
+- `lKe = terracottaWorkflowRunStreams` — workspace-scoped CRUD (6 routes).
+- `uKe = terracottaStreamWebhook` — root-path ingestion (2 routes).
+
+```
+POST   /v3/workspaces/{ws}/tc-workflows/{wf}/streams                       {workflowSnapshotId, streamType, name, config, status?='active'} → {stream}
+GET    /v3/workspaces/{ws}/tc-workflows/{wf}/streams                       (query: limit, offset, status, streamType)                       → {streams[], total}
+GET    /v3/workspaces/{ws}/tc-workflows/{wf}/streams/{streamId}                                                                            → {stream}
+PATCH  /v3/workspaces/{ws}/tc-workflows/{wf}/streams/{streamId}            {name?, workflowSnapshotId?, config?, status?}                  → {stream}
+DELETE /v3/workspaces/{ws}/tc-workflows/{wf}/streams/{streamId}            {}                                                              → {success:true}    (soft-delete; sets deletedAt)
+GET    /v3/workspaces/{ws}/tc-workflows/{wf}/streams/{streamId}/runs       (query: limit, offset, status)                                  → {runs[], total}
+
+POST   /v3/tc-workflows/streams/{streamId}/webhook                         Record<string,any>                                              → 202 {success:true, workflowRunId, message}          (UNAUTHENTICATED — streamId is the bearer)
+POST   /v3/tc-workflows/streams/{streamId}/webhook/batch                   {items:[{entityId?, backfillId?, requestData}]}                 → 202 {success:true, runs:[{requestId, workflowRunId}], count}   ⛔ INTERNAL-ONLY (INV-028) — every user-facing auth scheme rejected
+```
+
+**WorkflowRunStream shape (`VS` in bundle)**:
+```ts
+{
+  id: string,                       // wfrs_...
+  workflowId: string,
+  workflowSnapshotId: string,
+  streamType: 'webhook' | 'agent_action' | 'workflow_action',
+  name: string,
+  createdBy: number | null,
+  config: any | null,               // free-form per streamType
+  status: 'active' | 'paused' | 'disabled',
+  createdAt, updatedAt: ISO,
+  deletedAt: ISO | null,
+  webhookUrl?: string,              // ONLY for streamType='webhook'
+  referencedTables?: [{tableId, tableName, workbookId|null}],
+}
+```
+
+**Stream typing**:
+- `'webhook'` — externally pushable. Response includes
+  `webhookUrl: https://api.clay.com/tc-workflows/streams/{id}/webhook`
+  (note: no `/v3` prefix in the returned URL even though the only path
+  actually routable under cookie auth is `/v3/tc-workflows/streams/{id}/webhook`
+  — Clay's gateway probably remaps the public form for non-cookie auth).
+  Verified `config:{}` and `config:{inputSchema:{type:'object',properties:{...}}, webhook:{requiresAuth:false}}`.
+- `'agent_action'`, `'workflow_action'` — created cleanly with
+  `config:{}`, but the response has **no `webhookUrl`**. These are not
+  externally pushable; they look like internal stream types written to
+  from inside the workflow runtime (sub-workflows / agent tools emitting
+  events). See GAP-037.
+
+**Webhook → run lifecycle observed end-to-end (INV-027)**:
+```
+POST /v3/tc-workflows/streams/wfrs_.../webhook  {"email":"...","company":"Lele"}
+  → 202 {success:true, workflowRunId:"wfr_...", message:"Webhook request accepted and queued for processing"}
+
+GET /runs/{wfRunId} immediately afterwards:
+  runStatus: 'running'
+  runState.inputs: {"email":"...","company":"Lele"}    // verbatim
+  streamId: "wfrs_..."
+  batchId:  null
+
+After ~7 s:
+  runStatus: 'completed'
+```
+
+Live ingestion adds no meaningful latency over direct runs (~7 s vs
+~9.3 s for the same inert 2-node graph). The body becomes
+`runState.inputs` with no wrapping or transformation.
+
+**Negative paths verified**:
+- POST to a `paused` stream → 400 `{error:'BadRequest', message:'Stream is not active'}`.
+- POST to non-existent streamId → 404 `{error:'NotFound', message:'Stream not found'}`.
+- POST `/tc-workflows/streams/{id}/webhook` (no `/v3` prefix) → 404 under cookie auth.
+
+**`postWebhook` (single) is COMPLETELY UNAUTHENTICATED (INV-028
+correction)**: INV-027 assumed the single-webhook endpoint required
+cookies because that's how the script sent it. INV-028 pass 2 verified
+that POSTing with zero auth headers returns 202 and creates a run. The
+streamId is the bearer token — same security model as table webhook
+URLs or Slack incoming webhooks. This IS Clay's productized inbound
+channel. The endpoint is `auth: none` in `endpoints.jsonl`.
+
+**Important: Clay's `webhookUrl` response field is buggy**. The stream
+create response returns `webhookUrl: "https://api.clay.com/tc-workflows/
+streams/{id}/webhook"` (no `/v3` prefix), but that URL form 404s under
+every auth scheme. Only the `/v3`-prefixed form routes. Consumers
+integrating against the returned URL as-is will fail — **always rewrite
+to prepend `/v3`** before using it.
+
+**`postWebhookBatch` is internal-only (INV-028)**. The batch variant's
+Zod validator runs (wrong body shapes return 400 `items Required`, so
+the handler is reached), but the auth layer rejects every scheme:
+- Session cookies: 403 "Forbidden".
+- API-key Bearer (minted via `POST /v3/api-keys`) across 4 scope sets:
+  401 "Unauthorized".
+- 10+ other header variants (`x-clay-api-key`, `X-Api-Key`,
+  `Clay-API-Key`, `Token`, query-param `?apiKey=`, etc.): 401 or 403.
+- No auth: 401.
+- v1 namespace: 404 "deprecated".
+
+No frontend caller for this route exists in the bundle. Body shape
+(`entityId`, `backfillId`, `requestData`) is consistent with Clay's
+own async workers iterating over source rows. Conclusion: this route
+is reserved for internal backfill workers, not externalizable. Use
+the single-event endpoint in a loop for batch-like workloads. GAP-036
+closed in INV-028.
+
+**Stream snapshot binding**: `createWorkflowRunStream` requires a real
+`wfs_xxx` snapshot id (we passed one harvested from a seed direct run).
+Updating the workflow graph after stream creation leaves the stream
+pointing at a stale snapshot — `updateWorkflowRunStream` accepts a new
+`workflowSnapshotId`, so the consumer model is "create stream → graph
+evolves → bump stream snapshot manually". Same pattern as batches and
+direct runs.
+
+**No explicit cancel/disable separation**: `lKe` exposes
+create/read/list/update/delete/listRuns and nothing else. To stop
+ingestion: `PATCH {status:'paused'}` (resumable) or `'disabled'`
+(harder stop) or `DELETE` (soft delete).
+
+#### BadRequest error shape (all confirmed endpoints)
+
+Missing or malformed request fields return a consistent structured error:
+```json
+{
+  "type": "BadRequest",
+  "message": "Invalid request parameter(s): Field \"filename\" - Required, Field \"fileSize\" - Required",
+  "details": {
+    "pathParameterErrors": [],
+    "headerErrors": [],
+    "queryParameterErrors": [],
+    "bodyErrors": [...]
+  }
+}
+```
+Useful for distinguishing "route exists, body wrong" (400 with this schema)
+from "route doesn't exist" (404 HTML/empty) during endpoint probing.
+
 ### POST /v3/tables/{tableId}/export — CSV Export Job (INV-017)
 Creates an async export job.
 
@@ -553,10 +1245,70 @@ Cookie: claysession=...
 
 **Important caveat**: The route pattern `/v3/tables/{id}/records/{recordId}` means ANY sub-path is treated as a record ID lookup. For example, `/v3/tables/{id}/records/count` does NOT return a count — it returns 404 "Record count was not found".
 
-### GET/POST /v3/api-keys — API Key Management (INV-011)
-- `GET /v3/api-keys?resourceType=user&resourceId={userId}` — list user's API keys
-- `POST /v3/api-keys` with `{resourceType: "user", resourceId: "userId", name: "key-name", keyData: {scopes: []}}` — creates a UUID API key
-- Note: These keys do NOT work with the deprecated v1 API. Their purpose is unclear but they may be used for webhook auth or future API versions.
+### Clay API Key CRUD — `/v3/api-keys` (`TRe` router, INV-028)
+
+Full CRUD surface, session-cookie authed. Matches the Settings → API Keys
+UI modal in Clay but exposes more scope options than the UI does.
+
+```
+GET    /v3/api-keys?resourceType=user&resourceId={userId}          → ApiKey[]
+POST   /v3/api-keys                                                → ApiKey & {apiKey: "plaintext"}
+PATCH  /v3/api-keys/{apiKeyId}  {name?, workspaceId?}              → ApiKey    (bundle-confirmed, not exercised)
+DELETE /v3/api-keys/{apiKeyId}  {}                                 → {success:true}
+```
+
+**Create body**:
+```ts
+{
+  name: string,
+  resourceType: 'user',          // Gb enum has ONLY 'user'
+  resourceId: string,            // user.id as string
+  scope: {
+    routes: Kb[],                // see scope enum below
+    workspaceId?: number,        // constrain key to a single workspace
+  },
+}
+```
+
+**Scope enum (`Kb`) — 7 values, UI exposes only 3 as checkboxes**:
+
+| Scope | UI checkbox | Notes |
+|---|---|---|
+| `all` | yes | "Full access" (UI label) |
+| `endpoints:prospect-search-api` | yes | "Prospect search API" |
+| `public-endpoints:all` | yes | "Public API" — default-on in UI |
+| `endpoints:run-enrichment` | no | Direct-API-mintable only |
+| `terracotta:cli` | no | Likely for a Terracotta CLI surface — no bundle callers |
+| `terracotta:code-node` | no | Likely for code-node execution inside tc-workflow runs |
+| `terracotta:mcp` | no | **MCP (Model Context Protocol) scope — GAP-038**. Strong implication Clay has or is building an MCP server surface. |
+
+**resourceType enum (`Gb`)** has ONLY `'user'`. Keys are user-owned;
+`scope.workspaceId` constrains which workspace the key can act in.
+
+**Plaintext key handling**: the `apiKey` field is in the POST response
+ONCE — matches the UI modal text "For security reasons, this API Key
+will not be displayed again. Make sure to store it safely." Subsequent
+GETs do not include the plaintext. Minted key ids are `ak_`-prefixed.
+
+**Credit cost**: zero. CRUD is metadata-only; no per-key charges observed.
+
+**What these keys are USED for — still incomplete**: INV-028 verified
+the CRUD works end-to-end but did not find a user-facing endpoint that
+accepts these keys as authentication. Specifically:
+
+- `postWebhookBatch` rejects them under every header form (see
+  tc-workflows section above).
+- The v1 API is fully deprecated — no working endpoint accepts any
+  bearer token.
+- The `prospect-search-api` and `public-endpoints:all` scopes hint at
+  public-API surfaces Clay hasn't yet exposed (or are behind a separate
+  subdomain / gateway we haven't probed).
+- `terracotta:mcp` scope strongly suggests an MCP server surface
+  (potentially at `/mcp`, `/v3/mcp`, or a separate host) — GAP-038.
+
+Opened as follow-up: probe `terracotta:mcp`-scoped keys against
+plausible MCP paths and search the bundle for MCP-shaped route
+definitions.
 
 ### POST /v3/tables/{tableId}/duplicate — Table Duplication (INV-016)
 
@@ -633,9 +1385,11 @@ Returns duplicated workbook. Name defaults to "Copy of {original}".
 
 **Note**: `GET /v3/workbooks/{id}`, `PATCH /v3/workbooks/{id}`, and `DELETE /v3/workbooks/{id}` all return 404. Only collection-level operations work (list via workspace, create, duplicate).
 
-### GET /v3/api-keys — API Key Management (INV-017)
+### GET /v3/api-keys — API Key Management
 
-Requires query params `?resourceType=user&resourceId={userId}`. Returns 400 without them.
+Superseded by the full API-key CRUD section earlier in this file (see
+"Clay API Key CRUD — `/v3/api-keys` (`TRe` router, INV-028)"). Requires
+`?resourceType=user&resourceId={userId}`; 400 without them.
 
 ## Enrichment Cell Metadata (INV-013)
 
@@ -718,13 +1472,33 @@ Optional enrichment parameters work via `inputsBinding`:
 ]}
 ```
 
-## tableSettings Merge Semantics (INV-023)
+## tableSettings Merge Semantics (INV-023, INV-022)
 
 `PATCH /v3/tables/{id}` with `tableSettings` uses **MERGE** (not replace):
 - New keys are added to existing settings
 - Setting a key to `null` stores null (does NOT delete the key)
 - System keys `autoRun` and `HAS_SCHEDULED_RUNS` always present
 - The object is schemaless — any key accepted
+- **Top-level (non-`tableSettings`) PATCH fields** for the same shapes are silently dropped: `PATCH /v3/tables/{id}` with top-level `cronExpression` or `schedule` returns 200 but the keys never appear on read-back. Settings keys must be nested under `tableSettings`.
+
+## Source Scheduling — UI-Only / Not Available via REST (INV-022)
+
+Despite `tableSettings` happily accepting any schedule-shaped key, **none of them have any backend effect**. Scheduling is UI-only or scheduler-internal; there is no v3 REST surface for it.
+
+**`tableSettings` schedule keys (all PERSIST via merge but are pure scratch space)**:
+`schedule` (object), `cronExpression` (5-field, 6-field, `@hourly`, `@daily` all stored as opaque strings — no parsing/validation), `scheduleEnabled`, `nextRunAt`, `lastRunAt`, `scheduleStatus`, `runFrequency`, `runFrequencyConfig`. Round-trip a value like `nextRunAt: "2030-01-01T00:00:00.000Z"` and it stays exactly as written — nothing on the server is computing these.
+
+**`HAS_SCHEDULED_RUNS` is server-controlled.** PATCH `tableSettings.HAS_SCHEDULED_RUNS: true` is silently overridden back to `false`. It's the only schedule-related key the backend manages itself.
+
+**Sources do not store schedule state at all**:
+- `PATCH /v3/sources/{id}` with `typeSettings.cronExpression` / `typeSettings.schedule` / `typeSettings.scheduleEnabled` / `typeSettings.runFrequency` / `typeSettings.nextRunAt` returns **500 InternalServerError**. Source `typeSettings` is **validated** (unlike `tableSettings`'s schemaless bucket) and 500s on unknown keys.
+- Top-level source PATCH (`schedule`, `cronExpression`, `scheduleEnabled`, `isScheduled`, `scheduleConfig`) returns 200 but persists nothing — final source object is empty of any schedule keys.
+- Production `trigger-source` examples carry only `signalType`, `triggerDefinitionId`, `actionSourceSettings` — no cron/schedule/frequency/nextRun fields anywhere on the source object.
+
+**No scheduling endpoints exist** (404 across both INV-018 and INV-022 probes):
+`/v3/schedules`, `/v3/scheduled-sources`, `/v3/scheduled-runs`, `/v3/scheduled-tables`, `/v3/cron`, `/v3/triggers`, `/v3/jobs`, `/v3/recurring-jobs`, `/v3/workspaces/{id}/schedules`, `/v3/workspaces/{id}/scheduled-runs`, `/v3/workspaces/{id}/scheduled-tables`, `/v3/tables/{id}/schedule(s)`, `/v3/tables/{id}/scheduled-runs`, `/v3/tables/{id}/runs`, `/v3/sources/{id}/schedule`, `/v3/sources/{id}/next-run`, plus POST variants.
+
+**Workaround for automated refresh**: self-host cron and call `PATCH /v3/tables/{id}/run` with the desired `fieldIds` / `runRecords`. This is the only API-accessible way to get recurring enrichment runs today.
 
 ## Table Duplication Field IDs (INV-023)
 

@@ -69,10 +69,48 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
   useEffect(() => {
     if (!sessionId || !token) return;
     fetchAll();
-    const interval = setInterval(() => {
-      if (pollingRef.current) fetchAll();
-    }, 2000);
-    return () => clearInterval(interval);
+
+    const sseUrl = `/api/observe/session/${sessionId}/narration?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(sseUrl);
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    es.addEventListener("narration_chunk", (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+        if (data.text) {
+          setNarrations(prev => [...prev, {
+            sequence_ref: data.sequence_ref ?? prev.length,
+            narrator_text: data.text,
+            created_at: new Date().toISOString(),
+          }]);
+        }
+      } catch { /* ignore */ }
+    });
+
+    es.addEventListener("history", (msg) => {
+      try {
+        const rows = JSON.parse(msg.data);
+        if (Array.isArray(rows)) {
+          setNarrations(rows);
+        }
+      } catch { /* ignore */ }
+    });
+
+    es.onerror = () => {
+      if (!pollTimer) {
+        pollTimer = setInterval(() => {
+          if (pollingRef.current) fetchAll();
+        }, 2000);
+      }
+    };
+    es.onopen = () => {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    };
+
+    return () => {
+      es.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, [sessionId, token, fetchAll]);
 
   if (!sessionId) {

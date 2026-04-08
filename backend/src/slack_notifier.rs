@@ -169,20 +169,22 @@ async fn load_session_summary(
     db: &PgClient,
     session_id: &str,
 ) -> Option<(String, Vec<Value>)> {
-    let session_sql = format!(
-        "SELECT request_text FROM execution_sessions WHERE id = '{session_id}'"
-    );
-    let sessions = db.execute(&session_sql).await.ok()?;
+    let session_uuid = session_id.parse::<uuid::Uuid>().ok()?;
+    let sessions = db.execute_with(
+        "SELECT request_text FROM execution_sessions WHERE id = $1",
+        crate::pg_args!(session_uuid),
+    ).await.ok()?;
     let request_text = sessions
         .first()?
         .get("request_text")?
         .as_str()?
         .to_string();
 
-    let nodes_sql = format!(
-        "SELECT agent_slug, status, judge_score FROM execution_nodes WHERE session_id = '{session_id}' ORDER BY created_at"
-    );
-    let nodes = db.execute(&nodes_sql).await.ok()?;
+    let nodes = db.execute_with(
+        "SELECT agent_slug, status, judge_score FROM execution_nodes \
+         WHERE session_id = $1 ORDER BY created_at",
+        crate::pg_args!(session_uuid),
+    ).await.ok()?;
 
     Some((request_text, nodes))
 }
@@ -192,12 +194,13 @@ async fn load_orchestrator_output(
     db: &PgClient,
     session_id: &str,
 ) -> Option<String> {
-    let sql = format!(
+    let session_uuid = session_id.parse::<uuid::Uuid>().ok()?;
+    let rows = db.execute_with(
         "SELECT output FROM execution_nodes \
-         WHERE session_id = '{session_id}' AND agent_slug = 'master_orchestrator' AND depth = 0 \
-         LIMIT 1"
-    );
-    let rows = db.execute(&sql).await.ok()?;
+         WHERE session_id = $1 AND agent_slug = 'master_orchestrator' AND depth = 0 \
+         LIMIT 1",
+        crate::pg_args!(session_uuid),
+    ).await.ok()?;
     let output = rows.first()?.get("output")?;
 
     // Try extracting a summary string, fall back to the full output text

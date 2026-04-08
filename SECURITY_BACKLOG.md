@@ -96,3 +96,13 @@
 **Risk:** No validation on credential value size. Extremely large payloads could cause memory issues during encryption.
 **Fix:** Validate credential value length (max 10KB) before encrypting. Return 400 if exceeded.
 **Effort:** Low (30 min)
+
+---
+
+## SEC-011: Path traversal in `read_tool_doc`
+**Priority:** Medium (FIXED)
+**Component:** backend/src/tool_catalog.rs (`read_tool_doc`)
+**Risk:** `tool_id` and `doc_name` parameters come from LLM tool call inputs and were joined directly into a file path via `PathBuf::join`. An LLM (via prompt injection or hallucination) could pass `../../` segments to read arbitrary `.md`-suffixed files on disk.
+**Fix:** Added input validation rejecting `/`, `\`, and `..` in both `tool_id` and `doc_name` before path construction. Matches the existing pattern in `routes.rs` upload handler.
+**Status:** Fixed 2026-04-07.
+**Effort:** Low (applied)

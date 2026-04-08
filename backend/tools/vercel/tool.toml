@@ -3,10 +3,13 @@ name = "Vercel"
 category = "frontend-hosting"
 description = "Cloud platform for frontend deployment. Full REST API for project creation, environment variables, deployments, and domain management. Git-based deploy workflow."
 required_credentials = ["vercel"]
-enabled = true
+# NOT YET WIRED: http_request has no Vercel auth injection, and there is no
+# vercel entry in integration_metadata() (no UI to connect credentials).
+# Backlog: add Vercel credential injection to actions.rs and routes.rs before enabling.
+enabled = false
 
 [tradeoffs]
 automation = "full"
 api_access = "full"
 cost = "free-tier-available"
-notes = "Full API for project lifecycle. No manual steps required. Supports preview deployments on PRs. Git-push triggers auto-deploy."
+notes = "Full API for project lifecycle. No manual steps required. Supports preview deployments on PRs. Git-push triggers auto-deploy. NOTE: Not yet wired — credential injection and integration UI are missing."

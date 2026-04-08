@@ -8,6 +8,7 @@ import {
   ExecutionCanvas,
   type CanvasHandle,
   type ExecutionNode,
+  type ProjectResource,
 } from "@/components/execution-canvas";
 import {
   InspectorPanel,
@@ -160,6 +161,31 @@ export default function SessionPage() {
   const [showCommentSidebar, setShowCommentSidebar] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
 
+  // Real-time change tracking for visual transitions
+  const [changedNodes, setChangedNodes] = useState<Record<string, number>>({});
+  const lastSeqRef = useRef(0);
+  const sseConnectedRef = useRef(false);
+
+  // SD-008: Project resources + add node dialog + discovery panel
+  const [projectResources, setProjectResources] = useState<ProjectResource[]>([]);
+  const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
+  const [showDiscoveryPanel, setShowDiscoveryPanel] = useState(false);
+
+  const markNodeChanged = useCallback((nodeId: string) => {
+    const now = Date.now();
+    setChangedNodes(prev => ({ ...prev, [nodeId]: now }));
+    setTimeout(() => {
+      setChangedNodes(prev => {
+        if (prev[nodeId] === now) {
+          const next = { ...prev };
+          delete next[nodeId];
+          return next;
+        }
+        return prev;
+      });
+    }, 2500);
+  }, []);
+
   // RAF-throttled delta accumulation for streaming
   const pendingText = useRef<Record<string, string>>({});
   const pendingThinking = useRef<Record<string, string>>({});
@@ -262,6 +288,21 @@ export default function SessionPage() {
     fetchProjectDescription();
   }, [fetchProjectDescription]);
 
+  // SD-008: Fetch linked project resources
+  const fetchProjectResources = useCallback(async () => {
+    if (!session?.project_id) return;
+    try {
+      const r = await apiFetch(`/api/projects/${session.project_id}/resources`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setProjectResources(data.resources ?? []);
+    } catch { /* transient */ }
+  }, [session?.project_id, apiFetch]);
+
+  useEffect(() => {
+    fetchProjectResources();
+  }, [fetchProjectResources]);
+
   // Poll during planning phase — planner_progress SSE events are broadcast
   // before the frontend subscribes, so we poll to catch the transition.
   useEffect(() => {
@@ -276,7 +317,7 @@ export default function SessionPage() {
     if (!session || !activeClient) return;
     const slugs = [...new Set(session.nodes.map((n) => n.agent_slug))].join(",");
     if (!slugs) return;
-    apiFetch(`/api/clients/${activeClient}/credential-check?agents=${slugs}&verify=true`)
+    apiFetch(`/api/clients/${activeClient}/credential-check?agents=${slugs}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setCredentialStatus(data); })
       .catch(() => {});
@@ -300,18 +341,65 @@ export default function SessionPage() {
       .catch(() => {});
   }, [token, apiFetch]);
 
-  // Update a node field via PATCH (for pre-approval editing)
+  // Update a node field via PATCH — optimistic local update with SSE confirmation
   const handleNodeUpdate = useCallback(
     async (nodeId: string, patch: Record<string, unknown>) => {
-      await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+      setSession(prev => {
+        if (!prev) return prev;
+        return { ...prev, nodes: prev.nodes.map(n => n.id === nodeId ? { ...n, ...patch } : n) };
       });
-      fetchSession();
+      markNodeChanged(nodeId);
+
+      try {
+        const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!resp.ok) {
+          fetchSession();
+        }
+      } catch {
+        fetchSession();
+      }
     },
-    [session_id, apiFetch, fetchSession]
+    [session_id, apiFetch, fetchSession, markNodeChanged]
   );
+
+  // SD-008: Delete a node from the plan
+  const handleNodeDelete = useCallback(async (nodeId: string) => {
+    try {
+      const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}`, { method: "DELETE" });
+      if (resp.ok) {
+        setSession(prev => {
+          if (!prev) return prev;
+          return { ...prev, nodes: prev.nodes.filter(n => n.id !== nodeId) };
+        });
+        if (selectedNodeId === nodeId) setSelectedNodeId(null);
+      }
+    } catch { /* transient */ }
+  }, [session_id, apiFetch, selectedNodeId]);
+
+  // SD-008: Add a new node to the plan
+  const handleAddNode = useCallback(async (req: {
+    agent_slug: string;
+    task_description: string;
+    requires?: string[];
+    execution_mode?: string;
+    description?: Record<string, unknown>;
+  }) => {
+    try {
+      const resp = await apiFetch(`/api/execute/${session_id}/nodes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      if (resp.ok) {
+        fetchSession();
+        setShowAddNodeDialog(false);
+      }
+    } catch { /* transient */ }
+  }, [session_id, apiFetch, fetchSession]);
 
   const fetchNodeEvents = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
@@ -406,6 +494,19 @@ export default function SessionPage() {
 
       try {
         const data = JSON.parse(msg.data);
+
+        // Sequence gap detection
+        const seq = typeof data._seq === "number" ? data._seq : undefined;
+        if (seq !== undefined) {
+          if (lastSeqRef.current > 0 && seq > lastSeqRef.current + 1) {
+            if (process.env.NODE_ENV === "development") {
+              console.warn(`[SSE] seq gap: expected ${lastSeqRef.current + 1}, got ${seq}`);
+            }
+            fetchSession();
+          }
+          lastSeqRef.current = seq;
+        }
+
         const streamEntry = data.stream_entry;
         const nodeUid = data.node_uid as string | undefined;
         const isSelectedNode = nodeUid === selectedNodeIdRef.current;
@@ -432,6 +533,48 @@ export default function SessionPage() {
         if (eventType === "planner_error") {
           setPlanningError(data.error as string);
           fetchSession();
+          return;
+        }
+
+        // Granular node mutation events (real-time digital twin)
+        if (eventType === "node_updated") {
+          const changes = data.changes as Record<string, unknown> | undefined;
+          if (changes) {
+            setSession(prev => {
+              if (!prev) return prev;
+              return { ...prev, nodes: prev.nodes.map(n => n.id === data.node_id ? { ...n, ...changes } : n) };
+            });
+          }
+          markNodeChanged(data.node_id as string);
+          return;
+        }
+        if (eventType === "node_added") {
+          fetchSession();
+          markNodeChanged(data.node_id as string);
+          return;
+        }
+        if (eventType === "node_removed") {
+          const removedId = data.node_id as string;
+          markNodeChanged(removedId);
+          setTimeout(() => {
+            setSession(prev => {
+              if (!prev) return prev;
+              return { ...prev, nodes: prev.nodes.filter(n => n.id !== removedId) };
+            });
+          }, 300);
+          return;
+        }
+        if (eventType === "node_status_changed") {
+          setSession(prev => {
+            if (!prev) return prev;
+            return { ...prev, nodes: prev.nodes.map(n => n.id === data.node_uid ? { ...n, status: data.status as string } : n) };
+          });
+          markNodeChanged(data.node_uid as string);
+          return;
+        }
+        if (eventType === "resync_required") {
+          fetchSession();
+          fetchFailures();
           return;
         }
 
@@ -530,6 +673,7 @@ export default function SessionPage() {
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     es.onerror = () => {
       if (!isMounted) return;
+      sseConnectedRef.current = false;
       if (!pollTimer) {
         pollTimer = setInterval(() => {
           if (!isMounted) return;
@@ -539,6 +683,8 @@ export default function SessionPage() {
       }
     };
     es.onopen = () => {
+      sseConnectedRef.current = true;
+      lastSeqRef.current = 0;
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -550,11 +696,22 @@ export default function SessionPage() {
     };
     return () => {
       isMounted = false;
+      sseConnectedRef.current = false;
       es.close();
       if (pollTimer) clearInterval(pollTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session_id, token, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
+
+  // Background reconciliation: 30s when SSE connected, 5s when disconnected
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      fetchSession();
+    }, sseConnectedRef.current ? 30000 : 5000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, fetchSession]);
 
   useEffect(() => {
     setNodeEventsLoading(true);
@@ -885,6 +1042,14 @@ export default function SessionPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {session.project_id && (
+            <button
+              onClick={() => setShowDiscoveryPanel(true)}
+              className="px-2.5 py-1 text-xs text-ink-2 hover:text-ink border border-rim rounded hover:bg-surface transition-colors"
+            >
+              Discover Resources
+            </button>
+          )}
           {session.status === "awaiting_approval" && (
             <button
               onClick={handleApprove}
@@ -1024,6 +1189,10 @@ export default function SessionPage() {
                       catalogMap={catalogMap}
                       livePreviewMap={livePreviewMap}
                       planningMessages={planningMessages}
+                      changedNodes={changedNodes}
+                      onNodeDelete={handleNodeDelete}
+                      onAddNode={() => setShowAddNodeDialog(true)}
+                      projectResources={projectResources}
                     />
                   </div>
                 }
@@ -1069,6 +1238,10 @@ export default function SessionPage() {
                   catalogMap={catalogMap}
                   livePreviewMap={livePreviewMap}
                   planningMessages={planningMessages}
+                  changedNodes={changedNodes}
+                  onNodeDelete={handleNodeDelete}
+                  onAddNode={() => setShowAddNodeDialog(true)}
+                  projectResources={projectResources}
                 />
               </div>
             ) : (
@@ -1103,6 +1276,9 @@ export default function SessionPage() {
                     planningMessages={planningMessages}
                     planningError={planningError}
                     chatPending={chatPending}
+                    projectResources={projectResources}
+                    onNodeDescriptionUpdate={handleNodeDescriptionUpdate}
+                    clientSlug={activeClient ?? undefined}
                   />
                 }
                 right={
@@ -1124,6 +1300,10 @@ export default function SessionPage() {
                       catalogMap={catalogMap}
                       livePreviewMap={livePreviewMap}
                       planningMessages={planningMessages}
+                      changedNodes={changedNodes}
+                      onNodeDelete={handleNodeDelete}
+                      onAddNode={() => setShowAddNodeDialog(true)}
+                      projectResources={projectResources}
                     />
                   </div>
                 }
@@ -1133,6 +1313,350 @@ export default function SessionPage() {
         )}
       </div>
 
+      {/* SD-008: Add Node Dialog */}
+      {showAddNodeDialog && (
+        <AddNodeDialog
+          catalogMap={catalogMap}
+          allNodes={session.nodes}
+          projectResources={projectResources}
+          onSubmit={handleAddNode}
+          onClose={() => setShowAddNodeDialog(false)}
+        />
+      )}
+
+      {/* SD-008: Discovery Panel */}
+      {showDiscoveryPanel && session.project_id && (
+        <DiscoveryPanel
+          projectId={session.project_id}
+          apiFetch={apiFetch}
+          onClose={() => setShowDiscoveryPanel(false)}
+          onResourcesLinked={fetchProjectResources}
+        />
+      )}
+
     </div>
   );
 }
+
+// ── SD-008: Add Node Dialog ──────────────────────────────────────────────────
+
+function AddNodeDialog({
+  catalogMap,
+  allNodes,
+  projectResources,
+  onSubmit,
+  onClose,
+}: {
+  catalogMap: CatalogMap;
+  allNodes: ExecutionNode[];
+  projectResources: ProjectResource[];
+  onSubmit: (req: {
+    agent_slug: string;
+    task_description: string;
+    requires?: string[];
+    execution_mode?: string;
+    description?: Record<string, unknown>;
+  }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [agentSlug, setAgentSlug] = useState("");
+  const [taskDesc, setTaskDesc] = useState("");
+  const [execMode, setExecMode] = useState<"agent" | "manual">("agent");
+  const [deps, setDeps] = useState<string[]>([]);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const agents = Object.values(catalogMap).sort((a, b) => a.name.localeCompare(b.name));
+
+  const handleSubmit = async () => {
+    if (!agentSlug || !taskDesc.trim()) return;
+    setSubmitting(true);
+    try {
+      const description: Record<string, unknown> = {};
+      if (selectedResources.length > 0) {
+        description.assigned_resources = selectedResources.map(id => ({ resource_id: id, role: "owner" }));
+      }
+      await onSubmit({
+        agent_slug: agentSlug,
+        task_description: taskDesc.trim(),
+        requires: deps.length > 0 ? deps : undefined,
+        execution_mode: execMode,
+        description: Object.keys(description).length > 0 ? description : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-page border border-rim rounded-xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-rim">
+          <h3 className="text-sm font-semibold text-ink">Add Node</h3>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-ink-2 block mb-1">Agent Type</label>
+            <select
+              value={agentSlug}
+              onChange={e => setAgentSlug(e.target.value)}
+              className="w-full border border-rim rounded-lg px-3 py-2 text-sm bg-surface text-ink"
+            >
+              <option value="">Select agent...</option>
+              {agents.map(a => (
+                <option key={a.slug} value={a.slug}>{a.name} ({a.category})</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-ink-2 block mb-1">Task Description</label>
+            <textarea
+              value={taskDesc}
+              onChange={e => setTaskDesc(e.target.value)}
+              rows={3}
+              className="w-full border border-rim rounded-lg px-3 py-2 text-sm bg-surface text-ink resize-none"
+              placeholder="What should this agent do?"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-ink-2 block mb-1">Execution Mode</label>
+            <div className="flex items-center gap-3">
+              {(["agent", "manual"] as const).map(m => (
+                <label key={m} className="flex items-center gap-1.5 text-sm text-ink cursor-pointer">
+                  <input type="radio" checked={execMode === m} onChange={() => setExecMode(m)} className="accent-brand" />
+                  {m === "agent" ? "Agent (automated)" : "Manual (guided)"}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {allNodes.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-ink-2 block mb-1">Depends On</label>
+              <div className="space-y-1 max-h-32 overflow-y-auto border border-rim rounded-lg p-2">
+                {allNodes.map(n => (
+                  <label key={n.id} className="flex items-center gap-2 text-xs text-ink cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={deps.includes(n.id)}
+                      onChange={e => {
+                        if (e.target.checked) setDeps(prev => [...prev, n.id]);
+                        else setDeps(prev => prev.filter(d => d !== n.id));
+                      }}
+                      className="accent-brand"
+                    />
+                    {n.description?.display_name || n.agent_slug}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {projectResources.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-ink-2 block mb-1">Assign Resources</label>
+              <div className="space-y-1 max-h-32 overflow-y-auto border border-rim rounded-lg p-2">
+                {projectResources.map(r => (
+                  <label key={r.id} className="flex items-center gap-2 text-xs text-ink cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedResources.includes(r.id)}
+                      onChange={e => {
+                        if (e.target.checked) setSelectedResources(prev => [...prev, r.id]);
+                        else setSelectedResources(prev => prev.filter(id => id !== r.id));
+                      }}
+                      className="accent-brand"
+                    />
+                    <span>{r.display_name}</span>
+                    <span className="text-ink-3">({r.integration_slug} · {r.resource_type})</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-rim">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs text-ink-2 hover:text-ink rounded">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={!agentSlug || !taskDesc.trim() || submitting}
+            className="px-4 py-1.5 text-xs font-medium bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 transition-colors"
+          >
+            {submitting ? "Adding..." : "Add Node"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SD-008: Discovery Panel ──────────────────────────────────────────────────
+
+interface DiscoveredResource {
+  external_id: string;
+  resource_type: string;
+  display_name: string;
+  external_url: string | null;
+  metadata: Record<string, unknown>;
+  already_linked: boolean;
+}
+
+function DiscoveryPanel({
+  projectId,
+  apiFetch,
+  onClose,
+  onResourcesLinked,
+}: {
+  projectId: string;
+  apiFetch: (url: string, opts?: RequestInit) => Promise<Response>;
+  onClose: () => void;
+  onResourcesLinked: () => void;
+}) {
+  const [integrations, setIntegrations] = useState<Array<{ slug: string; name: string }>>([]);
+  const [discovered, setDiscovered] = useState<Record<string, DiscoveredResource[]>>({});
+  const [discovering, setDiscovering] = useState<Record<string, boolean>>({});
+  const [selected, setSelected] = useState<Record<string, Set<string>>>({});
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/integrations")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.integrations) {
+          setIntegrations(data.integrations.map((i: { slug: string; name: string }) => ({ slug: i.slug, name: i.name })));
+        }
+      })
+      .catch(() => {});
+  }, [apiFetch]);
+
+  const handleDiscover = async (slug: string) => {
+    setDiscovering(prev => ({ ...prev, [slug]: true }));
+    try {
+      const r = await apiFetch(`/api/integrations/${slug}/discover?project_id=${projectId}`);
+      if (r.ok) {
+        const data = await r.json();
+        setDiscovered(prev => ({ ...prev, [slug]: data.resources ?? [] }));
+      }
+    } catch { /* transient */ }
+    finally {
+      setDiscovering(prev => ({ ...prev, [slug]: false }));
+    }
+  };
+
+  const toggleSelect = (slug: string, externalId: string) => {
+    setSelected(prev => {
+      const set = new Set(prev[slug] ?? []);
+      if (set.has(externalId)) set.delete(externalId); else set.add(externalId);
+      return { ...prev, [slug]: set };
+    });
+  };
+
+  const totalSelected = Object.values(selected).reduce((sum, s) => sum + s.size, 0);
+
+  const handleLinkSelected = async () => {
+    setLinking(true);
+    try {
+      for (const [slug, ids] of Object.entries(selected)) {
+        for (const extId of ids) {
+          const res = discovered[slug]?.find(r => r.external_id === extId);
+          if (!res) continue;
+          await apiFetch(`/api/projects/${projectId}/resources`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              integration_slug: slug,
+              resource_type: res.resource_type,
+              external_id: res.external_id,
+              external_url: res.external_url,
+              display_name: res.display_name,
+              discovered_metadata: res.metadata,
+            }),
+          });
+        }
+      }
+      onResourcesLinked();
+      setSelected({});
+      for (const slug of Object.keys(discovered)) {
+        handleDiscover(slug);
+      }
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-page border border-rim rounded-xl shadow-xl w-[560px] max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-rim">
+          <h3 className="text-sm font-semibold text-ink">Discover Resources</h3>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {integrations.map(integration => (
+            <div key={integration.slug} className="border border-rim rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-ink">{integration.name}</span>
+                <button
+                  onClick={() => handleDiscover(integration.slug)}
+                  disabled={discovering[integration.slug]}
+                  className="px-3 py-1 text-xs font-medium bg-surface border border-rim rounded-lg hover:bg-page transition-colors disabled:opacity-50"
+                >
+                  {discovering[integration.slug] ? "Discovering..." : "Discover"}
+                </button>
+              </div>
+
+              {discovered[integration.slug] && (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {discovered[integration.slug].length === 0 ? (
+                    <p className="text-xs text-ink-3">No resources found</p>
+                  ) : (
+                    discovered[integration.slug].map(r => (
+                      <label
+                        key={r.external_id}
+                        className={`flex items-center gap-2 text-xs p-1.5 rounded cursor-pointer hover:bg-surface ${
+                          r.already_linked ? "opacity-50" : ""
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={r.already_linked}
+                          checked={r.already_linked || (selected[integration.slug]?.has(r.external_id) ?? false)}
+                          onChange={() => !r.already_linked && toggleSelect(integration.slug, r.external_id)}
+                          className="accent-brand"
+                        />
+                        <span className="font-medium text-ink">{r.display_name}</span>
+                        <span className="text-ink-3">({r.resource_type})</span>
+                        {r.already_linked && <span className="text-green-600 text-[10px]">linked</span>}
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-3 border-t border-rim">
+          <span className="text-xs text-ink-3">{totalSelected} selected</span>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs text-ink-2 hover:text-ink rounded">Close</button>
+            <button
+              onClick={handleLinkSelected}
+              disabled={totalSelected === 0 || linking}
+              className="px-4 py-1.5 text-xs font-medium bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50 transition-colors"
+            >
+              {linking ? "Linking..." : `Link Selected (${totalSelected})`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

@@ -208,7 +208,7 @@ async fn handle_status_command(state: &AppState, session_id_prefix: &str) -> Vec
     if session_id_prefix.is_empty() {
         // List recent sessions
         let sql = "SELECT id, request_text, status FROM execution_sessions ORDER BY created_at DESC LIMIT 5";
-        let rows = state.db.execute(sql).await.unwrap_or_default();
+        let rows = state.db.execute_unparameterized(sql).await.unwrap_or_default();
 
         if rows.is_empty() {
             return slack_messages::error_blocks("No recent sessions found.");
@@ -338,7 +338,7 @@ pub async fn interactions_handler(
                         ).await;
 
                         // Create EventBus channel
-                        state.event_bus.create_channel(&session_id).await;
+                        state.event_bus.ensure_channel(&session_id).await;
 
                         // Start Slack notifier
                         slack_notifier::subscribe_to_session(

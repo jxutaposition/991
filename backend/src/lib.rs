@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 pub mod agent_catalog;
 pub mod agent_runner;
 pub mod anthropic;
@@ -30,6 +32,7 @@ pub mod pattern_promoter;
 pub mod chat_analyzer;
 pub mod preflight;
 pub mod system_description;
+pub mod discovery;
 
 #[cfg(feature = "slack")]
 pub mod slack;

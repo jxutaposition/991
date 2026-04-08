@@ -109,12 +109,16 @@ A specific software platform. A rich, expandable knowledge folder. A tool is NOT
 
 **Folder structure (actual):**
 ```
-backend/tools/lovable/
-├── tool.toml                  # id, name, category, description, required_credentials, tradeoffs
-├── knowledge.md               # How the platform works, API docs, limitations
-│                              # (or knowledge/ directory for complex tools like n8n)
-├── actions.toml               # actions = [...] — which Level 4 actions are available
-└── gotchas.md                 # Learned pitfalls (optional)
+backend/tools/n8n/
+├── tool.toml                  # id, name, category, description, credentials, tradeoffs
+├── knowledge.md               # Core overview (always injected into prompt)
+├── gotchas.md                 # Learned pitfalls (always injected)
+├── actions.toml               # actions = [...] — available Level 4 actions
+└── knowledge/                 # Reference docs (on-demand via read_tool_doc)
+    ├── error-catalog.md
+    ├── expressions.md
+    ├── code-js-patterns.md
+    └── ...
 ```
 
 > **Not yet implemented:** `artifacts/`, `conversations/`, and `integration-patterns/` subdirectories described in the original design. These will accumulate over time as agents complete work on each platform.
@@ -131,14 +135,29 @@ backend/tools/lovable/
 | `frontend-database` | Supabase, Firebase, PlanetScale | Backend DB for frontends |
 | `communication` | Slack, Email, Discord | Messaging |
 
-**Knowledge loading:** When a tool is selected for a domain expert:
-1. `knowledge.md` (or `knowledge/*.md`) loaded into system prompt
-2. `gotchas.md` appended if present
-3. Relevant `integration-patterns/*.md` appended based on other tools in the session
-4. `actions.toml` determines available actions
-5. `tool.toml` determines required credentials (preflight check)
+**Knowledge loading — two-tier convention:**
 
-Artifacts and conversations are NOT auto-loaded (too large). Available via `search_tool_knowledge` action on demand.
+When a tool is selected for a domain expert, knowledge is loaded in two tiers determined by file location:
+
+**Tier 1 — Always injected** (root-level files):
+1. `knowledge.md` loaded into system prompt (core overview)
+2. `gotchas.md` appended if present
+
+**Tier 2 — On-demand** (`knowledge/` subdirectory files):
+3. List of available reference doc filenames from `knowledge/` directory appended to prompt
+4. Agent fetches specific docs via `read_tool_doc(tool_id, doc_name)` which reads directly from disk
+
+Additionally:
+5. `actions.toml` determines available actions
+6. `tool.toml` determines required credentials (preflight check)
+
+**Convention:** The file's location IS the tier decision — no configuration needed.
+Root-level `knowledge.md` and `gotchas.md` are always injected. Everything under `knowledge/*.md`
+is on-demand only. Guideline: when a tool's total knowledge exceeds ~30K tokens, move reference
+material into `knowledge/` subdirectory files. Reference docs are read directly from disk
+(no cache, no DB). This matches standard patterns (Cursor rules, CLAUDE.md, MCP server configs).
+
+Artifacts and conversations are NOT auto-loaded (too large). On-demand search for these is not yet implemented.
 
 **Expandability:** Every subfolder is optional and grows over time:
 - `artifacts/` grows as more things are built
@@ -146,7 +165,7 @@ Artifacts and conversations are NOT auto-loaded (too large). Available via `sear
 - `gotchas.md` grows as pitfalls are discovered
 - `integration-patterns/` grows as new tool combinations are used
 - `knowledge.md` can be split into `knowledge/` directory (n8n already has 12+ files)
-- Any new files/folders are supported — the loader is pattern-based
+- Reference docs grow over time in the `knowledge/` directory. Agents fetch them on-demand via `read_tool_doc`.
 
 ### Level 4: Action
 
@@ -161,6 +180,7 @@ An executable function. Stateless. Takes input, produces output.
 - `read_upstream_output` — read a completed upstream agent's output
 - `spawn_agent` — spawn a child agent synchronously (orchestrator only)
 - `search_knowledge` — RAG search over the expert knowledge corpus
+- `read_tool_doc` — read a platform tool reference document on-demand
 
 > **Not yet implemented:** `git_repo_write`, `shell_execute`, `read_context`, `ask_agent`, `ask_orchestrator`. These inter-agent communication actions are planned for Phase 3 but do not exist in code.
 

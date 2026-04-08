@@ -1,7 +1,7 @@
 id = "clay"
 name = "Clay"
 category = "data-enrichment"
-description = "Data enrichment and prospecting platform. Full v3 API access: create/read/update/delete tables, rows, columns, sources, and enrichments. Auto-discover enrichment providers and auth accounts. Session cookie required."
+description = "Data enrichment and prospecting platform. Full v3 API access: tables, rows, columns, views, sources, enrichments, CSV export, RAG documents, workspace admin, AND tc-workflows (Claygent agentic workflow product — create/run/pause/HITL graphs). Auto-discover enrichment providers and auth accounts. Session cookie required."
 required_credentials = ["clay"]
 enabled = true
 
@@ -9,4 +9,4 @@ enabled = true
 automation = "full"
 api_access = "v3 (internal, full CRUD — v1 is deprecated and non-functional)"
 cost = "credit-based"
-notes = "v3 session cookie (7-day rolling lifetime) for all operations: table lifecycle, row CRUD, column CRUD, source management, enrichment triggers, auth account discovery, workspace details. No rate limiting detected. Only enrichment provider account connections require the Clay UI. Enrichment credits are finite — always test on a single row first."
+notes = "v3 session cookie (7-day rolling lifetime) for all operations: table/view/workbook lifecycle, row CRUD, column CRUD, source management, enrichment triggers, auth account discovery, workspace details, CSV export, RAG document upload, tc-workflows (CRUD + direct runs + HITL + snapshots + streams). No rate limiting detected. Only enrichment provider account connections require the Clay UI. Enrichment credits are finite — always test on a single row first. Direct workflow runs are append-only (no cancel/delete); to cancel, wrap in a 1-row csv_import batch."

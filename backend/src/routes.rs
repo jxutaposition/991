@@ -303,7 +303,7 @@ pub async fn execution_sessions_list(
         ORDER BY s.created_at DESC
         LIMIT 50
     "#;
-    let rows = state.db.execute(sql).await.unwrap_or_default();
+    let rows = state.db.execute_unparameterized(sql).await.unwrap_or_default();
     Json(json!({"sessions": rows}))
 }
 
@@ -438,7 +438,7 @@ pub async fn execution_create(
         })?;
 
         // Create SSE channel immediately so frontend can subscribe during planning
-        state.event_bus.create_channel(&session_id.to_string()).await;
+        state.event_bus.ensure_channel(&session_id.to_string()).await;
 
         info!(session_id = %session_id, mode = "orchestrated", "session created with 'planning' status — spawning async planner");
 
@@ -817,7 +817,7 @@ pub async fn execution_approve(
     })?;
 
     // Create SSE channel so clients can subscribe to live execution events
-    state.event_bus.create_channel(&session_id).await;
+    state.event_bus.ensure_channel(&session_id).await;
 
     // --- Start Slack notifier if project or client has a slack_channel_id ---
     #[cfg(feature = "slack")]
@@ -1092,13 +1092,22 @@ pub async fn execution_events_sse(
                         result = receiver.recv() => {
                             match result {
                                 Ok(event) => {
-                                    yield Ok::<Event, std::convert::Infallible>(
-                                        Event::default().data(event.to_string())
-                                    );
+                                    let mut sse_event = Event::default().data(event.to_string());
+                                    if let Some(seq) = event.get("_seq").and_then(|v| v.as_u64()) {
+                                        sse_event = sse_event.id(seq.to_string());
+                                    }
+                                    yield Ok::<Event, std::convert::Infallible>(sse_event);
                                 }
                                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(lagged = n, "SSE receiver lagged");
+                                    tracing::warn!(lagged = n, "SSE receiver lagged, sending resync");
+                                    yield Ok::<Event, std::convert::Infallible>(
+                                        Event::default().data(serde_json::json!({
+                                            "type": "resync_required",
+                                            "reason": "lagged",
+                                            "missed_count": n,
+                                        }).to_string())
+                                    );
                                 }
                             }
                         }
@@ -1190,7 +1199,7 @@ pub async fn observe_session_start(
     })?;
 
     // Create SSE channel for narrator stream
-    state.event_bus.create_channel(&session_id.to_string()).await;
+    state.event_bus.ensure_channel(&session_id.to_string()).await;
 
     info!(session = %session_id, expert = %body.expert_id, "observation session started");
 
@@ -1537,7 +1546,7 @@ pub async fn observe_sessions_list(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
     let sql = "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count, distillation_count FROM observation_sessions ORDER BY created_at DESC LIMIT 50";
-    let rows = state.db.execute(sql).await.unwrap_or_default();
+    let rows = state.db.execute_unparameterized(sql).await.unwrap_or_default();
     Json(json!({"sessions": rows}))
 }
 
@@ -1546,31 +1555,38 @@ pub async fn observe_session_get(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, InternalError> {
-    let sql = format!(
-        "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count FROM observation_sessions WHERE id = '{session_id}'"
-    );
-    let rows = state.db.execute(&sql).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db.execute_with(
+        "SELECT id, expert_id, started_at, ended_at, status, coverage_score, event_count \
+         FROM observation_sessions WHERE id = $1::uuid",
+        pg_args!(session_id.clone()),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = rows.first().ok_or(StatusCode::NOT_FOUND)?.clone();
 
-    let dist_sql = format!(
-        "SELECT id, sequence_ref, narrator_text, expert_correction, created_at FROM distillations WHERE session_id = '{session_id}' ORDER BY sequence_ref"
-    );
-    let distillations = state.db.execute(&dist_sql).await.unwrap_or_default();
+    let distillations = state.db.execute_with(
+        "SELECT id, sequence_ref, narrator_text, expert_correction, created_at \
+         FROM distillations WHERE session_id = $1::uuid ORDER BY sequence_ref",
+        pg_args!(session_id.clone()),
+    ).await.unwrap_or_default();
 
-    let events_sql = format!(
-        "SELECT id, event_type, url, domain, dom_context, created_at FROM action_events WHERE session_id = '{session_id}' ORDER BY sequence_number LIMIT 100"
-    );
-    let events = state.db.execute(&events_sql).await.unwrap_or_default();
+    let events = state.db.execute_with(
+        "SELECT id, event_type, url, domain, dom_context, created_at \
+         FROM action_events WHERE session_id = $1::uuid ORDER BY sequence_number LIMIT 100",
+        pg_args!(session_id.clone()),
+    ).await.unwrap_or_default();
 
-    let tasks_sql = format!(
-        "SELECT id, description, matched_agent_slug, match_confidence, status FROM abstracted_tasks WHERE session_id = '{session_id}' ORDER BY match_confidence DESC NULLS LAST"
-    );
-    let tasks = state.db.execute(&tasks_sql).await.unwrap_or_default();
+    let tasks = state.db.execute_with(
+        "SELECT id, description, matched_agent_slug, match_confidence, status \
+         FROM abstracted_tasks WHERE session_id = $1::uuid \
+         ORDER BY match_confidence DESC NULLS LAST",
+        pg_args!(session_id.clone()),
+    ).await.unwrap_or_default();
 
-    let prs_sql = format!(
-        "SELECT id, pr_type, target_agent_slug, gap_summary, confidence, status FROM agent_prs WHERE evidence_session_ids @> ARRAY['{session_id}'::uuid] ORDER BY created_at DESC"
-    );
-    let prs = state.db.execute(&prs_sql).await.unwrap_or_default();
+    let prs = state.db.execute_with(
+        "SELECT id, pr_type, target_agent_slug, gap_summary, confidence, status \
+         FROM agent_prs WHERE evidence_session_ids @> ARRAY[$1::uuid] \
+         ORDER BY created_at DESC",
+        pg_args!(session_id.clone()),
+    ).await.unwrap_or_default();
 
     Ok(Json(json!({
         "session": session,
@@ -1704,11 +1720,11 @@ pub async fn agent_pr_reject(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid PR ID"})))
     })?;
 
-    let sql = format!(
-        "UPDATE agent_prs SET status = 'rejected', reviewed_at = NOW() WHERE id = '{pr_uuid}' AND status = 'open'"
-    );
-
-    state.db.execute(&sql).await.map_err(|e| {
+    state.db.execute_with(
+        "UPDATE agent_prs SET status = 'rejected', reviewed_at = NOW() \
+         WHERE id = $1 AND status = 'open'",
+        pg_args!(pr_uuid),
+    ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -1727,7 +1743,7 @@ pub async fn data_schemas(
         FROM pg_stat_user_tables
         ORDER BY schemaname, relname
     "#;
-    let rows = state.db.execute(sql).await.unwrap_or_default();
+    let rows = state.db.execute_unparameterized(sql).await.unwrap_or_default();
 
     // Also list views
     let views_sql = r#"
@@ -1736,7 +1752,7 @@ pub async fn data_schemas(
         WHERE schemaname = 'public'
         ORDER BY viewname
     "#;
-    let views = state.db.execute(views_sql).await.unwrap_or_default();
+    let views = state.db.execute_unparameterized(views_sql).await.unwrap_or_default();
 
     let mut all = rows;
     all.extend(views);
@@ -1783,7 +1799,7 @@ pub async fn data_query(
         }
     }
 
-    match state.db.execute(trimmed).await {
+    match state.db.execute_unparameterized(trimmed).await {
         Ok(rows) => {
             let row_count = rows.len();
             // Extract column names from first row
@@ -1841,11 +1857,14 @@ pub async fn data_table_rows(
 
     let order = if has_created_at { "ORDER BY created_at DESC" } else { "" };
 
+    // sql-format-ok: `table` is validated alphanumeric+underscore (line 1842), `order`
+    // is a static string literal, `limit`/`offset` are u32. Postgres cannot parameterize
+    // identifiers, so format! is the only option here.
     let sql = format!(
         "SELECT * FROM {table} {order} LIMIT {limit} OFFSET {offset}"
     );
 
-    match state.db.execute(&sql).await {
+    match state.db.execute_unparameterized(&sql).await {
         Ok(rows) => {
             let row_count = rows.len();
             let columns: Vec<String> = rows
@@ -2122,6 +2141,8 @@ pub async fn client_update(
     sets.push("updated_at = NOW()".to_string());
     args.add(client_id).expect("encode");
 
+    // sql-format-ok: dynamic UPDATE — `sets` contains hardcoded `column = $N` fragments
+    // built above, all real values are bound via `args`. param_idx is an integer counter.
     let sql = format!(
         "UPDATE clients SET {} WHERE id = ${param_idx}",
         sets.join(", ")
@@ -2184,11 +2205,11 @@ pub async fn feedback_list(
             ).await.unwrap_or_default()
         }
     } else if query.unresolved_only.unwrap_or(false) {
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT * FROM feedback_signals WHERE resolution IS NULL ORDER BY created_at DESC LIMIT 100",
         ).await.unwrap_or_default()
     } else {
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT * FROM feedback_signals ORDER BY created_at DESC LIMIT 100",
         ).await.unwrap_or_default()
     };
@@ -2210,7 +2231,7 @@ pub async fn feedback_dashboard(
         GROUP BY agent_slug, signal_type, authority
         ORDER BY agent_slug, total_weight DESC
     "#;
-    let signal_stats = state.db.execute(signal_stats_sql).await.unwrap_or_default();
+    let signal_stats = state.db.execute_unparameterized(signal_stats_sql).await.unwrap_or_default();
 
     let pending_prs_sql = r#"
         SELECT id, pr_type, target_agent_slug, gap_summary, confidence,
@@ -2220,7 +2241,7 @@ pub async fn feedback_dashboard(
         ORDER BY created_at DESC
         LIMIT 50
     "#;
-    let pending_prs = state.db.execute(pending_prs_sql).await.unwrap_or_default();
+    let pending_prs = state.db.execute_unparameterized(pending_prs_sql).await.unwrap_or_default();
 
     let overlays_sql = r#"
         SELECT o.id, o.primitive_type, o.primitive_id, o.scope, o.source,
@@ -2231,7 +2252,7 @@ pub async fn feedback_dashboard(
         ORDER BY o.created_at DESC
         LIMIT 100
     "#;
-    let overlays = state.db.execute(overlays_sql).await.unwrap_or_default();
+    let overlays = state.db.execute_unparameterized(overlays_sql).await.unwrap_or_default();
 
     let patterns_sql = r#"
         SELECT id, agent_slug, pattern_type, description,
@@ -2241,7 +2262,7 @@ pub async fn feedback_dashboard(
         ORDER BY session_count DESC, created_at DESC
         LIMIT 50
     "#;
-    let patterns = state.db.execute(patterns_sql).await.unwrap_or_default();
+    let patterns = state.db.execute_unparameterized(patterns_sql).await.unwrap_or_default();
 
     let weight_dist_sql = r#"
         SELECT agent_slug,
@@ -2256,7 +2277,7 @@ pub async fn feedback_dashboard(
         GROUP BY agent_slug
         ORDER BY total_weight DESC
     "#;
-    let weight_distribution = state.db.execute(weight_dist_sql).await.unwrap_or_default();
+    let weight_distribution = state.db.execute_unparameterized(weight_dist_sql).await.unwrap_or_default();
 
     Json(json!({
         "signal_stats": signal_stats,
@@ -2271,7 +2292,7 @@ pub async fn feedback_dashboard(
 
 /// GET /api/experts
 pub async fn experts_list(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = state.db.execute("SELECT * FROM experts ORDER BY name").await.unwrap_or_default();
+    let rows = state.db.execute_unparameterized("SELECT * FROM experts ORDER BY name").await.unwrap_or_default();
     Json(json!({"experts": rows}))
 }
 
@@ -2334,7 +2355,7 @@ pub async fn expert_get(
 
 /// GET /api/engagements
 pub async fn engagements_list(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let rows = state.db.execute(
+    let rows = state.db.execute_unparameterized(
         "SELECT e.*, ex.name as expert_name, c.name as client_name FROM engagements e JOIN experts ex ON e.expert_id = ex.id JOIN clients c ON e.client_id = c.id ORDER BY e.created_at DESC"
     ).await.unwrap_or_default();
     Json(json!({"engagements": rows}))
@@ -2424,6 +2445,7 @@ pub struct UpdateNodeRequest {
     pub skip_judge: Option<bool>,
     pub execution_mode: Option<String>,
     pub integration_overrides: Option<Value>,
+    pub requires: Option<Vec<String>>,
 }
 
 /// GET /api/nodes/:node_id — get a single node by ID (no session required).
@@ -2517,11 +2539,25 @@ pub async fn execution_node_update(
         args.add(io.clone()).expect("encode");
         idx += 1;
     }
+    if let Some(ref req) = body.requires {
+        let dep_uuids: Vec<Uuid> = req.iter()
+            .filter_map(|u| u.parse::<Uuid>().ok())
+            .collect();
+        set_clauses.push(format!("requires = ${idx}"));
+        args.add(&dep_uuids as &[Uuid]).expect("encode");
+        idx += 1;
+        let new_status = if dep_uuids.is_empty() { "pending" } else { "waiting" };
+        set_clauses.push(format!("status = ${idx}"));
+        args.add(new_status.to_string()).expect("encode");
+        idx += 1;
+    }
 
     if set_clauses.is_empty() {
         return Ok(Json(json!({"ok": true, "updated": false})));
     }
 
+    // sql-format-ok: dynamic UPDATE — `set_clauses` are hardcoded `column = $N` fragments
+    // built above, all real values bound via `args`. idx is an integer counter.
     let sql = format!(
         "UPDATE execution_nodes SET {} WHERE id = ${} AND session_id = ${} AND status IN ('pending', 'waiting', 'ready', 'preview')",
         set_clauses.join(", "), idx, idx + 1
@@ -2533,6 +2569,26 @@ pub async fn execution_node_update(
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
+    let mut changes = serde_json::Map::new();
+    if let Some(ref v) = body.agent_slug { changes.insert("agent_slug".into(), json!(v)); }
+    if let Some(ref v) = body.task_description { changes.insert("task_description".into(), json!(v)); }
+    if let Some(ref v) = body.tier_override { changes.insert("tier_override".into(), json!(v)); }
+    if let Some(v) = body.breakpoint { changes.insert("breakpoint".into(), json!(v)); }
+    if let Some(ref v) = body.model { changes.insert("model".into(), json!(v)); }
+    if let Some(v) = body.max_iterations { changes.insert("max_iterations".into(), json!(v)); }
+    if let Some(v) = body.skip_judge { changes.insert("skip_judge".into(), json!(v)); }
+    if let Some(ref v) = body.execution_mode { changes.insert("execution_mode".into(), json!(v)); }
+    if let Some(ref v) = body.integration_overrides { changes.insert("integration_overrides".into(), json!(v.clone())); }
+    if let Some(ref v) = body.requires { changes.insert("requires".into(), json!(v)); }
+
+    if !changes.is_empty() {
+        state.event_bus.send(&session_id, json!({
+            "type": "node_updated",
+            "node_id": node_id,
+            "changes": Value::Object(changes),
+        })).await;
+    }
+
     Ok(Json(json!({"ok": true, "updated": true})))
 }
 
@@ -2543,6 +2599,10 @@ pub struct AddNodeRequest {
     pub requires: Option<Vec<String>>,
     pub tier_override: Option<String>,
     pub breakpoint: Option<bool>,
+    pub execution_mode: Option<String>,
+    pub model: Option<String>,
+    pub max_iterations: Option<u32>,
+    pub description: Option<Value>,
 }
 
 /// POST /api/execute/:session_id/nodes — add a new node to a session (DAG editor).
@@ -2573,28 +2633,46 @@ pub async fn execution_node_add(
     let breakpoint = body.breakpoint.unwrap_or(false);
 
     let agent = state.catalog.get(&body.agent_slug);
-    let model = agent.as_ref().and_then(|a| a.model.as_deref()).unwrap_or("claude-haiku-4-5-20251001").to_string();
-    let max_iter = agent.as_ref().map(|a| a.max_iterations).unwrap_or(15) as i32;
+    let model = body.model.clone()
+        .or_else(|| agent.as_ref().and_then(|a| a.model.clone()))
+        .unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string());
+    let max_iter = body.max_iterations
+        .unwrap_or_else(|| agent.as_ref().map(|a| a.max_iterations).unwrap_or(15)) as i32;
     let skip_judge = agent.as_ref().map(|a| a.skip_judge).unwrap_or(false);
     let judge_config_val = agent.as_ref()
         .map(|a| serde_json::to_value(&a.judge_config).unwrap_or(json!({})))
         .unwrap_or_else(|| json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+    let execution_mode = body.execution_mode.clone()
+        .or_else(|| agent.as_ref().and_then(|a| match a.automation_mode.as_deref() {
+            Some("guided") => Some("manual".to_string()),
+            _ => None,
+        }))
+        .unwrap_or_else(|| "agent".to_string());
+    let description = body.description.clone().unwrap_or(json!({}));
 
     state.db.execute_with(
         r#"INSERT INTO execution_nodes
             (id, session_id, agent_slug, agent_git_sha, task_description, status,
              requires, attempt_count, judge_config, max_iterations, model, skip_judge,
-             tier_override, breakpoint)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13)"#,
+             tier_override, breakpoint, execution_mode, description)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13, $14, $15)"#,
         pg_args!(
             node_id, session_uuid, body.agent_slug.clone(), "manual".to_string(),
             body.task_description.clone(), status.to_string(),
             &requires as &[Uuid], judge_config_val, max_iter, model, skip_judge,
-            body.tier_override.clone(), breakpoint
+            body.tier_override.clone(), breakpoint, execution_mode, description
         ),
     ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
+
+    state.event_bus.send(&session_id, json!({
+        "type": "node_added",
+        "node_id": node_id.to_string(),
+        "agent_slug": &body.agent_slug,
+        "task_description": &body.task_description,
+        "status": status,
+    })).await;
 
     Ok(Json(json!({"node_id": node_id.to_string()})))
 }
@@ -2637,11 +2715,16 @@ pub async fn execution_node_delete(
     })?;
 
     state.db.execute_with(
-        "DELETE FROM execution_nodes WHERE id = $1 AND session_id = $2 AND status IN ('pending', 'waiting', 'ready')",
+        "DELETE FROM execution_nodes WHERE id = $1 AND session_id = $2 AND status IN ('pending', 'waiting', 'ready', 'preview')",
         pg_args!(node_uuid, session_uuid),
     ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
+
+    state.event_bus.send(&session_id, json!({
+        "type": "node_removed",
+        "node_id": node_id,
+    })).await;
 
     Ok(Json(json!({"ok": true})))
 }
@@ -2678,16 +2761,13 @@ pub async fn execution_node_messages(
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let sql = format!(
-        r#"
-        SELECT id, node_id, role, content, metadata, created_at
-        FROM node_messages
-        WHERE session_id = '{session_uuid}' AND node_id = '{node_uuid}'
-        ORDER BY created_at ASC
-        "#
-    );
-
-    let messages = state.db.execute(&sql).await.unwrap_or_default();
+    let messages = state.db.execute_with(
+        "SELECT id, node_id, role, content, metadata, created_at \
+         FROM node_messages \
+         WHERE session_id = $1 AND node_id = $2 \
+         ORDER BY created_at ASC",
+        pg_args!(session_uuid, node_uuid),
+    ).await.unwrap_or_default();
     Ok(Json(json!({ "messages": messages })))
 }
 
@@ -2803,7 +2883,7 @@ pub async fn execution_node_reply(
         if let Some(ref artifacts) = new_artifacts {
             let _ = runner.db().execute_with(
                 r#"UPDATE execution_nodes
-                   SET status = $1, output = COALESCE($2, output), artifacts = $5,
+                   SET status = $1, output = $2, artifacts = $5,
                        completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
                    WHERE id = $3 AND session_id = $4"#,
                 crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid, artifacts.clone()),
@@ -2811,7 +2891,7 @@ pub async fn execution_node_reply(
         } else {
             let _ = runner.db().execute_with(
                 r#"UPDATE execution_nodes
-                   SET status = $1, output = COALESCE($2, output),
+                   SET status = $1, output = $2,
                        completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
                    WHERE id = $3 AND session_id = $4"#,
                 crate::pg_args!(status.clone(), result.output.clone(), target_node_uuid, session_uuid),
@@ -2864,10 +2944,10 @@ pub async fn execution_node_reply(
 
         // Unblock downstream nodes or skip them on failure, then check session completion
         if result.status == crate::agent_catalog::NodeStatus::Passed {
-            let _ = crate::work_queue::unblock_downstream(runner.db(), &target_node_uuid, &session_uuid).await;
+            let _ = crate::work_queue::unblock_downstream(runner.db(), &target_node_uuid, &session_uuid, runner.event_bus()).await;
             crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
         } else if result.status == crate::agent_catalog::NodeStatus::Failed {
-            let _ = crate::work_queue::skip_downstream(runner.db(), &target_node_uuid, &session_uuid).await;
+            let _ = crate::work_queue::skip_downstream(runner.db(), &target_node_uuid, &session_uuid, runner.event_bus()).await;
             crate::work_queue::check_session_completion(runner.db(), &session_uuid, runner.event_bus()).await;
         }
     });
@@ -3028,7 +3108,7 @@ pub async fn execution_session_chat(
                         if let Some(ref artifacts) = new_artifacts {
                             let _ = runner.db().execute_with(
                                 r#"UPDATE execution_nodes
-                                   SET status = $1, output = COALESCE($2, output), artifacts = $5,
+                                   SET status = $1, output = $2, artifacts = $5,
                                        completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
                                    WHERE id = $3 AND session_id = $4"#,
                                 crate::pg_args!(status.clone(), result.output.clone(), child_uuid, session_uuid, artifacts.clone()),
@@ -3036,7 +3116,7 @@ pub async fn execution_session_chat(
                         } else {
                             let _ = runner.db().execute_with(
                                 r#"UPDATE execution_nodes
-                                   SET status = $1, output = COALESCE($2, output),
+                                   SET status = $1, output = $2,
                                        completed_at = CASE WHEN $1 NOT IN ('running', 'awaiting_reply') THEN NOW() ELSE completed_at END
                                    WHERE id = $3 AND session_id = $4"#,
                                 crate::pg_args!(status.clone(), result.output.clone(), child_uuid, session_uuid),
@@ -3346,17 +3426,31 @@ pub async fn execution_session_chat(
     // Query available knowledge scope so the LLM knows what's indexed
     let mut knowledge_scope_desc = String::new();
     if let Some(cid) = client_id {
-        let scope_sql = format!(
-            "SELECT source_folder, COUNT(*) AS doc_count, \
-                    SUM(chunk_count) AS total_chunks, \
-                    ARRAY_AGG(DISTINCT source_filename) FILTER (WHERE source_filename IS NOT NULL) AS filenames \
-             FROM knowledge_documents \
-             WHERE tenant_id = '{cid}' AND status = 'ready' {} \
-             GROUP BY source_folder \
-             ORDER BY doc_count DESC",
-            project_id.map(|p| format!("AND (project_id IS NULL OR project_id = '{p}')")).unwrap_or_default()
-        );
-        if let Ok(rows) = state.db.execute(&scope_sql).await {
+        let rows_result = if let Some(pid) = project_id {
+            state.db.execute_with(
+                "SELECT source_folder, COUNT(*) AS doc_count, \
+                        SUM(chunk_count) AS total_chunks, \
+                        ARRAY_AGG(DISTINCT source_filename) FILTER (WHERE source_filename IS NOT NULL) AS filenames \
+                 FROM knowledge_documents \
+                 WHERE tenant_id = $1 AND status = 'ready' \
+                       AND (project_id IS NULL OR project_id = $2) \
+                 GROUP BY source_folder \
+                 ORDER BY doc_count DESC",
+                pg_args!(cid, pid),
+            ).await
+        } else {
+            state.db.execute_with(
+                "SELECT source_folder, COUNT(*) AS doc_count, \
+                        SUM(chunk_count) AS total_chunks, \
+                        ARRAY_AGG(DISTINCT source_filename) FILTER (WHERE source_filename IS NOT NULL) AS filenames \
+                 FROM knowledge_documents \
+                 WHERE tenant_id = $1 AND status = 'ready' \
+                 GROUP BY source_folder \
+                 ORDER BY doc_count DESC",
+                pg_args!(cid),
+            ).await
+        };
+        if let Ok(rows) = rows_result {
             if !rows.is_empty() {
                 knowledge_scope_desc.push_str("\n\n## Indexed Knowledge Corpus\n\
 Your search_knowledge and read_knowledge tools search this client's indexed data. \
@@ -4075,11 +4169,11 @@ pub async fn auth_create_workspace(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
-    let role_sql = format!(
-        "INSERT INTO user_client_roles (user_id, client_id, role) VALUES ('{}', '{}', 'admin') ON CONFLICT DO NOTHING",
-        user.user_id, client_id
-    );
-    state.db.execute(&role_sql).await.map_err(|e| {
+    state.db.execute_with(
+        "INSERT INTO user_client_roles (user_id, client_id, role) \
+         VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING",
+        pg_args!(user.user_id, client_id),
+    ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -4250,7 +4344,6 @@ pub async fn client_credential_check(
 
     // Check global fallbacks
     let has_global_tavily = state.settings.tavily_api_key.is_some();
-    let has_global_n8n = state.settings.n8n_api_key.is_some();
 
     let agent_slugs: Vec<&str> = query.agents.as_deref()
         .unwrap_or("")
@@ -4283,7 +4376,6 @@ pub async fn client_credential_check(
         let missing: Vec<String> = all_required.iter()
             .filter(|req| {
                 if *req == "tavily" && has_global_tavily { return false; }
-                if *req == "n8n" && has_global_n8n { return false; }
                 !connected.contains(req)
             })
             .cloned()
@@ -4293,7 +4385,7 @@ pub async fn client_credential_check(
             let cred = crate::actions::action_credential(t);
             let cred_status = match &cred {
                 Some(c) => {
-                    if connected.contains(c) || (c == "tavily" && has_global_tavily) || (c == "n8n" && has_global_n8n) {
+                    if connected.contains(c) || (c == "tavily" && has_global_tavily) {
                         "connected"
                     } else {
                         "missing"
@@ -4502,7 +4594,7 @@ pub async fn overlays_list(
             ).await.unwrap_or_default()
         }
         (None, None, None) => {
-            state.db.execute(
+            state.db.execute_unparameterized(
                 "SELECT * FROM overlays ORDER BY created_at DESC LIMIT 100",
             ).await.unwrap_or_default()
         }
@@ -4583,6 +4675,8 @@ pub async fn projects_list(
         args.add(client_slug.clone()).expect("encode");
     }
 
+    // sql-format-ok: dynamic WHERE — `clauses` are hardcoded `column = $N` fragments
+    // built above, all real values bound via `args`.
     let sql = format!(
         "SELECT p.*, c.name as client_name FROM projects p \
          JOIN clients c ON p.client_id = c.id \
@@ -4697,6 +4791,8 @@ pub async fn project_update(
     sets.push("updated_at = NOW()".to_string());
     args.add(pid).expect("pg_args: encode failed");
 
+    // sql-format-ok: dynamic UPDATE — `sets` are hardcoded `column = $N` fragments
+    // built above, all real values bound via `args`.
     let sql = format!(
         "UPDATE projects SET {} WHERE id = ${param_idx}",
         sets.join(", ")
@@ -4705,6 +4801,211 @@ pub async fn project_update(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
     Ok(Json(json!({"updated": true})))
+}
+
+// ── Project Resources Routes (SD-008) ───────────────────────────────────────
+
+/// GET /api/projects/:project_id/resources — list linked resources for a project.
+pub async fn project_resources_list(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let pid: Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rows = state.db.execute_with(
+        "SELECT id, project_id, integration_slug, resource_type, external_id, \
+                external_url, display_name, discovered_metadata, last_synced_at, created_at \
+         FROM project_resources WHERE project_id = $1 ORDER BY integration_slug, display_name",
+        pg_args!(pid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"resources": rows})))
+}
+
+#[derive(Deserialize)]
+pub struct LinkResourceRequest {
+    pub integration_slug: String,
+    pub resource_type: String,
+    pub external_id: String,
+    pub external_url: Option<String>,
+    pub display_name: String,
+    pub discovered_metadata: Option<Value>,
+}
+
+/// POST /api/projects/:project_id/resources — link a resource to a project.
+pub async fn project_resource_create(
+    State(state): State<Arc<AppState>>,
+    Path(project_id): Path<String>,
+    Json(body): Json<LinkResourceRequest>,
+) -> Result<Json<Value>, InternalError> {
+    let pid: Uuid = project_id.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"})))
+    })?;
+    let metadata = body.discovered_metadata.unwrap_or(json!({}));
+    let rows = state.db.execute_with(
+        "INSERT INTO project_resources \
+            (project_id, integration_slug, resource_type, external_id, external_url, display_name, discovered_metadata, last_synced_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) \
+         ON CONFLICT (project_id, integration_slug, external_id) DO UPDATE SET \
+            display_name = EXCLUDED.display_name, \
+            discovered_metadata = EXCLUDED.discovered_metadata, \
+            last_synced_at = NOW() \
+         RETURNING id",
+        pg_args!(pid, body.integration_slug, body.resource_type, body.external_id,
+                 body.external_url, body.display_name, metadata),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    let resource_id = rows.first()
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .unwrap_or("unknown");
+
+    Ok(Json(json!({"ok": true, "resource_id": resource_id})))
+}
+
+/// DELETE /api/projects/:project_id/resources/:resource_id — unlink a resource.
+pub async fn project_resource_delete(
+    State(state): State<Arc<AppState>>,
+    Path((project_id, resource_id)): Path<(String, String)>,
+) -> Result<Json<Value>, InternalError> {
+    let pid: Uuid = project_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rid: Uuid = resource_id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    state.db.execute_with(
+        "DELETE FROM project_resources WHERE id = $1 AND project_id = $2",
+        pg_args!(rid, pid),
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// POST /api/projects/:project_id/resources/:resource_id/sync — re-sync resource metadata.
+pub async fn project_resource_sync(
+    State(state): State<Arc<AppState>>,
+    Path((project_id, resource_id)): Path<(String, String)>,
+) -> Result<Json<Value>, InternalError> {
+    let pid: Uuid = project_id.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project_id"})))
+    })?;
+    let rid: Uuid = resource_id.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid resource_id"})))
+    })?;
+
+    let rows = state.db.execute_with(
+        "SELECT pr.integration_slug, pr.external_id, p.client_id \
+         FROM project_resources pr JOIN projects p ON pr.project_id = p.id \
+         WHERE pr.id = $1 AND pr.project_id = $2",
+        pg_args!(rid, pid),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+    })?;
+
+    let row = rows.first().ok_or_else(|| {
+        (StatusCode::NOT_FOUND, Json(json!({"error": "Resource not found"})))
+    })?;
+    let integration_slug = row.get("integration_slug").and_then(Value::as_str).unwrap_or("");
+    let client_id: Uuid = row.get("client_id").and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Missing client_id"}))))?;
+
+    let master_key = state.settings.credential_master_key.as_deref()
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "CREDENTIAL_MASTER_KEY not set"}))))?;
+
+    let credentials = crate::credentials::load_credentials_for_project(&state.db, master_key, pid, client_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let discovered = crate::discovery::discover_resources(integration_slug, &credentials)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Discovery failed: {e}")}))))?;
+
+    let external_id = row.get("external_id").and_then(Value::as_str).unwrap_or("");
+    if let Some(updated) = discovered.iter().find(|r| r.external_id == external_id) {
+        state.db.execute_with(
+            "UPDATE project_resources SET discovered_metadata = $1, last_synced_at = NOW() \
+             WHERE id = $2",
+            pg_args!(updated.metadata.clone(), rid),
+        ).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+        })?;
+        return Ok(Json(json!({"ok": true, "synced": true, "metadata": updated.metadata})));
+    }
+
+    Ok(Json(json!({"ok": true, "synced": false, "message": "Resource not found in external system"})))
+}
+
+#[derive(Deserialize)]
+pub struct DiscoverQuery {
+    pub client_slug: Option<String>,
+    pub project_id: Option<String>,
+}
+
+/// GET /api/integrations/:slug/discover — auto-discover resources from a connected integration.
+pub async fn integration_discover(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<DiscoverQuery>,
+) -> Result<Json<Value>, InternalError> {
+    let project_id: Option<Uuid> = query.project_id.as_deref()
+        .and_then(|s| s.parse().ok());
+
+    let (client_id, pid) = if let Some(pid) = project_id {
+        let rows = state.db.execute_with(
+            "SELECT client_id FROM projects WHERE id = $1", pg_args!(pid),
+        ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let cid: Uuid = rows.first()
+            .and_then(|r| r.get("client_id").and_then(Value::as_str))
+            .and_then(|s| s.parse().ok())
+            .ok_or(StatusCode::NOT_FOUND)?;
+        (cid, Some(pid))
+    } else if let Some(ref cs) = query.client_slug {
+        let rows = state.db.execute_with(
+            "SELECT id FROM clients WHERE slug = $1", pg_args!(cs.clone()),
+        ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let cid: Uuid = rows.first()
+            .and_then(|r| r.get("id").and_then(Value::as_str))
+            .and_then(|s| s.parse().ok())
+            .ok_or(StatusCode::NOT_FOUND)?;
+        (cid, None)
+    } else {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Provide client_slug or project_id"}))).into());
+    };
+
+    let master_key = state.settings.credential_master_key.as_deref()
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "CREDENTIAL_MASTER_KEY not set"}))))?;
+
+    let credentials = if let Some(pid) = pid {
+        crate::credentials::load_credentials_for_project(&state.db, master_key, pid, client_id).await
+    } else {
+        crate::credentials::load_credentials_for_client(&state.db, master_key, client_id).await
+    }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    let resources = crate::discovery::discover_resources(&slug, &credentials)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Discovery failed: {e}")}))))?;
+
+    let already_linked: Vec<String> = if let Some(pid) = pid {
+        let rows = state.db.execute_with(
+            "SELECT external_id FROM project_resources WHERE project_id = $1 AND integration_slug = $2",
+            pg_args!(pid, slug.clone()),
+        ).await.unwrap_or_default();
+        rows.iter()
+            .filter_map(|r| r.get("external_id").and_then(Value::as_str).map(String::from))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let results: Vec<Value> = resources.iter().map(|r| {
+        let linked = already_linked.contains(&r.external_id);
+        json!({
+            "external_id": r.external_id,
+            "resource_type": r.resource_type,
+            "display_name": r.display_name,
+            "external_url": r.external_url,
+            "metadata": r.metadata,
+            "already_linked": linked,
+        })
+    }).collect();
+
+    Ok(Json(json!({"integration": slug, "resources": results})))
 }
 
 // ── Project Credentials Routes ──────────────────────────────────────────────
@@ -4977,7 +5278,7 @@ pub async fn project_member_remove(
 pub async fn skills_list(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let rows = state.db.execute(
+    let rows = state.db.execute_unparameterized(
         "SELECT id, slug, name, description, default_tools, max_iterations, model, skip_judge, expert_id, created_at          FROM skills ORDER BY slug"
     ).await.unwrap_or_default();
     Json(json!({"skills": rows}))
@@ -5076,31 +5377,48 @@ pub async fn knowledge_documents_list(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
-    let mut sql = "SELECT id, tenant_id, project_id, expert_id, source_filename, \
-                   source_path, source_folder, mime_type, file_hash, status, \
-                   error_message, chunk_count, inferred_scope, inferred_scope_id, \
-                   created_at, updated_at \
-                   FROM knowledge_documents WHERE 1=1".to_string();
+    use sqlx::Arguments as _;
+    let mut clauses: Vec<String> = vec!["1=1".to_string()];
+    let mut args = sqlx::postgres::PgArguments::default();
+    let mut pi: u32 = 1;
 
     if let Some(ref tid) = query.tenant_id {
         match resolve_tenant_id(tid, &state.db).await {
-            Ok(t) => sql.push_str(&format!(" AND tenant_id = '{t}'")),
+            Ok(t) => {
+                clauses.push(format!("tenant_id = ${pi}"));
+                pi += 1;
+                args.add(t).expect("encode");
+            }
             Err(e) => return e.into_response(),
         }
     }
     if let Some(ref folder) = query.folder {
-        let escaped = folder.replace('\'', "''");
-        sql.push_str(&format!(" AND source_folder LIKE '{}%'", escaped));
+        clauses.push(format!("source_folder LIKE ${pi}"));
+        pi += 1;
+        args.add(format!("{folder}%")).expect("encode");
     }
     if let Some(ref status) = query.status {
         let valid = ["pending", "processing", "ready", "error"];
         if valid.contains(&status.as_str()) {
-            sql.push_str(&format!(" AND status = '{status}'"));
+            clauses.push(format!("status = ${pi}"));
+            pi += 1;
+            args.add(status.clone()).expect("encode");
         }
     }
-    sql.push_str(" ORDER BY source_path ASC");
+    let _ = pi;
 
-    match state.db.execute(&sql).await {
+    // sql-format-ok: dynamic WHERE — `clauses` are hardcoded `column op $N` fragments
+    // built above, all real values bound via `args`.
+    let sql = format!(
+        "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+                source_path, source_folder, mime_type, file_hash, status, \
+                error_message, chunk_count, inferred_scope, inferred_scope_id, \
+                created_at, updated_at \
+         FROM knowledge_documents WHERE {} ORDER BY source_path ASC",
+        clauses.join(" AND ")
+    );
+
+    match state.db.execute_with(&sql, args).await {
         Ok(rows) => Json(json!({"documents": rows})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
     }
@@ -5115,20 +5433,31 @@ pub async fn knowledge_document_get(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let mut sql = format!(
-        "SELECT id, tenant_id, project_id, expert_id, source_filename, \
-         source_path, source_folder, mime_type, file_hash, normalized_markdown, \
-         status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
-         file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
-         created_at, updated_at \
-         FROM knowledge_documents WHERE id = '{doc_uuid}'"
-    );
-    if let Some(ref tid) = query.tenant_id {
-        if let Ok(t) = resolve_tenant_id(tid, &state.db).await {
-            sql.push_str(&format!(" AND tenant_id = '{t}'"));
+    let result = if let Some(ref tid) = query.tenant_id {
+        match resolve_tenant_id(tid, &state.db).await {
+            Ok(t) => state.db.execute_with(
+                "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+                        source_path, source_folder, mime_type, file_hash, normalized_markdown, \
+                        status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
+                        file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
+                        created_at, updated_at \
+                 FROM knowledge_documents WHERE id = $1 AND tenant_id = $2",
+                pg_args!(doc_uuid, t),
+            ).await,
+            Err(_) => Ok(vec![]),
         }
-    }
-    match state.db.execute(&sql).await {
+    } else {
+        state.db.execute_with(
+            "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+                    source_path, source_folder, mime_type, file_hash, normalized_markdown, \
+                    status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
+                    file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
+                    created_at, updated_at \
+             FROM knowledge_documents WHERE id = $1",
+            pg_args!(doc_uuid),
+        ).await
+    };
+    match result {
         Ok(rows) if !rows.is_empty() => Json(json!(rows[0])).into_response(),
         _ => (StatusCode::NOT_FOUND, Json(json!({"error": "document not found"}))).into_response(),
     }
@@ -5142,11 +5471,11 @@ pub async fn knowledge_document_chunks(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let sql = format!(
+    match state.db.execute_with(
         "SELECT id, chunk_index, section_title, content, token_count, metadata, created_at \
-         FROM knowledge_chunks WHERE document_id = '{doc_uuid}' ORDER BY chunk_index"
-    );
-    match state.db.execute(&sql).await {
+         FROM knowledge_chunks WHERE document_id = $1 ORDER BY chunk_index",
+        pg_args!(doc_uuid),
+    ).await {
         Ok(rows) => Json(json!({"chunks": rows})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
     }
@@ -5160,11 +5489,11 @@ pub async fn knowledge_document_raw(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let sql = format!(
+    match state.db.execute_with(
         "SELECT raw_content, source_filename, mime_type \
-         FROM knowledge_documents WHERE id = '{doc_uuid}'"
-    );
-    match state.db.execute(&sql).await {
+         FROM knowledge_documents WHERE id = $1",
+        pg_args!(doc_uuid),
+    ).await {
         Ok(rows) if !rows.is_empty() => {
             let raw = rows[0].get("raw_content").and_then(|v| v.as_str());
             match raw {
@@ -5448,22 +5777,22 @@ pub async fn knowledge_document_progress(
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
 
-    let parent_sql = format!(
+    let parent = match state.db.execute_with(
         "SELECT id, status, source_filename, chunk_count, error_message \
-         FROM knowledge_documents WHERE id = '{doc_uuid}'"
-    );
-    let parent = match state.db.execute(&parent_sql).await {
+         FROM knowledge_documents WHERE id = $1",
+        pg_args!(doc_uuid),
+    ).await {
         Ok(rows) if !rows.is_empty() => rows[0].clone(),
         _ => return (StatusCode::NOT_FOUND, Json(json!({"error": "document not found"}))).into_response(),
     };
 
-    let children_sql = format!(
+    let children_rows = state.db.execute_with(
         "SELECT status, COUNT(*) as count \
          FROM knowledge_documents \
-         WHERE parent_document_id = '{doc_uuid}' \
-         GROUP BY status"
-    );
-    let children_rows = state.db.execute(&children_sql).await.unwrap_or_default();
+         WHERE parent_document_id = $1 \
+         GROUP BY status",
+        pg_args!(doc_uuid),
+    ).await.unwrap_or_default();
 
     let mut total: i64 = 0;
     let mut ready: i64 = 0;
@@ -5543,22 +5872,22 @@ pub async fn knowledge_document_reprocess(
     };
 
     // Delete existing chunks so they get regenerated
-    let delete_chunks_sql = format!(
-        "DELETE FROM knowledge_chunks WHERE document_id = '{doc_uuid}'"
-    );
-    if let Err(e) = state.db.execute(&delete_chunks_sql).await {
+    if let Err(e) = state.db.execute_with(
+        "DELETE FROM knowledge_chunks WHERE document_id = $1",
+        pg_args!(doc_uuid),
+    ).await {
         error!(error = %e, "failed to delete chunks for reprocess");
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response();
     }
 
     // Reset status to pending so the worker picks it up
-    let reset_sql = format!(
+    match state.db.execute_with(
         "UPDATE knowledge_documents SET status = 'pending', chunk_count = 0, \
          error_message = NULL, analyzed_at = NULL, updated_at = NOW() \
-         WHERE id = '{doc_uuid}' AND status IN ('ready', 'error') \
-         RETURNING id, source_filename, status"
-    );
-    match state.db.execute(&reset_sql).await {
+         WHERE id = $1 AND status IN ('ready', 'error') \
+         RETURNING id, source_filename, status",
+        pg_args!(doc_uuid),
+    ).await {
         Ok(rows) if !rows.is_empty() => {
             info!(id = %doc_uuid, "knowledge document queued for reprocessing");
             (StatusCode::OK, Json(json!({
@@ -5586,43 +5915,66 @@ pub async fn knowledge_reprocess_bulk(
     State(state): State<Arc<AppState>>,
     Json(body): Json<KnowledgeReprocessBulkBody>,
 ) -> impl IntoResponse {
-    let mut where_clauses = vec!["status IN ('ready', 'error')".to_string()];
-
+    use sqlx::Arguments as _;
+    let mut where_clauses: Vec<String> = vec!["status IN ('ready', 'error')".to_string()];
+    // We build args twice (once per query) so they're independent.
+    let mut tenant_uuid: Option<Uuid> = None;
     if let Some(ref tid) = body.tenant_id {
         match resolve_tenant_id(tid, &state.db).await {
-            Ok(t) => where_clauses.push(format!("tenant_id = '{t}'")),
+            Ok(t) => {
+                tenant_uuid = Some(t);
+                where_clauses.push("tenant_id = $1".to_string());
+            }
             Err(e) => return e.into_response(),
         }
     }
 
+    let mut ext_patterns: Vec<String> = vec![];
     if let Some(ref exts) = body.extensions {
-        let ext_conditions: Vec<String> = exts.iter()
-            .map(|e| {
-                let ext = e.replace('\'', "''");
-                format!("source_filename ILIKE '%.{ext}'")
-            })
-            .collect();
-        if !ext_conditions.is_empty() {
-            where_clauses.push(format!("({})", ext_conditions.join(" OR ")));
+        for e in exts {
+            // ILIKE pattern; sanitize % and _ defensively even though we wrap.
+            let cleaned: String = e.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-')
+                .collect();
+            if !cleaned.is_empty() {
+                ext_patterns.push(format!("%.{cleaned}"));
+            }
         }
+    }
+
+    // Build placeholders for the ext patterns starting after tenant_id (if present).
+    let base_idx = if tenant_uuid.is_some() { 2 } else { 1 };
+    if !ext_patterns.is_empty() {
+        let placeholders: Vec<String> = (0..ext_patterns.len())
+            .map(|i| format!("source_filename ILIKE ${}", base_idx + i))
+            .collect();
+        where_clauses.push(format!("({})", placeholders.join(" OR ")));
     }
 
     let where_str = where_clauses.join(" AND ");
 
-    // Delete chunks for all matching documents
+    let build_args = || {
+        let mut a = sqlx::postgres::PgArguments::default();
+        if let Some(t) = tenant_uuid { a.add(t).expect("encode"); }
+        for p in &ext_patterns { a.add(p.clone()).expect("encode"); }
+        a
+    };
+
+    // sql-format-ok: `where_str` is built from hardcoded fragments + $N placeholders
+    // above; all real values bound via PgArguments.
     let delete_sql = format!(
         "DELETE FROM knowledge_chunks WHERE document_id IN \
          (SELECT id FROM knowledge_documents WHERE {where_str})"
     );
-    let _ = state.db.execute(&delete_sql).await;
+    let _ = state.db.execute_with(&delete_sql, build_args()).await;
 
-    // Reset all matching documents to pending
+    // sql-format-ok: same as above.
     let reset_sql = format!(
         "UPDATE knowledge_documents SET status = 'pending', chunk_count = 0, \
          error_message = NULL, analyzed_at = NULL, updated_at = NOW() \
          WHERE {where_str} RETURNING id"
     );
-    match state.db.execute(&reset_sql).await {
+    match state.db.execute_with(&reset_sql, build_args()).await {
         Ok(rows) => {
             info!(count = rows.len(), "knowledge documents queued for bulk reprocessing");
             (StatusCode::OK, Json(json!({
@@ -5648,18 +6000,18 @@ pub async fn knowledge_folder_delete(
         Ok(u) => u,
         Err(e) => return e.into_response(),
     };
-    let escaped_folder = body.folder.replace('\'', "''");
+    let folder_pattern = format!("{}%", body.folder);
 
-    let chunks_sql = format!(
+    let _ = state.db.execute_with(
         "DELETE FROM knowledge_chunks WHERE document_id IN \
-         (SELECT id FROM knowledge_documents WHERE tenant_id = '{tenant_uuid}' AND source_folder LIKE '{escaped_folder}%')"
-    );
-    let _ = state.db.execute(&chunks_sql).await;
+         (SELECT id FROM knowledge_documents WHERE tenant_id = $1 AND source_folder LIKE $2)",
+        pg_args!(tenant_uuid, folder_pattern.clone()),
+    ).await;
 
-    let docs_sql = format!(
-        "DELETE FROM knowledge_documents WHERE tenant_id = '{tenant_uuid}' AND source_folder LIKE '{escaped_folder}%' RETURNING id"
-    );
-    match state.db.execute(&docs_sql).await {
+    match state.db.execute_with(
+        "DELETE FROM knowledge_documents WHERE tenant_id = $1 AND source_folder LIKE $2 RETURNING id",
+        pg_args!(tenant_uuid, folder_pattern),
+    ).await {
         Ok(rows) => {
             info!(folder = %body.folder, count = rows.len(), "deleted knowledge folder");
             Json(json!({"deleted": rows.len(), "folder": body.folder})).into_response()
@@ -5672,18 +6024,24 @@ pub async fn knowledge_folders(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
-    let mut sql = "SELECT source_folder, COUNT(*) as file_count, \
-                   MAX(created_at) as last_updated \
-                   FROM knowledge_documents WHERE 1=1".to_string();
-    if let Some(ref tid) = query.tenant_id {
+    let result = if let Some(ref tid) = query.tenant_id {
         match resolve_tenant_id(tid, &state.db).await {
-            Ok(t) => sql.push_str(&format!(" AND tenant_id = '{t}'")),
+            Ok(t) => state.db.execute_with(
+                "SELECT source_folder, COUNT(*) as file_count, MAX(created_at) as last_updated \
+                 FROM knowledge_documents WHERE tenant_id = $1 \
+                 GROUP BY source_folder ORDER BY source_folder",
+                pg_args!(t),
+            ).await,
             Err(e) => return e.into_response(),
         }
-    }
-    sql.push_str(" GROUP BY source_folder ORDER BY source_folder");
-
-    match state.db.execute(&sql).await {
+    } else {
+        state.db.execute_unparameterized(
+            "SELECT source_folder, COUNT(*) as file_count, MAX(created_at) as last_updated \
+             FROM knowledge_documents \
+             GROUP BY source_folder ORDER BY source_folder",
+        ).await
+    };
+    match result {
         Ok(rows) => Json(json!({"folders": rows})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into_response(),
     }
@@ -5724,25 +6082,44 @@ pub async fn knowledge_search(
     );
     let limit = body.limit.unwrap_or(5).min(10);
 
-    let project_clause = body.project_id
+    let project_uuid: Option<Uuid> = body.project_id
         .as_deref()
-        .and_then(|p| p.parse::<Uuid>().ok())
-        .map(|p| format!("AND (c.project_id IS NULL OR c.project_id = '{p}')"))
-        .unwrap_or_default();
+        .and_then(|p| p.parse::<Uuid>().ok());
 
-    let sql = format!(
-        "SELECT c.content, c.section_title, c.metadata, c.chunk_index, \
-                d.source_path, d.source_filename, \
-                1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity \
-         FROM knowledge_chunks c \
-         JOIN knowledge_documents d ON c.document_id = d.id \
-         WHERE c.tenant_id = '{tenant_uuid}' {project_clause} \
-           AND d.status = 'ready' \
-         ORDER BY c.embedding <=> '{embedding_str}'::vector \
-         LIMIT {limit}",
-    );
+    // limit is u32 capped at 10 above; format!() of an integer is safe.
+    let result = if let Some(pid) = project_uuid {
+        // sql-format-ok: only `limit` (u32, capped) is interpolated;
+        // all real values bound via pg_args.
+        let sql = format!(
+            "SELECT c.content, c.section_title, c.metadata, c.chunk_index, \
+                    d.source_path, d.source_filename, \
+                    1 - (c.embedding <=> $1::vector) AS similarity \
+             FROM knowledge_chunks c \
+             JOIN knowledge_documents d ON c.document_id = d.id \
+             WHERE c.tenant_id = $2 \
+               AND (c.project_id IS NULL OR c.project_id = $3) \
+               AND d.status = 'ready' \
+             ORDER BY c.embedding <=> $1::vector \
+             LIMIT {limit}"
+        );
+        state.db.execute_with(&sql, pg_args!(embedding_str.clone(), tenant_uuid, pid)).await
+    } else {
+        // sql-format-ok: only `limit` (u32, capped) is interpolated.
+        let sql = format!(
+            "SELECT c.content, c.section_title, c.metadata, c.chunk_index, \
+                    d.source_path, d.source_filename, \
+                    1 - (c.embedding <=> $1::vector) AS similarity \
+             FROM knowledge_chunks c \
+             JOIN knowledge_documents d ON c.document_id = d.id \
+             WHERE c.tenant_id = $2 \
+               AND d.status = 'ready' \
+             ORDER BY c.embedding <=> $1::vector \
+             LIMIT {limit}"
+        );
+        state.db.execute_with(&sql, pg_args!(embedding_str.clone(), tenant_uuid)).await
+    };
 
-    match state.db.execute(&sql).await {
+    match result {
         Ok(rows) => Json(json!({"results": rows, "query": body.query})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Knowledge search failed: {e}")}))).into_response(),
@@ -5757,19 +6134,17 @@ async fn infer_scope_from_path(
     if let Some(rest) = source_path.strip_prefix("client/") {
         let parts: Vec<&str> = rest.splitn(3, '/').collect();
         if let Some(&client_slug) = parts.first() {
-            let sql = format!(
-                "SELECT id::text FROM clients WHERE slug = '{}'",
-                client_slug.replace('\'', "''")
-            );
-            if let Ok(rows) = db.execute(&sql).await {
+            if let Ok(rows) = db.execute_with(
+                "SELECT id::text FROM clients WHERE slug = $1",
+                pg_args!(client_slug.to_string()),
+            ).await {
                 if let Some(client_id) = rows.first().and_then(|r| r.get("id")).and_then(|v| v.as_str()) {
                     if parts.len() >= 2 {
                         let project_slug = parts[1];
-                        let psql = format!(
-                            "SELECT id::text FROM projects WHERE slug = '{}' AND client_id = '{client_id}'",
-                            project_slug.replace('\'', "''")
-                        );
-                        if let Ok(prows) = db.execute(&psql).await {
+                        if let Ok(prows) = db.execute_with(
+                            "SELECT id::text FROM projects WHERE slug = $1 AND client_id = $2::uuid",
+                            pg_args!(project_slug.to_string(), client_id.to_string()),
+                        ).await {
                             if let Some(project_id) = prows.first().and_then(|r| r.get("id")).and_then(|v| v.as_str()) {
                                 return ("project".to_string(), Some(project_id.to_string()));
                             }
@@ -6446,7 +6821,7 @@ pub async fn chat_learnings_analyze(
     })?;
 
     let session_rows = state.db.execute_with(
-        "SELECT es.id, es.request, es.project_id, es.client_id, \
+        "SELECT es.id, es.request_text, es.project_id, es.client_id, \
                 p.expert_id, p.slug as project_slug \
          FROM execution_sessions es \
          LEFT JOIN projects p ON es.project_id = p.id \
@@ -6458,32 +6833,217 @@ pub async fn chat_learnings_analyze(
         (StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"})))
     })?;
 
-    // Reset analysis state so it can be re-analyzed
+    // Reset watermark + analysis state so the full transcript gets re-analyzed
     let _ = state.db.execute_with(
-        "UPDATE execution_sessions SET learning_analyzed_at = NULL, analysis_skip = FALSE WHERE id = $1",
+        "UPDATE execution_sessions \
+         SET learning_scanned_up_to = NULL, learning_analyzed_at = NULL, \
+             analysis_skip = FALSE, analysis_failure_count = 0 \
+         WHERE id = $1",
         pg_args!(sid),
     ).await;
 
     let mut narratives_regenerated = std::collections::HashSet::new();
-    crate::chat_analyzer::analyze_session(
+    let result = crate::chat_analyzer::analyze_session(
         &state.db,
         &state.settings.anthropic_api_key,
         &state.settings.anthropic_model,
         sid,
         session_row,
         &mut narratives_regenerated,
-    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    ).await;
 
-    Ok(Json(json!({ "ok": true, "session_id": sid.to_string() })))
+    match result {
+        Ok(_) => {
+            // Set watermark to current max message time
+            let _ = state.db.execute_with(
+                "UPDATE execution_sessions \
+                 SET learning_scanned_up_to = (SELECT MAX(created_at) FROM node_messages WHERE session_id = $1), \
+                     learning_analyzed_at = NOW() \
+                 WHERE id = $1",
+                pg_args!(sid),
+            ).await;
+            Ok(Json(json!({ "ok": true, "session_id": sid.to_string() })))
+        }
+        Err(e) => {
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))).into())
+        }
+    }
+}
+
+/// POST /api/chat-learnings/analyze-recent — batch analyze unanalyzed sessions
+pub async fn chat_learnings_analyze_recent(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, InternalError> {
+    let tenant_id = body
+        .get("tenant_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "tenant_id required"})),
+            )
+        })?;
+    let tid = resolve_tenant_id(tenant_id, &state.db).await?;
+
+    let project_id = body
+        .get("project_id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    let force = body.get("force").and_then(Value::as_bool).unwrap_or(false);
+    if force {
+        // Reset watermark and skip flag so all sessions get re-scanned
+        let _ = state.db.execute_with(
+            "UPDATE execution_sessions \
+             SET learning_scanned_up_to = NULL, learning_analyzed_at = NULL, \
+                 analysis_skip = FALSE, analysis_failure_count = 0 \
+             WHERE client_id = $1 \
+               AND (analysis_skip = TRUE \
+                    OR (learning_scanned_up_to IS NOT NULL \
+                        AND id NOT IN (SELECT DISTINCT session_id FROM chat_learnings))) \
+               AND created_at > NOW() - INTERVAL '90 days'",
+            pg_args!(tid),
+        ).await;
+    }
+
+    let (query, args) = if let Some(pid) = project_id {
+        (
+            "SELECT es.id, es.request_text, es.project_id, es.client_id, \
+                    p.expert_id, p.slug as project_slug \
+             FROM execution_sessions es \
+             LEFT JOIN projects p ON es.project_id = p.id \
+             WHERE es.analysis_skip = FALSE \
+               AND es.client_id = $1 \
+               AND es.project_id = $2 \
+               AND es.created_at > NOW() - INTERVAL '90 days' \
+               AND EXISTS (SELECT 1 FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') \
+               AND (es.learning_scanned_up_to IS NULL \
+                    OR EXISTS (SELECT 1 FROM node_messages nm2 \
+                               WHERE nm2.session_id = es.id AND nm2.created_at > es.learning_scanned_up_to)) \
+             ORDER BY es.created_at DESC \
+             LIMIT 20",
+            pg_args!(tid, pid),
+        )
+    } else {
+        (
+            "SELECT es.id, es.request_text, es.project_id, es.client_id, \
+                    p.expert_id, p.slug as project_slug \
+             FROM execution_sessions es \
+             LEFT JOIN projects p ON es.project_id = p.id \
+             WHERE es.analysis_skip = FALSE \
+               AND es.client_id = $1 \
+               AND es.created_at > NOW() - INTERVAL '90 days' \
+               AND EXISTS (SELECT 1 FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') \
+               AND (es.learning_scanned_up_to IS NULL \
+                    OR EXISTS (SELECT 1 FROM node_messages nm2 \
+                               WHERE nm2.session_id = es.id AND nm2.created_at > es.learning_scanned_up_to)) \
+             ORDER BY es.created_at DESC \
+             LIMIT 20",
+            pg_args!(tid),
+        )
+    };
+
+    let sessions = state
+        .db
+        .execute_with(query, args)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+        })?;
+
+    let total = sessions.len();
+    if total == 0 {
+        return Ok(Json(
+            json!({ "ok": true, "sessions_analyzed": 0, "learnings_extracted": 0 }),
+        ));
+    }
+
+    let mut narratives_regenerated = std::collections::HashSet::new();
+    let mut analyzed = 0usize;
+    let mut learnings_count = 0i64;
+
+    for session_row in &sessions {
+        let session_id = match session_row
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<Uuid>().ok())
+        {
+            Some(id) => id,
+            None => continue,
+        };
+
+        match crate::chat_analyzer::analyze_session(
+            &state.db,
+            &state.settings.anthropic_api_key,
+            &state.settings.anthropic_model,
+            session_id,
+            session_row,
+            &mut narratives_regenerated,
+        )
+        .await
+        {
+            Ok(_) => {
+                // Advance watermark to current max message time on success
+                let _ = state
+                    .db
+                    .execute_with(
+                        "UPDATE execution_sessions \
+                         SET learning_scanned_up_to = (SELECT MAX(created_at) FROM node_messages WHERE session_id = $1), \
+                             learning_analyzed_at = NOW() \
+                         WHERE id = $1",
+                        pg_args!(session_id),
+                    )
+                    .await;
+                analyzed += 1;
+                let count_rows = state
+                    .db
+                    .execute_with(
+                        "SELECT COUNT(*) as cnt FROM chat_learnings WHERE session_id = $1",
+                        pg_args!(session_id),
+                    )
+                    .await
+                    .unwrap_or_default();
+                learnings_count += count_rows
+                    .first()
+                    .and_then(|r| r.get("cnt").and_then(Value::as_i64))
+                    .unwrap_or(0);
+            }
+            Err(e) => {
+                tracing::warn!(session = %session_id, error = %e, "batch analysis failed");
+                let _ = state
+                    .db
+                    .execute_with(
+                        "UPDATE execution_sessions \
+                         SET analysis_failure_count = analysis_failure_count + 1, \
+                             analysis_skip = CASE WHEN analysis_failure_count + 1 >= 3 \
+                                             THEN TRUE ELSE FALSE END \
+                         WHERE id = $1",
+                        pg_args!(session_id),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "sessions_found": total,
+        "sessions_analyzed": analyzed,
+        "learnings_extracted": learnings_count,
+    })))
 }
 
 /// GET /api/chat-learnings/stats — dashboard statistics
 pub async fn chat_learnings_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, InternalError> {
-    let stats = state.db.execute(
+    let stats = state.db.execute_unparameterized(
         "SELECT \
-           (SELECT COUNT(*) FROM execution_sessions WHERE learning_analyzed_at IS NOT NULL) as sessions_analyzed, \
+           (SELECT COUNT(*) FROM execution_sessions WHERE learning_scanned_up_to IS NOT NULL) as sessions_analyzed, \
            (SELECT COUNT(*) FROM chat_learnings) as total_learnings, \
            (SELECT COUNT(*) FROM chat_learnings WHERE status = 'distilled') as distilled, \
            (SELECT COUNT(*) FROM chat_learnings WHERE status = 'duplicate') as duplicates, \
@@ -6497,6 +7057,41 @@ pub async fn chat_learnings_stats(
     Ok(Json(row))
 }
 
+/// GET /api/chat-learnings/sessions?tenant_id=... — list recent sessions with analysis status
+pub async fn chat_learnings_sessions(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, InternalError> {
+    let raw_tenant = params.get("tenant_id").map(|s| s.as_str()).unwrap_or("");
+    if raw_tenant.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "tenant_id required"}))).into());
+    }
+    let tid = resolve_tenant_id(raw_tenant, &state.db).await?;
+
+    let rows = state.db.execute_with(
+        "SELECT es.id, es.request_text, es.status, es.created_at, es.completed_at, \
+                es.learning_scanned_up_to, es.analysis_skip, \
+                COALESCE(es.analysis_failure_count, 0) as analysis_failure_count, \
+                p.slug as project_slug, \
+                (SELECT COUNT(*) FROM chat_learnings cl WHERE cl.session_id = es.id) as learning_count, \
+                (SELECT COUNT(*) FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') as user_message_count, \
+                (es.learning_scanned_up_to IS NULL \
+                 OR EXISTS (SELECT 1 FROM node_messages nm \
+                            WHERE nm.session_id = es.id AND nm.role = 'user' \
+                            AND nm.created_at > es.learning_scanned_up_to)) as has_new_messages \
+         FROM execution_sessions es \
+         LEFT JOIN projects p ON es.project_id = p.id \
+         WHERE es.client_id = $1 \
+           AND es.created_at > NOW() - INTERVAL '90 days' \
+           AND EXISTS (SELECT 1 FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') \
+         ORDER BY es.created_at DESC \
+         LIMIT 50",
+        pg_args!(tid),
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({ "sessions": rows })))
+}
+
 /// GET /api/overlays/memories — list transcript-derived overlays
 pub async fn overlays_memories(
     State(state): State<Arc<AppState>>,
@@ -6505,16 +7100,26 @@ pub async fn overlays_memories(
     let scope_filter = params.get("scope").map(|s| s.as_str());
     let source_filter = params.get("source").map(|s| s.as_str());
 
-    let mut conditions = vec!["retired_at IS NULL".to_string()];
+    use sqlx::Arguments as _;
+    let mut conditions: Vec<String> = vec!["retired_at IS NULL".to_string()];
+    let mut args = sqlx::postgres::PgArguments::default();
+    let mut pi: u32 = 1;
     if let Some(scope) = scope_filter {
-        conditions.push(format!("scope = '{}'", scope.replace('\'', "''")));
+        conditions.push(format!("scope = ${pi}"));
+        pi += 1;
+        args.add(scope.to_string()).expect("encode");
     }
     if let Some(source) = source_filter {
-        conditions.push(format!("source = '{}'", source.replace('\'', "''")));
+        conditions.push(format!("source = ${pi}"));
+        pi += 1;
+        args.add(source.to_string()).expect("encode");
     } else {
         conditions.push("source IN ('transcript', 'feedback', 'corpus')".to_string());
     }
+    let _ = pi;
 
+    // sql-format-ok: `conditions` are hardcoded `column = $N` fragments built above,
+    // all real values bound via `args`.
     let sql = format!(
         "SELECT id, primitive_type, primitive_id, scope, scope_id, content, source, \
          reinforced_at, reinforcement_count, metadata, created_at \
@@ -6522,7 +7127,7 @@ pub async fn overlays_memories(
         conditions.join(" AND ")
     );
 
-    let rows = state.db.execute(&sql).await.map_err(|e| {
+    let rows = state.db.execute_with(&sql, args).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
 
@@ -6533,7 +7138,7 @@ pub async fn overlays_memories(
 pub async fn scope_narratives_list(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, InternalError> {
-    let rows = state.db.execute(
+    let rows = state.db.execute_unparameterized(
         "SELECT id, scope, scope_id, narrative_text, narrative_text_user, \
          source_overlay_count, generated_at \
          FROM scope_narratives ORDER BY scope, scope_id"
@@ -6560,21 +7165,17 @@ pub async fn knowledge_observatory(
         Some(tid) => resolve_tenant_id(tid, &state.db).await?,
         None => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "tenant_id required"}))).into()),
     };
-    let tid = tenant_id.to_string();
 
-    // Pre-format SQL strings that use dynamic values
-    let chat_sql = format!(
-        "SELECT \
-         (SELECT COUNT(*) FROM execution_sessions WHERE learning_analyzed_at IS NOT NULL AND client_id = '{tid}') as sessions_analyzed, \
+    let chat_sql = "SELECT \
+         (SELECT COUNT(*) FROM execution_sessions WHERE learning_scanned_up_to IS NOT NULL AND client_id = $1) as sessions_analyzed, \
          (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
-            WHERE es.client_id = '{tid}' AND cl.status IN ('applied', 'distilled')) as applied, \
+            WHERE es.client_id = $1 AND cl.status IN ('applied', 'distilled')) as applied, \
          (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
-            WHERE es.client_id = '{tid}' AND cl.status = 'conflict') as conflicts, \
+            WHERE es.client_id = $1 AND cl.status = 'conflict') as conflicts, \
          (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
-            WHERE es.client_id = '{tid}' AND cl.status = 'pending') as pending, \
+            WHERE es.client_id = $1 AND cl.status = 'pending') as pending, \
          (SELECT COUNT(*) FROM chat_learnings cl INNER JOIN execution_sessions es ON cl.session_id = es.id \
-            WHERE es.client_id = '{tid}' AND cl.status = 'rejected') as rejected"
-    );
+            WHERE es.client_id = $1 AND cl.status = 'rejected') as rejected";
 
     // Run all counts in parallel
     let (
@@ -6599,23 +7200,23 @@ pub async fn knowledge_observatory(
             "SELECT COUNT(*) as count FROM knowledge_chunks WHERE tenant_id = $1",
             pg_args!(tenant_id),
         ),
-        state.db.execute(&chat_sql),
-        state.db.execute(
+        state.db.execute_with(chat_sql, pg_args!(tenant_id)),
+        state.db.execute_unparameterized(
             "SELECT signal_type, COUNT(*) as count FROM feedback_signals GROUP BY signal_type",
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT COUNT(*) as count FROM feedback_patterns WHERE status = 'active'",
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT status, COUNT(*) as count FROM agent_prs GROUP BY status",
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT source, scope, COUNT(*) as count FROM overlays WHERE retired_at IS NULL GROUP BY source, scope",
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT COUNT(*) as count FROM scope_narratives",
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT \
              (SELECT COUNT(*) FROM observation_sessions) as sessions, \
              (SELECT COUNT(*) FROM distillations) as distillations",
@@ -6640,7 +7241,7 @@ pub async fn knowledge_observatory(
              FROM projects p WHERE p.client_id = $1 ORDER BY p.name",
             pg_args!(tenant_id),
         ),
-        state.db.execute(
+        state.db.execute_unparameterized(
             "SELECT slug, name, array_length(knowledge_docs, 1) as doc_count FROM agent_definitions WHERE knowledge_docs IS NOT NULL AND array_length(knowledge_docs, 1) > 0 ORDER BY slug",
         ),
     );
@@ -6835,33 +7436,33 @@ pub async fn knowledge_observatory_detail(
             Ok(Json(json!({"rows": rows, "total": total})))
         }
         "feedback_signals" => {
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 &format!(
                     "SELECT id, signal_type, authority, weight, agent_slug, description, created_at \
                      FROM feedback_signals \
                      ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
                 ),
             ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-            let total = state.db.execute(
+            let total = state.db.execute_unparameterized(
                 "SELECT COUNT(*) as count FROM feedback_signals",
             ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
             Ok(Json(json!({"rows": rows, "total": total})))
         }
         "feedback_patterns" => {
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 &format!(
                     "SELECT id, agent_slug, pattern_type, description, session_count, severity, status, created_at \
                      FROM feedback_patterns WHERE status = 'active' \
                      ORDER BY session_count DESC LIMIT {limit} OFFSET {offset}"
                 ),
             ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-            let total = state.db.execute(
+            let total = state.db.execute_unparameterized(
                 "SELECT COUNT(*) as count FROM feedback_patterns WHERE status = 'active'",
             ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
             Ok(Json(json!({"rows": rows, "total": total})))
         }
         "agent_prs" => {
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 &format!(
                     "SELECT id, pr_type, target_agent_slug, gap_summary, confidence, \
                             evidence_count, status, auto_merge_eligible, created_at \
@@ -6869,7 +7470,7 @@ pub async fn knowledge_observatory_detail(
                      ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
                 ),
             ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-            let total = state.db.execute(
+            let total = state.db.execute_unparameterized(
                 "SELECT COUNT(*) as count FROM agent_prs",
             ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
             Ok(Json(json!({"rows": rows, "total": total})))
@@ -6884,7 +7485,7 @@ pub async fn knowledge_observatory_detail(
                 let escaped = scp.replace('\'', "''");
                 filters.push_str(&format!(" AND scope = '{escaped}'"));
             }
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 &format!(
                     "SELECT o.id, o.primitive_type, o.scope, o.source, o.content, o.created_at, \
                             s.slug as skill_slug, s.name as skill_name \
@@ -6894,20 +7495,20 @@ pub async fn knowledge_observatory_detail(
                      ORDER BY o.created_at DESC LIMIT {limit} OFFSET {offset}"
                 ),
             ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-            let total = state.db.execute(
+            let total = state.db.execute_unparameterized(
                 &format!("SELECT COUNT(*) as count FROM overlays WHERE {filters}"),
             ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
             Ok(Json(json!({"rows": rows, "total": total})))
         }
         "scope_narratives" => {
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 &format!(
                     "SELECT id, scope, scope_id, narrative_text, source_overlay_count, generated_at \
                      FROM scope_narratives \
                      ORDER BY scope, generated_at DESC LIMIT {limit} OFFSET {offset}"
                 ),
             ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-            let total = state.db.execute(
+            let total = state.db.execute_unparameterized(
                 "SELECT COUNT(*) as count FROM scope_narratives",
             ).await.ok().and_then(|r| r.first().and_then(|r| r.get("count").and_then(Value::as_i64))).unwrap_or(0);
             Ok(Json(json!({"rows": rows, "total": total})))
@@ -6935,7 +7536,7 @@ pub async fn knowledge_observatory_detail(
             Ok(Json(json!({"rows": rows, "total": rows.len()})))
         }
         "agent_knowledge" => {
-            let rows = state.db.execute(
+            let rows = state.db.execute_unparameterized(
                 "SELECT slug, name, array_length(knowledge_docs, 1) as doc_count \
                  FROM agent_definitions \
                  WHERE knowledge_docs IS NOT NULL AND array_length(knowledge_docs, 1) > 0 \
@@ -6980,5 +7581,214 @@ pub async fn scope_narrative_regenerate(
     ).await;
 
     Ok(Json(json!({ "ok": true })))
+}
+
+// ── Integration Resource Listings (for smart pickers) ────────────────────────
+
+/// Helper: resolve client_id from slug and load decrypted credentials.
+async fn load_client_credentials(
+    state: &AppState,
+    slug: &str,
+) -> Result<crate::credentials::CredentialMap, InternalError> {
+    let client = client_mod::get_client(&state.db, slug)
+        .await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let client_id: Uuid = client.get("id").and_then(Value::as_str)
+        .and_then(|s| s.parse().ok()).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let master_key = state.settings.credential_master_key.as_deref()
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "CREDENTIAL_MASTER_KEY not set"}))))?;
+    crate::credentials::load_credentials_for_client(&state.db, master_key, client_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+        .into())
+}
+
+/// GET /api/clients/:slug/integrations/slack/channels
+pub async fn integration_slack_channels(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let credentials = load_client_credentials(&state, &slug).await?;
+    let cred = credentials.get("slack").ok_or_else(|| {
+        (StatusCode::FORBIDDEN, Json(json!({"error": "No Slack credential configured"})))
+    })?;
+
+    let client = reqwest::Client::new();
+    let mut channels: Vec<Value> = Vec::new();
+    let mut cursor = String::new();
+
+    loop {
+        let mut query: Vec<(&str, &str)> = vec![
+            ("types", "public_channel,private_channel"),
+            ("exclude_archived", "true"),
+            ("limit", "200"),
+        ];
+        if !cursor.is_empty() {
+            query.push(("cursor", &cursor));
+        }
+
+        let resp = client.get("https://slack.com/api/conversations.list")
+            .query(&query)
+            .header("Authorization", format!("Bearer {}", cred.value))
+            .send()
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Slack API error: {e}")}))))?;
+
+        let data: Value = resp.json().await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Invalid Slack response: {e}")}))))?;
+
+        if data.get("ok").and_then(Value::as_bool) != Some(true) {
+            let err = data.get("error").and_then(Value::as_str).unwrap_or("unknown");
+            return Err((StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Slack error: {err}")}))).into());
+        }
+
+        if let Some(chs) = data.get("channels").and_then(Value::as_array) {
+            for ch in chs {
+                channels.push(json!({
+                    "id": ch.get("id").and_then(Value::as_str).unwrap_or(""),
+                    "name": ch.get("name").and_then(Value::as_str).unwrap_or(""),
+                    "is_private": ch.get("is_private").and_then(Value::as_bool).unwrap_or(false),
+                    "num_members": ch.get("num_members").and_then(Value::as_u64).unwrap_or(0),
+                    "topic": ch.pointer("/topic/value").and_then(Value::as_str).unwrap_or(""),
+                }));
+            }
+        }
+
+        let next = data.pointer("/response_metadata/next_cursor")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if next.is_empty() { break; }
+        cursor = next.to_string();
+    }
+
+    Ok(Json(json!({ "channels": channels })))
+}
+
+/// GET /api/clients/:slug/integrations/notion/databases
+pub async fn integration_notion_databases(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let credentials = load_client_credentials(&state, &slug).await?;
+    let cred = credentials.get("notion").ok_or_else(|| {
+        (StatusCode::FORBIDDEN, Json(json!({"error": "No Notion credential configured"})))
+    })?;
+
+    let client = reqwest::Client::new();
+    let mut databases: Vec<Value> = Vec::new();
+    let mut start_cursor: Option<String> = None;
+
+    loop {
+        let mut body = json!({
+            "filter": {"value": "database", "property": "object"},
+            "page_size": 100
+        });
+        if let Some(ref cursor) = start_cursor {
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("start_cursor".to_string(), json!(cursor));
+            }
+        }
+
+        let resp = client.post("https://api.notion.com/v1/search")
+            .header("Authorization", format!("Bearer {}", cred.value))
+            .header("Notion-Version", "2022-06-28")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Notion API error: {e}")}))))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err((StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Notion returned {status}: {body}")}))).into());
+        }
+
+        let data: Value = resp.json().await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Invalid Notion response: {e}")}))))?;
+
+        if let Some(results) = data.get("results").and_then(Value::as_array) {
+            for db in results {
+                if let Some(id) = db.get("id").and_then(Value::as_str) {
+                    let title = crate::discovery::extract_notion_title(db);
+                    databases.push(json!({
+                        "id": id,
+                        "title": title,
+                        "url": db.get("url").and_then(Value::as_str).unwrap_or(""),
+                    }));
+                }
+            }
+        }
+
+        let has_more = data.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+        if !has_more { break; }
+        start_cursor = data.get("next_cursor").and_then(Value::as_str).map(String::from);
+        if start_cursor.is_none() { break; }
+    }
+
+    Ok(Json(json!({ "databases": databases })))
+}
+
+/// GET /api/clients/:slug/integrations/notion/pages
+pub async fn integration_notion_pages(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let credentials = load_client_credentials(&state, &slug).await?;
+    let cred = credentials.get("notion").ok_or_else(|| {
+        (StatusCode::FORBIDDEN, Json(json!({"error": "No Notion credential configured"})))
+    })?;
+
+    let client = reqwest::Client::new();
+    let mut pages: Vec<Value> = Vec::new();
+    let mut start_cursor: Option<String> = None;
+
+    loop {
+        let mut body = json!({
+            "filter": {"value": "page", "property": "object"},
+            "page_size": 100
+        });
+        if let Some(ref cursor) = start_cursor {
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("start_cursor".to_string(), json!(cursor));
+            }
+        }
+
+        let resp = client.post("https://api.notion.com/v1/search")
+            .header("Authorization", format!("Bearer {}", cred.value))
+            .header("Notion-Version", "2022-06-28")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Notion API error: {e}")}))))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err((StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Notion returned {status}: {body}")}))).into());
+        }
+
+        let data: Value = resp.json().await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Invalid Notion response: {e}")}))))?;
+
+        if let Some(results) = data.get("results").and_then(Value::as_array) {
+            for p in results {
+                if let Some(id) = p.get("id").and_then(Value::as_str) {
+                    let title = crate::discovery::extract_notion_title(p);
+                    pages.push(json!({
+                        "id": id,
+                        "title": title,
+                        "url": p.get("url").and_then(Value::as_str).unwrap_or(""),
+                    }));
+                }
+            }
+        }
+
+        let has_more = data.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+        if !has_more { break; }
+        start_cursor = data.get("next_cursor").and_then(Value::as_str).map(String::from);
+        if start_cursor.is_none() { break; }
+    }
+
+    Ok(Json(json!({ "pages": pages })))
 }
 

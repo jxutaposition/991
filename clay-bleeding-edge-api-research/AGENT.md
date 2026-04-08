@@ -21,16 +21,28 @@ We are building a proprietary API layer by reverse-engineering Clay's internal v
 - **Harness scripts** (in `harness/scripts/`): Pre-built Playwright scripts for common operations
 - **Web search**: For finding new community tools, forum posts, documentation updates
 
-## CRITICAL: Credit Usage
+## Credit Usage — be aware, not paranoid
 
-**Clay charges credits for enrichment execution. Do NOT waste credits in investigation scripts.**
+Clay charges credits for enrichment execution, but this workspace has plenty of
+headroom (`actionExecution` budget = 999999999897 per INV-026, `basic` ≈ 1934).
+**Small-scale experimentation is explicitly permitted** — you do not need to
+avoid every enrichment trigger. You just need to keep the scale sane and clean
+up after yourself.
 
-Read `exhaustively_searched/credit-usage-patterns.md` before writing any script. Key rules:
-- Table/column/row/view CRUD = FREE. Schema reads = FREE. Export jobs = FREE.
-- `PATCH /run` (enrichment trigger) = **COSTS CREDITS** (1+ per row × field)
-- `tableSettings.autoRun: true` + inserting rows = **COSTS CREDITS** per enrichment column
-- Creating enrichment columns on tables with existing rows = **MAY COST CREDITS**
-- Use 1-2 rows max when testing enrichments. Use `forceRun: false` to avoid re-running succeeded cells.
+Read `exhaustively_searched/credit-usage-patterns.md` for the full FREE vs
+CHARGED matrix and the experimentation budget. Key rules:
+
+- Table/column/row/view CRUD = FREE. Schema reads = FREE. Export/import = FREE.
+  CSV multipart upload + tc-workflows graph CRUD against inert nodes = FREE.
+- `PATCH /run` (enrichment trigger) costs ~1 credit per row × field — totally
+  fine for ≤10 rows × ≤3 fields probes. Don't blast it across thousands of rows.
+- `tableSettings.autoRun: true` is fine on scratch tables — just flip it off (or
+  delete the table) at the end of the session so you don't leave a meter
+  running.
+- Prefer cheap actions (`normalize-company-name` etc.) for verification work.
+- Use `forceRun: false` when re-running so already-succeeded cells aren't
+  re-billed.
+- If a probe is going to spend more than ~50 credits, write down why first.
 
 ## Formula Language
 
@@ -50,6 +62,7 @@ Clay formulas are **JavaScript expressions**. All standard JS works: optional ch
    - Remove resolved gaps from `registry/gaps.md`
    - Add a timestamped entry to `registry/changelog.md`
 6. **Update knowledge**: If findings are significant, update the relevant `knowledge/*.md` file
+7. **Update timeline/**: Add a dated `timeline/YYYY-MM-DD_N_<slug>.md` entry distilling the session's findings — this is **REQUIRED, not optional**. The recent sync pass had to backfill 7 missing timeline files because earlier sessions skipped this step. If you discovered something, the timeline must record it before you stop.
 
 ## Investigation File Format
 
@@ -124,7 +137,7 @@ Each line in `registry/endpoints.jsonl` is a JSON object:
 4. **Error tolerance**: If you get a 429 (rate limit) or 403 (auth failure), stop and document. Don't retry aggressively.
 5. **v3 API instability**: These are internal endpoints. If something breaks, document the failure mode and move on. Don't assume it's permanent.
 6. **No data exfiltration**: Don't read or copy actual customer data from Clay tables. Only read schema/structural information for research purposes.
-7. **Keep ALL files in sync**: When you make a discovery, update ALL relevant files — not just one. The canonical endpoint list is `registry/endpoints.jsonl`. All other files (knowledge/, architecture/, registry/) must align with it. Stale claims like "suspected" or "unknown" for endpoints that are actually confirmed create confusion for future agents. Check `registry/capabilities.md` and `registry/gaps.md` too.
+7. **Keep ALL files in sync**: When you make a discovery, update ALL relevant files — not just one. The canonical endpoint list is `registry/endpoints.jsonl`. All other files (knowledge/, architecture/, registry/) must align with it. Stale claims like "suspected" or "unknown" for endpoints that are actually confirmed create confusion for future agents. Check `registry/capabilities.md` and `registry/gaps.md` too. **`timeline/` MUST be updated each session** — a new dated entry recording what you investigated, what you found, and what changed. Skipping the timeline is the single most common drift source in this project.
 
 ## Key Files to Know
 

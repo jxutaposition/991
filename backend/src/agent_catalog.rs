@@ -219,7 +219,7 @@ impl AgentCatalog {
     /// Reload all agents from DB into the in-memory cache.
     pub async fn reload_all(&self, db: &PgClient) -> anyhow::Result<()> {
         let rows = db
-            .execute(
+            .execute_unparameterized(
                 "SELECT slug, name, category, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
@@ -528,15 +528,11 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
 
     // Prune agents from DB that no longer exist on disk
     if !disk_slugs.is_empty() {
-        let placeholders: Vec<String> = disk_slugs
-            .iter()
-            .map(|s| format!("'{}'", s.replace('\'', "''")))
-            .collect();
-        let in_clause = placeholders.join(", ");
-        let delete_query = format!(
-            "DELETE FROM agent_definitions WHERE slug NOT IN ({in_clause}) RETURNING slug"
-        );
-        match db.execute(&delete_query).await {
+        let slugs: Vec<String> = disk_slugs.iter().cloned().collect();
+        match db.execute_with(
+            "DELETE FROM agent_definitions WHERE slug != ALL($1) RETURNING slug",
+            crate::pg_args!(slugs),
+        ).await {
             Ok(rows) => {
                 for row in &rows {
                     if let Some(slug) = row.get("slug").and_then(Value::as_str) {
@@ -554,55 +550,22 @@ async fn seed_from_disk(db: &PgClient, agents_dir: &Path) -> anyhow::Result<()> 
 }
 
 async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::Result<()> {
-    let slug = agent.slug.replace('\'', "''");
-    let name = agent.name.replace('\'', "''");
-    let category = agent.category.replace('\'', "''");
-    let description = agent.description.replace('\'', "''");
-    let system_prompt = agent.system_prompt.replace('\'', "''");
+    let judge_config_json = serde_json::to_value(&agent.judge_config)
+        .unwrap_or_else(|_| serde_json::json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
+    let examples_json = serde_json::to_value(&agent.examples)
+        .unwrap_or_else(|_| serde_json::json!([]));
 
-    let intents_arr = format_pg_text_array(&agent.intents);
-    let tools_arr = format_pg_text_array(&agent.tools);
-    let knowledge_arr = format_pg_text_array(&agent.knowledge_docs);
-    let required_integrations_arr = format_pg_text_array(&agent.required_integrations);
-
-    let judge_config_json = serde_json::to_string(&agent.judge_config)
-        .unwrap_or_else(|_| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string())
-        .replace('\'', "''");
-    let input_schema_json = agent.input_schema.to_string().replace('\'', "''");
-    let output_schema_json = agent.output_schema.to_string().replace('\'', "''");
-    let examples_json = serde_json::to_string(&agent.examples)
-        .unwrap_or_else(|_| "[]".to_string())
-        .replace('\'', "''");
-
-    let model_val = agent
-        .model
-        .as_deref()
-        .map(|m| format!("'{}'", m.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let expert_id_val = agent
-        .expert_id
-        .map(|id| format!("'{}'", id))
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let automation_mode_val = agent
-        .automation_mode
-        .as_deref()
-        .map(|m| format!("'{}'", m.replace('\'', "''")))
-        .unwrap_or_else(|| "NULL".to_string());
-
-    let sql = format!(
+    db.execute_with(
         r#"INSERT INTO agent_definitions
             (slug, name, category, description, intents, system_prompt, tools,
              judge_config, input_schema, output_schema, examples, knowledge_docs,
              max_iterations, model, skip_judge, flexible_tool_use, expert_id,
              required_integrations, automation_mode, version)
            VALUES
-            ('{slug}', '{name}', '{category}', '{description}', {intents_arr}, '{system_prompt}',
-             {tools_arr}, '{judge_config_json}'::jsonb, '{input_schema_json}'::jsonb,
-             '{output_schema_json}'::jsonb, '{examples_json}'::jsonb, {knowledge_arr},
-             {max_iter}, {model_val}, {skip_judge}, {flex_tool}, {expert_id_val},
-             {required_integrations_arr}, {automation_mode_val}, 1)
+            ($1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11, $12,
+             $13, $14, $15, $16, $17,
+             $18, $19, 1)
            ON CONFLICT (slug) DO UPDATE SET
              name = EXCLUDED.name,
              category = EXCLUDED.category,
@@ -622,15 +585,28 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
              expert_id = EXCLUDED.expert_id,
              required_integrations = EXCLUDED.required_integrations,
              automation_mode = EXCLUDED.automation_mode"#,
-        max_iter = agent.max_iterations,
-        skip_judge = agent.skip_judge,
-        flex_tool = agent.flexible_tool_use,
-        expert_id_val = expert_id_val,
-        required_integrations_arr = required_integrations_arr,
-        automation_mode_val = automation_mode_val,
-    );
-
-    db.execute(&sql).await?;
+        crate::pg_args!(
+            agent.slug.clone(),
+            agent.name.clone(),
+            agent.category.clone(),
+            agent.description.clone(),
+            agent.intents.clone(),
+            agent.system_prompt.clone(),
+            agent.tools.clone(),
+            judge_config_json,
+            agent.input_schema.clone(),
+            agent.output_schema.clone(),
+            examples_json,
+            agent.knowledge_docs.clone(),
+            agent.max_iterations as i32,
+            agent.model.clone(),
+            agent.skip_judge,
+            agent.flexible_tool_use,
+            agent.expert_id,
+            agent.required_integrations.clone(),
+            agent.automation_mode.clone(),
+        ),
+    ).await?;
 
     // Create initial version snapshot
     let snapshot = serde_json::json!({
@@ -641,36 +617,16 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
         "system_prompt": agent.system_prompt,
         "version": 1,
     });
-    let snapshot_json = snapshot.to_string().replace('\'', "''");
 
-    let version_sql = format!(
+    let _ = db.execute_with(
         r#"INSERT INTO agent_versions (agent_id, version, snapshot, change_summary, change_source)
-           SELECT id, 1, '{snapshot_json}'::jsonb, 'Initial seed from disk', 'seed'
-           FROM agent_definitions WHERE slug = '{slug}'
+           SELECT id, 1, $1, 'Initial seed from disk', 'seed'
+           FROM agent_definitions WHERE slug = $2
            ON CONFLICT (agent_id, version) DO NOTHING"#,
-    );
-    let _ = db.execute(&version_sql).await;
+        crate::pg_args!(snapshot, agent.slug.clone()),
+    ).await;
 
     Ok(())
-}
-
-fn format_pg_text_array(items: &[String]) -> String {
-    if items.is_empty() {
-        "'{}'::text[]".to_string()
-    } else {
-        let elements: Vec<String> = items
-            .iter()
-            .map(|s| {
-                let s = s.replace('\\', "\\\\");
-                let s = s.replace('"', "\\\"");
-                format!("\"{}\"", s)
-            })
-            .collect();
-        let array_body = elements.join(",");
-        let array_literal = format!("{{{}}}", array_body);
-        let sql_escaped = array_literal.replace('\'', "''");
-        format!("'{}'::text[]", sql_escaped)
-    }
 }
 
 // ── Disk loading helpers (used for seeding and backward compat) ──────────────

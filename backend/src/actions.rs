@@ -11,11 +11,16 @@ use crate::credentials::DecryptedCredential;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Extract a usable bearer token from an OAuth2 or API key credential.
+/// For JSON-encoded credentials (e.g. n8n, supabase with extra_fields),
+/// extracts the `api_key` field rather than returning the raw JSON blob.
 fn extract_bearer_token(cred: &DecryptedCredential) -> String {
     if cred.credential_type == "oauth2" {
         serde_json::from_str::<Value>(&cred.value).ok()
             .and_then(|v| v.get("access_token").and_then(Value::as_str).map(String::from))
             .unwrap_or_else(|| cred.value.clone())
+    } else if let Ok(parsed) = serde_json::from_str::<Value>(&cred.value) {
+        parsed.get("api_key").and_then(Value::as_str)
+            .unwrap_or(&cred.value).to_string()
     } else {
         cred.value.clone()
     }
@@ -178,7 +183,9 @@ pub fn all_action_defs() -> Vec<ToolDef> {
             required_credential: Some("hubspot".to_string()),
         },
 
-        // Advertising tools
+        // Advertising tools — STUB: not yet wired to live APIs.
+        // These definitions exist for schema discovery only. execute_action returns an error.
+        // TODO: Implement when Meta/Google Marketing API credentials are supported.
         ToolDef {
             name: "meta_ads_api".to_string(),
             description: "Create or update a Meta (Facebook/Instagram) ad campaign, ad set, or creative. Returns campaign/ad IDs.".to_string(),
@@ -518,6 +525,388 @@ pub fn all_action_defs() -> Vec<ToolDef> {
             required_credential: Some("clay".to_string()),
         },
 
+        // ── Clay tier-2 tools (workflows, views, export, sources, documents, admin) ──
+        // For details on any of these, agents should call read_tool_doc(clay, <doc>) where
+        // <doc> is workflows | csv-export | views | documents | admin | endpoint-reference.
+
+        // Table duplication
+        ToolDef {
+            name: "clay_duplicate_table".to_string(),
+            description: "Duplicate a Clay table — copies all columns, views, and table settings. Rows are NOT copied (schema-only). Field IDs change. Useful for template-based table creation. See read_tool_doc(clay, endpoint-reference).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Source Clay table ID (e.g. t_abc123)"},
+                    "name": {"type": "string", "description": "Name for the new table. Defaults to 'Copy of {original}'."}
+                },
+                "required": ["table_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // View CRUD
+        ToolDef {
+            name: "clay_create_view".to_string(),
+            description: "Create a new view on a Clay table. Body accepts only `name` reliably — filter/sort PATCH does not yet persist. See read_tool_doc(clay, views).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID (e.g. t_abc123)"},
+                    "name": {"type": "string", "description": "View name"}
+                },
+                "required": ["table_id", "name"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_update_view".to_string(),
+            description: "Update a Clay view. Rename works reliably; filter/sort updates accept the call but do not persist (returned values are null). See read_tool_doc(clay, views).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID"},
+                    "view_id": {"type": "string", "description": "View ID (gv_xxx)"},
+                    "updates": {"type": "object", "description": "Fields to update: {name?, filter?, sort?}"}
+                },
+                "required": ["table_id", "view_id", "updates"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_delete_view".to_string(),
+            description: "Delete a view from a Clay table. Cannot delete the last view — at least one must remain.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID"},
+                    "view_id": {"type": "string", "description": "View ID (gv_xxx)"}
+                },
+                "required": ["table_id", "view_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // CSV export
+        ToolDef {
+            name: "clay_export_table".to_string(),
+            description: "Start an async CSV export job for a Clay table. Returns the export job ID (ej_xxx). Poll with clay_get_export until status='FINISHED'. See read_tool_doc(clay, csv-export).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "table_id": {"type": "string", "description": "Clay table ID"},
+                    "format": {"type": "string", "description": "Export format. Default 'csv'."}
+                },
+                "required": ["table_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_get_export".to_string(),
+            description: "Poll the status of a Clay CSV export job. Returns status (ACTIVE → FINISHED) and uploadedFilePath when complete.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "export_job_id": {"type": "string", "description": "Export job ID (ej_xxx) returned by clay_export_table"}
+                },
+                "required": ["export_job_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Source management
+        ToolDef {
+            name: "clay_get_source".to_string(),
+            description: "Get details of a Clay source (webhook). The webhook URL is at state.url. Includes sourceSubscriptions (which table/field the source feeds).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (s_xxx)"}
+                },
+                "required": ["source_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_update_source".to_string(),
+            description: "Update a Clay source. Partial update — pass only the fields you want to change. Empty body is a no-op that returns the current state.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (s_xxx)"},
+                    "updates": {"type": "object", "description": "Fields to update (e.g. {name, typeSettings})"}
+                },
+                "required": ["source_id", "updates"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_delete_source".to_string(),
+            description: "Delete a Clay source. Returns {success: true}. Destructive.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (s_xxx)"}
+                },
+                "required": ["source_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Workflows — basics
+        ToolDef {
+            name: "clay_list_workflows".to_string(),
+            description: "List all tc-workflows (Claygent agentic workflows) in the workspace. Returns workflow IDs (wf_xxx) and names. See read_tool_doc(clay, workflows) before triggering runs.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_get_workflow".to_string(),
+            description: "Get a Clay workflow's full graph (nodes + edges) plus server-side validation (errors, warnings). Free pre-flight check before running. See read_tool_doc(clay, workflows).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_run_workflow".to_string(),
+            description: "Start a direct workflow run. Auto-resolves the latest snapshot. Returns the run record (wfr_xxx). NOTE: direct runs cannot be cancelled — only paused. To cancel, wrap in a 1-row csv_import batch instead. Read read_tool_doc(clay, workflows) first.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "inputs": {"type": "object", "description": "Input variables for the workflow run (free-form)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_get_workflow_run".to_string(),
+            description: "Get a workflow run with all its steps. Returns full step telemetry (prompts, tool calls, reasoning, token usage). Discriminated on type='current'|'archived'.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "run_id": {"type": "string", "description": "Run ID (wfr_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "run_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_workflow_runs".to_string(),
+            description: "List runs for a workflow. Query supports limit and offset.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "limit": {"type": "integer", "description": "Max runs (default 50)"},
+                    "offset": {"type": "integer", "description": "Pagination offset (default 0)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Workflows — control plane (Phase B)
+        ToolDef {
+            name: "clay_pause_workflow_run".to_string(),
+            description: "Pause an active workflow run. Returns 400 if the run is in a terminal state.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "run_id": {"type": "string", "description": "Run ID (wfr_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "run_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_unpause_workflow_run".to_string(),
+            description: "Resume a paused workflow run. Returns 400 if the run is not in paused state.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "run_id": {"type": "string", "description": "Run ID (wfr_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "run_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_continue_workflow_step".to_string(),
+            description: "Human-in-the-loop: provide feedback to a workflow step that is waiting on human input. The humanFeedbackInput body is a discriminated union (ApproveToolCall, DenyToolCall, DenyTransition, etc.). Find waiting steps with clay_list_waiting_steps.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "run_id": {"type": "string", "description": "Run ID (wfr_xxx)"},
+                    "step_id": {"type": "string", "description": "Step ID (wfrs_xxx)"},
+                    "human_feedback_input": {"type": "object", "description": "Discriminated union body. e.g. {type: 'ApproveToolCall', toolName, approveToolCallForEntireRun}"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "run_id", "step_id", "human_feedback_input"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_waiting_steps".to_string(),
+            description: "List all workflow run steps currently waiting on human input within a workflow. Drives the HITL UI. callbackData is discriminated on the wait reason.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Workflows — authoring
+        ToolDef {
+            name: "clay_create_workflow".to_string(),
+            description: "Create a new tc-workflow. Returns the workflow record (wf_xxx). The workflow is empty — add nodes/edges separately.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Workflow name (max 255 chars)"},
+                    "default_model_id": {"type": "string", "description": "Default LLM model ID for nodes that don't specify one"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["name"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_create_workflow_node".to_string(),
+            description: "Add a node to a workflow. Note: 'regular' nodes with no model/prompt are NOT actually inert — Clay silently injects Haiku + a system prompt. Even 'inert' test runs burn ~12k tokens.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "name": {"type": "string", "description": "Node name (max 255)"},
+                    "node_type": {"type": "string", "enum": ["regular", "code", "conditional", "map", "reduce", "tool"], "description": "Node type. Default 'regular'."},
+                    "description": {"type": "string", "description": "Optional description"},
+                    "model_id": {"type": "string", "description": "Optional LLM model ID (overrides workflow default)"},
+                    "is_initial": {"type": "boolean", "description": "Whether this is the workflow's start node"},
+                    "is_terminal": {"type": "boolean", "description": "Whether this is a terminal/output node"},
+                    "position": {"type": "object", "description": "Optional layout position {x, y}"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "name"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_create_workflow_edge".to_string(),
+            description: "Connect two workflow nodes with an edge. Returns the edge record (wfe_xxx).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "source_node_id": {"type": "string", "description": "Source node ID (wfn_xxx)"},
+                    "target_node_id": {"type": "string", "description": "Target node ID (wfn_xxx)"},
+                    "metadata": {"type": "object", "description": "Optional edge metadata (e.g. {conditionalSourceHandle})"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "source_node_id", "target_node_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_get_workflow_snapshot".to_string(),
+            description: "Get a specific workflow snapshot by ID. Snapshots embed the full workflow definition at the time of capture. Snapshots are auto-created by batch runs — there is no manual snapshot create endpoint.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "description": "Workflow ID (wf_xxx)"},
+                    "snapshot_id": {"type": "string", "description": "Snapshot ID (wfs_xxx)"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["workflow_id", "snapshot_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Admin (Phase C)
+        ToolDef {
+            name: "clay_list_users".to_string(),
+            description: "List all members of the Clay workspace with their roles and profile info. See read_tool_doc(clay, admin).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_list_tags".to_string(),
+            description: "List resource tags in the Clay workspace (signals/tagging subsystem). Advisory — the tags subsystem is not yet fully reverse-engineered; this may return unexpected shapes. See read_tool_doc(clay, admin).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": []
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
+        // Documents (RAG)
+        ToolDef {
+            name: "clay_upload_document".to_string(),
+            description: "Upload a document to Clay's Documents/RAG store. Three-step S3 flow handled internally. The agent passes either inline text content OR a public URL to fetch. Returns the full document record (doc_xxx). See read_tool_doc(clay, documents).".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Document filename (1-500 chars)"},
+                    "content": {"type": "string", "description": "Inline text content to upload (alternative to source_url)"},
+                    "source_url": {"type": "string", "description": "Public HTTPS URL to fetch and upload (alternative to content)"},
+                    "mime_type": {"type": "string", "description": "MIME type. Defaults to 'text/plain' for inline content."},
+                    "context": {"type": "string", "description": "Document context. Defaults to 'agent_playground'."},
+                    "folder_id": {"type": "string", "description": "Optional folder ID"},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["name"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+        ToolDef {
+            name: "clay_delete_document".to_string(),
+            description: "Delete a document from Clay's Documents store. Hard delete is irreversible.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "Document ID (doc_xxx)"},
+                    "hard": {"type": "boolean", "description": "Hard delete (irreversible). Default true."},
+                    "workspace_id": {"type": "integer", "description": "Workspace ID. Falls back to credential settings."}
+                },
+                "required": ["document_id"]
+            }),
+            required_credential: Some("clay".to_string()),
+        },
+
         // External API tool
         ToolDef {
             name: "http_request".to_string(),
@@ -561,6 +950,21 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                     "range": {"type": "integer", "description": "Number of chunks to return centered on chunk_index (default 5, max 20). E.g. range=5 returns chunk_index-2 through chunk_index+2."}
                 },
                 "required": ["document_id", "chunk_index"]
+            }),
+            required_credential: None,
+        },
+
+        // Platform tool reference docs (always available)
+        ToolDef {
+            name: "read_tool_doc".to_string(),
+            description: "Read a platform tool reference document. Returns the full markdown content. Check your prompt for the list of available doc names.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tool_id": {"type": "string", "description": "Tool ID (e.g. 'n8n', 'clay', 'slack')"},
+                    "doc_name": {"type": "string", "description": "Doc name from the reference list (e.g. 'error-catalog', 'integration-requirements')"}
+                },
+                "required": ["tool_id", "doc_name"]
             }),
             required_credential: None,
         },
@@ -652,8 +1056,8 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                             "properties": {
                                 "type": {
                                     "type": "string",
-                                    "enum": ["overview", "table_spec", "steps", "warnings", "reference"],
-                                    "description": "Section type: 'overview' (always-visible prose), 'table_spec' (column grid with expandable detail), 'steps' (numbered checklist with expandable detail), 'warnings' (always-visible bullet list), 'reference' (collapsible key-value pairs)"
+                                    "enum": ["overview", "table_spec", "steps", "warnings", "reference", "inputs"],
+                                    "description": "Section type: 'overview' (always-visible prose), 'table_spec' (column grid with expandable detail), 'steps' (numbered checklist with expandable detail), 'warnings' (always-visible bullet list), 'reference' (collapsible key-value pairs), 'inputs' (typed input fields the user must fill in — renders smart pickers in the UI)"
                                 },
                                 "title": {"type": "string", "description": "Section heading"},
                                 "content": {"type": "string", "description": "For 'overview': the prose text"},
@@ -693,6 +1097,38 @@ pub fn all_action_defs() -> Vec<ToolDef> {
                                 "entries": {
                                     "type": "object",
                                     "description": "For 'reference': key-value pairs (URLs, IDs, config values)"
+                                },
+                                "inputs": {
+                                    "type": "array",
+                                    "description": "For 'inputs': typed input fields the user must fill in. The frontend renders smart pickers based on input_type (e.g., a Slack channel dropdown for 'slack_channel', a Notion database picker for 'notion_database').",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "string", "description": "Unique identifier for this input (used as the key in the reply payload)"},
+                                            "label": {"type": "string", "description": "Human-readable label shown above the input"},
+                                            "input_type": {
+                                                "type": "string",
+                                                "enum": ["text", "slack_channel", "notion_database", "notion_page", "email", "url", "select"],
+                                                "description": "Controls which UI picker is rendered. 'slack_channel' shows a channel dropdown if Slack is connected; 'notion_database'/'notion_page' show Notion pickers; 'select' renders a dropdown from the 'options' array; others render standard inputs."
+                                            },
+                                            "required": {"type": "boolean", "description": "Whether the user must provide this value before submitting"},
+                                            "description": {"type": "string", "description": "Help text shown below the input"},
+                                            "default": {"type": "string", "description": "Pre-filled default value (optional)"},
+                                            "options": {
+                                                "type": "array",
+                                                "description": "For input_type 'select': the dropdown choices",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "value": {"type": "string"},
+                                                        "label": {"type": "string"}
+                                                    },
+                                                    "required": ["value", "label"]
+                                                }
+                                            }
+                                        },
+                                        "required": ["id", "label", "input_type"]
+                                    }
                                 }
                             },
                             "required": ["type", "title"]
@@ -744,7 +1180,7 @@ pub fn all_action_defs() -> Vec<ToolDef> {
 pub fn actions_for_agent(agent_tools: &[String], include_spawn: bool) -> Vec<ToolDef> {
     let all = all_action_defs();
 
-    let always_available = ["read_upstream_output", "write_output", "request_user_action", "search_knowledge", "read_knowledge"];
+    let always_available = ["read_upstream_output", "write_output", "request_user_action", "search_knowledge", "read_knowledge", "read_tool_doc"];
 
     all.into_iter()
         .filter(|t| {
@@ -776,7 +1212,19 @@ pub fn action_credential(tool_name: &str) -> Option<String> {
         | "clay_update_field" | "clay_delete_field"
         | "clay_update_rows" | "clay_delete_rows" | "clay_list_app_accounts"
         | "clay_list_actions" | "clay_list_sources" | "clay_get_workspace"
-        | "clay_list_workbooks" | "clay_create_workbook" => Some("clay"),
+        | "clay_list_workbooks" | "clay_create_workbook"
+        | "clay_duplicate_table"
+        | "clay_create_view" | "clay_update_view" | "clay_delete_view"
+        | "clay_export_table" | "clay_get_export"
+        | "clay_get_source" | "clay_update_source" | "clay_delete_source"
+        | "clay_list_workflows" | "clay_get_workflow" | "clay_run_workflow"
+        | "clay_get_workflow_run" | "clay_list_workflow_runs"
+        | "clay_pause_workflow_run" | "clay_unpause_workflow_run"
+        | "clay_continue_workflow_step" | "clay_list_waiting_steps"
+        | "clay_create_workflow" | "clay_create_workflow_node"
+        | "clay_create_workflow_edge" | "clay_get_workflow_snapshot"
+        | "clay_list_users" | "clay_list_tags"
+        | "clay_upload_document" | "clay_delete_document" => Some("clay"),
         _ => None,
     };
     cred.map(String::from)
@@ -804,6 +1252,62 @@ fn parse_clay_cred(cred: &crate::credentials::DecryptedCredential) -> (String, O
         .filter(|s| !s.is_empty())
         .map(String::from);
     (api_key, session_cookie, workspace_id)
+}
+
+// ── Clay HTTP helper ─────────────────────────────────────────────────────────
+
+/// Execute a Clay v3 HTTP request with the session cookie. Centralizes the
+/// boilerplate (Cookie + Accept headers, status classification, error wrapping)
+/// shared by all the tier-2 clay_* handlers added in the workflows/views/export
+/// drift-closure pass.
+async fn clay_http_request(
+    http_client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    cookie: &str,
+    body: Option<&Value>,
+    settings: &crate::config::Settings,
+) -> String {
+    let mut req = http_client
+        .request(method, url)
+        .header("Cookie", cookie)
+        .header("Accept", "application/json");
+    if let Some(b) = body {
+        req = req.header("Content-Type", "application/json").json(b);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            if status >= 400 {
+                let (error_type, suggestion) = classify_http_error(status);
+                json!({
+                    "status": status,
+                    "error_type": error_type,
+                    "suggestion": suggestion,
+                    "body": body_text.chars().take(1000).collect::<String>(),
+                })
+                .to_string()
+            } else {
+                http_result_json(status, &body_text, settings.http_response_max_chars)
+            }
+        }
+        Err(e) => json!({"error": format!("Clay v3 request failed: {}", e)}).to_string(),
+    }
+}
+
+// ── n8n credential helper ──────────────────────────────────────────────────────
+
+/// Parse a merged n8n credential (JSON with api_key + base_url).
+/// Falls back to treating the raw value as a bare API key for backwards compatibility.
+fn parse_n8n_cred(cred: &crate::credentials::DecryptedCredential) -> (String, Option<String>) {
+    let parsed: serde_json::Value = serde_json::from_str(&cred.value).unwrap_or(serde_json::json!({}));
+    let api_key = parsed.get("api_key").and_then(serde_json::Value::as_str)
+        .unwrap_or(&cred.value).to_string();
+    let base_url = parsed.get("base_url").and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string());
+    (api_key, base_url)
 }
 
 // ── Tool execution ────────────────────────────────────────────────────────────
@@ -1236,7 +1740,19 @@ async fn execute_action_inner(
         | "clay_read_rows" | "clay_write_rows" | "clay_trigger_enrichment"
         | "clay_update_rows" | "clay_delete_rows" | "clay_list_app_accounts"
         | "clay_list_actions" | "clay_list_sources" | "clay_get_workspace"
-        | "clay_list_workbooks" | "clay_create_workbook" => {
+        | "clay_list_workbooks" | "clay_create_workbook"
+        | "clay_duplicate_table"
+        | "clay_create_view" | "clay_update_view" | "clay_delete_view"
+        | "clay_export_table" | "clay_get_export"
+        | "clay_get_source" | "clay_update_source" | "clay_delete_source"
+        | "clay_list_workflows" | "clay_get_workflow" | "clay_run_workflow"
+        | "clay_get_workflow_run" | "clay_list_workflow_runs"
+        | "clay_pause_workflow_run" | "clay_unpause_workflow_run"
+        | "clay_continue_workflow_step" | "clay_list_waiting_steps"
+        | "clay_create_workflow" | "clay_create_workflow_node"
+        | "clay_create_workflow_edge" | "clay_get_workflow_snapshot"
+        | "clay_list_users" | "clay_list_tags"
+        | "clay_upload_document" | "clay_delete_document" => {
             let cred = match credentials.get("clay") {
                 Some(c) => c,
                 None => return json!({
@@ -1942,6 +2458,523 @@ async fn execute_action_inner(
             }
         }
 
+        // ── Tier-2 tools (workflows, views, export, sources, documents, admin) ──
+
+        "clay_duplicate_table" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            if table_id.is_empty() {
+                return json!({"error": "table_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/tables/{}/duplicate", table_id);
+            let mut body = json!({});
+            if let Some(name) = input.get("name").and_then(Value::as_str) {
+                if !name.is_empty() { body["name"] = json!(name); }
+            }
+            if resolved_ws_id > 0 { body["workspaceId"] = json!(resolved_ws_id); }
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_create_view" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let view_name = input.get("name").and_then(Value::as_str).unwrap_or("");
+            if table_id.is_empty() || view_name.is_empty() {
+                return json!({"error": "table_id and name are required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/tables/{}/views", table_id);
+            let body = json!({"name": view_name});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_update_view" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let view_id = input.get("view_id").and_then(Value::as_str).unwrap_or("");
+            let updates = input.get("updates").cloned().unwrap_or(json!({}));
+            if table_id.is_empty() || view_id.is_empty() {
+                return json!({"error": "table_id and view_id are required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/tables/{}/views/{}", table_id, view_id);
+            clay_http_request(http_client, reqwest::Method::PATCH, &url, cookie, Some(&updates), settings).await
+        }
+
+        "clay_delete_view" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let view_id = input.get("view_id").and_then(Value::as_str).unwrap_or("");
+            if table_id.is_empty() || view_id.is_empty() {
+                return json!({"error": "table_id and view_id are required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/tables/{}/views/{}", table_id, view_id);
+            clay_http_request(http_client, reqwest::Method::DELETE, &url, cookie, None, settings).await
+        }
+
+        "clay_export_table" => {
+            let table_id = input.get("table_id").and_then(Value::as_str).unwrap_or("");
+            let format_str = input.get("format").and_then(Value::as_str).unwrap_or("csv");
+            if table_id.is_empty() {
+                return json!({"error": "table_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/tables/{}/export", table_id);
+            let body = json!({"format": format_str});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_get_export" => {
+            let job_id = input.get("export_job_id").and_then(Value::as_str).unwrap_or("");
+            if job_id.is_empty() {
+                return json!({"error": "export_job_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/exports/{}", job_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_get_source" => {
+            let source_id = input.get("source_id").and_then(Value::as_str).unwrap_or("");
+            if source_id.is_empty() {
+                return json!({"error": "source_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/sources/{}", source_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_update_source" => {
+            let source_id = input.get("source_id").and_then(Value::as_str).unwrap_or("");
+            let updates = input.get("updates").cloned().unwrap_or(json!({}));
+            if source_id.is_empty() {
+                return json!({"error": "source_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/sources/{}", source_id);
+            clay_http_request(http_client, reqwest::Method::PATCH, &url, cookie, Some(&updates), settings).await
+        }
+
+        "clay_delete_source" => {
+            let source_id = input.get("source_id").and_then(Value::as_str).unwrap_or("");
+            if source_id.is_empty() {
+                return json!({"error": "source_id is required"}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/sources/{}", source_id);
+            clay_http_request(http_client, reqwest::Method::DELETE, &url, cookie, None, settings).await
+        }
+
+        "clay_list_workflows" => {
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows", resolved_ws_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_get_workflow" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() {
+                return json!({"error": "workflow_id is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/graph", resolved_ws_id, workflow_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_run_workflow" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let inputs = input.get("inputs").cloned().unwrap_or(json!({}));
+            if workflow_id.is_empty() {
+                return json!({"error": "workflow_id is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs", resolved_ws_id, workflow_id);
+            let body = json!({"inputs": inputs});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_get_workflow_run" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let run_id = input.get("run_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || run_id.is_empty() {
+                return json!({"error": "workflow_id and run_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs/{}", resolved_ws_id, workflow_id, run_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_list_workflow_runs" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let limit = input.get("limit").and_then(Value::as_u64).unwrap_or(50);
+            let offset = input.get("offset").and_then(Value::as_u64).unwrap_or(0);
+            if workflow_id.is_empty() {
+                return json!({"error": "workflow_id is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!(
+                "https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs?limit={}&offset={}",
+                resolved_ws_id, workflow_id, limit, offset
+            );
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_pause_workflow_run" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let run_id = input.get("run_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || run_id.is_empty() {
+                return json!({"error": "workflow_id and run_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs/{}/pause", resolved_ws_id, workflow_id, run_id);
+            let body = json!({});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_unpause_workflow_run" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let run_id = input.get("run_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || run_id.is_empty() {
+                return json!({"error": "workflow_id and run_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs/{}/unpause", resolved_ws_id, workflow_id, run_id);
+            let body = json!({});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_continue_workflow_step" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let run_id = input.get("run_id").and_then(Value::as_str).unwrap_or("");
+            let step_id = input.get("step_id").and_then(Value::as_str).unwrap_or("");
+            let hfi = input.get("human_feedback_input").cloned().unwrap_or(json!({}));
+            if workflow_id.is_empty() || run_id.is_empty() || step_id.is_empty() {
+                return json!({"error": "workflow_id, run_id, and step_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!(
+                "https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/runs/{}/steps/{}/continue",
+                resolved_ws_id, workflow_id, run_id, step_id
+            );
+            let body = json!({"humanFeedbackInput": hfi});
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_list_waiting_steps" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() {
+                return json!({"error": "workflow_id is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/steps/waiting", resolved_ws_id, workflow_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_create_workflow" => {
+            let wf_name = input.get("name").and_then(Value::as_str).unwrap_or("");
+            if wf_name.is_empty() {
+                return json!({"error": "name is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows", resolved_ws_id);
+            let mut body = json!({"name": wf_name});
+            if let Some(model) = input.get("default_model_id").and_then(Value::as_str) {
+                if !model.is_empty() { body["defaultModelId"] = json!(model); }
+            }
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_create_workflow_node" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let node_name = input.get("name").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || node_name.is_empty() {
+                return json!({"error": "workflow_id and name are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/nodes", resolved_ws_id, workflow_id);
+            let mut body = json!({"name": node_name});
+            if let Some(nt) = input.get("node_type").and_then(Value::as_str) {
+                if !nt.is_empty() { body["nodeType"] = json!(nt); }
+            }
+            if let Some(d) = input.get("description").and_then(Value::as_str) {
+                if !d.is_empty() { body["description"] = json!(d); }
+            }
+            if let Some(m) = input.get("model_id").and_then(Value::as_str) {
+                if !m.is_empty() { body["modelId"] = json!(m); }
+            }
+            if let Some(b) = input.get("is_initial").and_then(Value::as_bool) { body["isInitial"] = json!(b); }
+            if let Some(b) = input.get("is_terminal").and_then(Value::as_bool) { body["isTerminal"] = json!(b); }
+            if let Some(p) = input.get("position") { body["position"] = p.clone(); }
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_create_workflow_edge" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let source = input.get("source_node_id").and_then(Value::as_str).unwrap_or("");
+            let target = input.get("target_node_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || source.is_empty() || target.is_empty() {
+                return json!({"error": "workflow_id, source_node_id, and target_node_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/edges", resolved_ws_id, workflow_id);
+            let mut body = json!({"sourceNodeId": source, "targetNodeId": target});
+            if let Some(m) = input.get("metadata") { body["metadata"] = m.clone(); }
+            clay_http_request(http_client, reqwest::Method::POST, &url, cookie, Some(&body), settings).await
+        }
+
+        "clay_get_workflow_snapshot" => {
+            let workflow_id = input.get("workflow_id").and_then(Value::as_str).unwrap_or("");
+            let snapshot_id = input.get("snapshot_id").and_then(Value::as_str).unwrap_or("");
+            if workflow_id.is_empty() || snapshot_id.is_empty() {
+                return json!({"error": "workflow_id and snapshot_id are required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!(
+                "https://api.clay.com/v3/workspaces/{}/tc-workflows/{}/snapshots/{}",
+                resolved_ws_id, workflow_id, snapshot_id
+            );
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_list_users" => {
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!("https://api.clay.com/v3/workspaces/{}/users", resolved_ws_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_list_tags" => {
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            // The tags subsystem is not fully reverse-engineered. The advisory tool
+            // hits resource-tags as the most likely path. See knowledge/admin.md.
+            let url = format!("https://api.clay.com/v3/workspaces/{}/resource-tags", resolved_ws_id);
+            clay_http_request(http_client, reqwest::Method::GET, &url, cookie, None, settings).await
+        }
+
+        "clay_upload_document" => {
+            let doc_name = input.get("name").and_then(Value::as_str).unwrap_or("");
+            let inline_content = input.get("content").and_then(Value::as_str);
+            let source_url = input.get("source_url").and_then(Value::as_str);
+            let mime_type = input.get("mime_type").and_then(Value::as_str).unwrap_or("text/plain");
+            let context = input.get("context").and_then(Value::as_str).unwrap_or("agent_playground");
+            let folder_id = input.get("folder_id").and_then(Value::as_str);
+
+            if doc_name.is_empty() {
+                return json!({"error": "name is required"}).to_string();
+            }
+            if inline_content.is_none() && source_url.is_none() {
+                return json!({"error": "either content or source_url is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+
+            // Step 1: get S3 upload URL
+            let init_url = format!("https://api.clay.com/v3/documents/{}/upload-url", resolved_ws_id);
+            let mut init_body = json!({"name": doc_name, "context": context});
+            if let Some(f) = folder_id {
+                if !f.is_empty() { init_body["folderId"] = json!(f); }
+            }
+            let init_resp = clay_http_request(http_client, reqwest::Method::POST, &init_url, cookie, Some(&init_body), settings).await;
+            let init_parsed: Value = match serde_json::from_str(&init_resp) {
+                Ok(v) => v,
+                Err(_) => return json!({"error": "Document upload init: failed to parse Clay response", "raw": init_resp}).to_string(),
+            };
+            if init_parsed.get("error").is_some() || init_parsed.get("error_type").is_some() {
+                return init_parsed.to_string();
+            }
+            let init_data = init_parsed.get("data").unwrap_or(&init_parsed);
+            let document_id = match init_data.get("documentId").and_then(Value::as_str) {
+                Some(id) => id.to_string(),
+                None => return json!({"error": "Document upload init returned no documentId", "response": init_parsed}).to_string(),
+            };
+            let upload_url = match init_data.get("uploadUrl").and_then(Value::as_str) {
+                Some(u) => u.to_string(),
+                None => return json!({"error": "Document upload init returned no uploadUrl", "response": init_parsed}).to_string(),
+            };
+            let s3_fields = init_data.get("fields").cloned().unwrap_or(json!({}));
+
+            // Step 2: fetch source content if needed, then S3 multipart POST
+            let file_bytes: Vec<u8> = if let Some(c) = inline_content {
+                c.as_bytes().to_vec()
+            } else if let Some(url) = source_url {
+                match http_client.get(url).send().await {
+                    Ok(r) => match r.bytes().await {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => return json!({"error": format!("Failed to read source_url body: {}", e)}).to_string(),
+                    },
+                    Err(e) => return json!({"error": format!("Failed to fetch source_url: {}", e)}).to_string(),
+                }
+            } else {
+                return json!({"error": "no content"}).to_string();
+            };
+
+            let mut form = reqwest::multipart::Form::new();
+            if let Some(map) = s3_fields.as_object() {
+                for (k, v) in map {
+                    if let Some(s) = v.as_str() {
+                        form = form.text(k.clone(), s.to_string());
+                    }
+                }
+            }
+            let part = reqwest::multipart::Part::bytes(file_bytes)
+                .file_name(doc_name.to_string())
+                .mime_str(mime_type)
+                .unwrap_or_else(|_| reqwest::multipart::Part::text(""));
+            form = form.part("file", part);
+
+            let s3_status = match http_client.post(&upload_url).multipart(form).send().await {
+                Ok(r) => r.status().as_u16(),
+                Err(e) => return json!({"error": format!("S3 upload failed: {}", e)}).to_string(),
+            };
+            if !(200..300).contains(&s3_status) {
+                return json!({"error": "S3 upload returned non-2xx", "s3_status": s3_status}).to_string();
+            }
+
+            // Step 3: confirm upload
+            let confirm_url = format!("https://api.clay.com/v3/documents/{}/{}/confirm-upload", resolved_ws_id, document_id);
+            let confirm_body = json!({});
+            clay_http_request(http_client, reqwest::Method::POST, &confirm_url, cookie, Some(&confirm_body), settings).await
+        }
+
+        "clay_delete_document" => {
+            let document_id = input.get("document_id").and_then(Value::as_str).unwrap_or("");
+            let hard = input.get("hard").and_then(Value::as_bool).unwrap_or(true);
+            if document_id.is_empty() {
+                return json!({"error": "document_id is required"}).to_string();
+            }
+            if resolved_ws_id == 0 {
+                return json!({"error": "workspace_id is required."}).to_string();
+            }
+            let cookie = match &session_cookie {
+                Some(c) => c,
+                None => return json!({"error": "Session cookie not configured.", "no_session": true}).to_string(),
+            };
+            let url = format!(
+                "https://api.clay.com/v3/documents/{}/{}?hard={}",
+                resolved_ws_id, document_id, hard
+            );
+            clay_http_request(http_client, reqwest::Method::DELETE, &url, cookie, None, settings).await
+        }
+
         _ => json!({"error": format!("Unknown clay tool: {}", name)}).to_string(),
             }; // end inner match
 
@@ -2016,21 +3049,13 @@ async fn execute_action_inner(
                     if let Some(cred) = credentials.get("tolt") {
                         request = request.header("Authorization", format!("Bearer {}", cred.value));
                     }
-                } else if url.contains(".n8n.cloud") || url.contains("n8n.") || url.contains("/api/v1/workflows") || url.contains("/api/v1/executions") || url.contains("/api/v1/credentials") || settings.n8n_base_url.as_deref().map_or(false, |base| url.starts_with(base)) {
-                    let api_key = credentials.get("n8n")
-                        .map(|cred| {
-                            debug!(n8n_cred_type = %cred.credential_type, n8n_cred_len = cred.value.len(), "n8n credential found");
-                            extract_bearer_token(cred)
-                        })
-                        .or_else(|| {
-                            debug!("n8n credential not in map, falling back to settings.n8n_api_key");
-                            settings.n8n_api_key.clone()
-                        });
-                    if let Some(ref key) = api_key {
+                } else if url.contains(".n8n.cloud") || url.contains("n8n.") || url.contains("/api/v1/workflows") || url.contains("/api/v1/executions") || url.contains("/api/v1/credentials") || credentials.get("n8n").map_or(false, |c| { let (_, bu) = parse_n8n_cred(c); bu.as_deref().map_or(false, |b| url.starts_with(b)) }) {
+                    if let Some(cred) = credentials.get("n8n") {
+                        let (key, _) = parse_n8n_cred(cred);
                         debug!(key_len = key.len(), "injecting X-N8N-API-KEY header");
                         request = request.header("X-N8N-API-KEY", key.as_str());
                     } else {
-                        warn!("n8n URL detected but no API key available");
+                        warn!("n8n URL detected but no credential configured for this project");
                     }
                 } else if url.contains("graph.facebook.com") {
                     if let Some(cred) = credentials.get("meta") {

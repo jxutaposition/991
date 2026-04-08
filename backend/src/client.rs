@@ -44,7 +44,7 @@ pub async fn get_client(db: &PgClient, slug: &str) -> anyhow::Result<Option<Valu
 }
 
 pub async fn list_clients(db: &PgClient) -> anyhow::Result<Vec<Value>> {
-    db.execute("SELECT * FROM clients WHERE deleted_at IS NULL ORDER BY name").await
+    db.execute_unparameterized("SELECT * FROM clients WHERE deleted_at IS NULL ORDER BY name").await
 }
 
 pub async fn add_contact(

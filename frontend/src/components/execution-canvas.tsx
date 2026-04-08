@@ -10,7 +10,7 @@ import {
   useState,
   useEffect,
 } from "react";
-import { ArrowDown, Brain, GitBranch, Hand, Lock, LockOpen, Check, X, Wrench, MessageCircle, ExternalLink, Loader2 } from "lucide-react";
+import { ArrowDown, Brain, GitBranch, Hand, Lock, LockOpen, Check, X, Wrench, MessageCircle, ExternalLink, Loader2, Trash2, Plus } from "lucide-react";
 import { IntegrationIcon } from "@/components/integration-icon";
 import {
   TransformWrapper,
@@ -65,6 +65,7 @@ export interface ExecutionNode {
     validation_hints?: Array<{ type: string; description: string }>;
     visual_refs?: Array<{ type: string; url: string; caption?: string }>;
     prior_artifacts?: Array<{ title: string; reference?: string }>;
+    assigned_resources?: Array<{ resource_id: string; role: string }>;
   } | null;
   execution_mode?: string;
   integration_overrides?: Record<string, string>;
@@ -143,6 +144,13 @@ interface CatalogAgent {
 
 type CatalogMap = Record<string, CatalogAgent>;
 
+export interface ProjectResource {
+  id: string;
+  display_name: string;
+  integration_slug: string;
+  resource_type: string;
+}
+
 interface ExecutionCanvasProps {
   nodes: ExecutionNode[];
   sessionStatus: string;
@@ -153,6 +161,10 @@ interface ExecutionCanvasProps {
   catalogMap?: CatalogMap;
   livePreviewMap?: Record<string, string>;
   planningMessages?: string[];
+  changedNodes?: Record<string, number>;
+  onNodeDelete?: (nodeId: string) => void;
+  onAddNode?: () => void;
+  projectResources?: ProjectResource[];
 }
 
 type NodeStatus = string;
@@ -174,6 +186,9 @@ function NodeBox({
   probeResults,
   sessionStatus,
   livePreview,
+  recentlyChanged,
+  onNodeDelete,
+  projectResources,
 }: {
   node: ExecutionNode;
   isSelected: boolean;
@@ -184,6 +199,9 @@ function NodeBox({
   probeResults?: Record<string, ProbeResultEntry>;
   sessionStatus?: string;
   livePreview?: string;
+  recentlyChanged?: boolean;
+  onNodeDelete?: (nodeId: string) => void;
+  projectResources?: ProjectResource[];
 }) {
   const rawStatus = node.status as NodeStatus;
   const status = rawStatus === "preview" && sessionStatus === "executing" ? "queued" : rawStatus;
@@ -217,6 +235,7 @@ function NodeBox({
         ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[380px]"}
         ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_STATUS_BOX[status] ?? NODE_STATUS_BOX.pending}
         ${isSelected ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-white" : ""}
+        ${recentlyChanged && !isSelected ? "ring-2 ring-amber-400 shadow-lg shadow-amber-200/50 animate-node-changed" : ""}
         ${isBlocked && !isVariantAlt ? (agentProbeIssue ? "border-l-red-400 border-l-4" : "border-l-amber-400 border-l-4")
           : !isVariantAlt && node.execution_mode === "manual" ? "border-l-amber-400 border-l-4"
           : ""}
@@ -227,6 +246,23 @@ function NodeBox({
         <div className="absolute -top-2.5 -left-2 bg-blue-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10">
           {node.step_index}
         </div>
+      )}
+
+      {/* Delete node button */}
+      {onNodeDelete && sessionStatus === "awaiting_approval" &&
+        ["preview", "pending", "waiting", "ready"].includes(rawStatus) && (
+        <button
+          className="absolute -top-2 -right-2 z-20 w-5 h-5 rounded-full bg-red-100 text-red-600 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm transition-colors"
+          title="Remove node"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm(`Remove node "${name}" from the plan?`)) {
+              onNodeDelete(node.id);
+            }
+          }}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
       )}
 
       {/* Execution mode indicator */}
@@ -373,6 +409,26 @@ function NodeBox({
         </div>
       )}
 
+      {/* Resource chips */}
+      {!isVariantAlt && (node.description?.assigned_resources?.length ?? 0) > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {node.description!.assigned_resources!.map((ar) => {
+            const res = projectResources?.find((r) => r.id === ar.resource_id);
+            const label = res?.display_name ?? ar.resource_id.slice(0, 8);
+            return (
+              <span
+                key={ar.resource_id}
+                className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700"
+                title={`${ar.role} · ${ar.resource_id}`}
+              >
+                <span className="text-[10px]">📋</span>
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       {/* Tool chips (for agents without required_integrations, show what tools they use) */}
       {!hasIntegrations && userTools.length > 0 && !isVariantAlt && (
         <div className="flex items-center gap-1 flex-wrap">
@@ -438,14 +494,17 @@ function NodeBox({
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           {node.artifacts!.slice(0, 3).map((a, idx) => {
             const integrationSlug = a.type.split("_")[0];
+            const isInternal = a.url.startsWith("/");
             return (
-              <a key={idx} href={a.url} target="_blank" rel="noopener noreferrer"
+              <a key={idx} href={a.url}
+                 target={isInternal ? undefined : "_blank"}
+                 rel={isInternal ? undefined : "noopener noreferrer"}
                  onClick={e => e.stopPropagation()}
                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-white ring-1 ring-gray-200 text-ink hover:ring-blue-300 hover:bg-blue-50 transition-colors font-medium shadow-sm"
                  title={`${a.type.replace(/_/g, " ")} · ${a.url}`}>
                 <IntegrationIcon slug={integrationSlug} size={12} />
                 <span className="truncate max-w-[120px]">{a.title}</span>
-                <ExternalLink className="w-3 h-3 flex-shrink-0 text-ink-3" />
+                {!isInternal && <ExternalLink className="w-3 h-3 flex-shrink-0 text-ink-3" />}
               </a>
             );
           })}
@@ -573,6 +632,9 @@ function ChildTree({
   catalogMap,
   sessionStatus,
   livePreviewMap,
+  changedNodes,
+  onNodeDelete,
+  projectResources,
 }: {
   tree: DagNode;
   selectedNodeId: string | null;
@@ -581,6 +643,9 @@ function ChildTree({
   catalogMap?: CatalogMap;
   sessionStatus?: string;
   livePreviewMap?: Record<string, string>;
+  changedNodes?: Record<string, number>;
+  onNodeDelete?: (nodeId: string) => void;
+  projectResources?: ProjectResource[];
 }) {
   if (tree.children.length === 0) return null;
   return (
@@ -604,6 +669,9 @@ function ChildTree({
                 probeResults={credentialStatus?.probe_results}
                 sessionStatus={sessionStatus}
                 livePreview={livePreviewMap?.[child.node.id]}
+                recentlyChanged={!!changedNodes?.[child.node.id]}
+                onNodeDelete={onNodeDelete}
+                projectResources={projectResources}
               />
             </div>
             <ChildTree
@@ -614,6 +682,9 @@ function ChildTree({
               catalogMap={catalogMap}
               sessionStatus={sessionStatus}
               livePreviewMap={livePreviewMap}
+              changedNodes={changedNodes}
+              onNodeDelete={onNodeDelete}
+              projectResources={projectResources}
             />
           </div>
         ))}
@@ -744,7 +815,7 @@ function DagEdges({
 
 export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
   function ExecutionCanvas(
-    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange, credentialStatus, catalogMap, livePreviewMap, planningMessages },
+    { nodes, sessionStatus, selectedNodeId, onNodeClick, onZoomChange, credentialStatus, catalogMap, livePreviewMap, planningMessages, changedNodes, onNodeDelete, onAddNode, projectResources },
     ref
   ) {
     const transformRef = useRef<ReactZoomPanPinchRef>(null);
@@ -858,6 +929,9 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
                           probeResults={credentialStatus?.probe_results}
                           sessionStatus={sessionStatus}
                           livePreview={livePreviewMap?.[node.id]}
+                          recentlyChanged={!!changedNodes?.[node.id]}
+                          onNodeDelete={onNodeDelete}
+                          projectResources={projectResources}
                         />
                       </div>
                       {tree && (
@@ -869,6 +943,9 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
                           catalogMap={catalogMap}
                           sessionStatus={sessionStatus}
                           livePreviewMap={livePreviewMap}
+                          changedNodes={changedNodes}
+                          onNodeDelete={onNodeDelete}
+                          projectResources={projectResources}
                         />
                       )}
                     </div>
@@ -876,6 +953,19 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
                 })}
               </div>
             ))}
+
+            {sessionStatus === "awaiting_approval" && onAddNode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddNode();
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-sm font-medium">Add Node</span>
+              </button>
+            )}
 
             <DagEdges edges={edges} containerRef={dagContainerRef} nodeStatusMap={nodeStatusMap} />
           </div>

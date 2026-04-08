@@ -13,9 +13,27 @@ Clay has two distinct authentication mechanisms for its two API surfaces:
 
 ## v1 API Key Authentication
 
+> **UPDATE (INV-028, 2026-04-07)**: The v1 API itself is fully deprecated
+> (all `api.clay.com/v1/*` paths return 404 "deprecated API endpoint" or
+> 503). The `Authorization: Bearer <key>` header still has a live
+> middleware on some v3 routes (specifically `Clay-API-Key` returns 403
+> vs the universal 401, meaning it's being parsed), but INV-028 could
+> not find any v3 route that actually accepts a session-minted key as
+> authentication. Use session-cookie auth for everything.
+
 ### Obtaining the Key
 
-Navigate to [app.clay.com/settings](https://app.clay.com/settings) and copy the API key.
+**Via UI**: Navigate to [app.clay.com/settings](https://app.clay.com/settings) and copy the API key.
+
+**Via API (new, INV-028)**: You can mint API keys directly via the
+`POST /v3/api-keys` endpoint under session-cookie auth — no need to
+drive the UI. See `knowledge/internal-v3-api.md` → "Clay API Key CRUD"
+for the full router (GET/POST/PATCH/DELETE at `/v3/api-keys`). Scopes
+include the non-UI-exposed `terracotta:cli`, `terracotta:code-node`,
+and `terracotta:mcp` (the last of which hints at an MCP server surface —
+GAP-038). Keys are user-owned (`resourceType: 'user'` is the only
+enum value); `scope.workspaceId` constrains which workspace the key
+can act in.
 
 ### Using the Key
 

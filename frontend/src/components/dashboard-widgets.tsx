@@ -6,6 +6,9 @@ import {
   FunnelChart, Funnel, LabelList,
   AreaChart, Area,
 } from "recharts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { useWidgetData, type WidgetDataSource } from "@/lib/dashboard-data";
 
 const COLORS = [
   "#6366f1", "#8b5cf6", "#a78bfa", "#c4b5fd",
@@ -15,32 +18,45 @@ const COLORS = [
 
 export interface WidgetSpec {
   id: string;
-  type: "stat" | "stats" | "bar" | "line" | "pie" | "funnel" | "area" | "table" | "text";
+  type: "stat" | "stats" | "bar" | "line" | "pie" | "funnel" | "area" | "table" | "text" | "quote";
   title: string;
-  span?: number; // grid column span (1-4, default 1)
+  span?: number;
   config?: Record<string, unknown>;
   data?: unknown[];
   value?: string | number;
   description?: string;
   cards?: Array<{ id?: string; title: string; value: string | number; description?: string; trend?: string }>;
+  dataSource?: WidgetDataSource;
+}
+
+function LoadingOverlay() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-zinc-900/60 rounded-xl">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+    </div>
+  );
 }
 
 export function StatWidget({ spec }: { spec: WidgetSpec }) {
+  const { value, loading } = useWidgetData(spec);
+
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <p className="mt-2 text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-        {spec.value ?? "—"}
+        {value ?? spec.value ?? "—"}
       </p>
       {spec.description && (
         <p className="mt-1 text-sm text-zinc-500">{spec.description}</p>
       )}
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function BarWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
   const cfg = spec.config ?? {};
   const xKey = (cfg.xKey as string) ?? "name";
   const yKeys = (cfg.yKeys as string[]) ?? (data.length > 0
@@ -48,7 +64,7 @@ export function BarWidget({ spec }: { spec: WidgetSpec }) {
     : ["value"]);
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={data}>
@@ -62,12 +78,14 @@ export function BarWidget({ spec }: { spec: WidgetSpec }) {
           ))}
         </BarChart>
       </ResponsiveContainer>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function LineWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
   const cfg = spec.config ?? {};
   const xKey = (cfg.xKey as string) ?? "name";
   const yKeys = (cfg.yKeys as string[]) ?? (data.length > 0
@@ -75,7 +93,7 @@ export function LineWidget({ spec }: { spec: WidgetSpec }) {
     : ["value"]);
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data}>
@@ -89,12 +107,14 @@ export function LineWidget({ spec }: { spec: WidgetSpec }) {
           ))}
         </LineChart>
       </ResponsiveContainer>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function AreaWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
   const cfg = spec.config ?? {};
   const xKey = (cfg.xKey as string) ?? "name";
   const yKeys = (cfg.yKeys as string[]) ?? (data.length > 0
@@ -102,7 +122,7 @@ export function AreaWidget({ spec }: { spec: WidgetSpec }) {
     : ["value"]);
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data}>
@@ -116,23 +136,29 @@ export function AreaWidget({ spec }: { spec: WidgetSpec }) {
           ))}
         </AreaChart>
       </ResponsiveContainer>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function PieWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
   const cfg = spec.config ?? {};
   const nameKey = (cfg.nameKey as string) ?? "name";
   const valueKey = (cfg.valueKey as string) ?? "value";
+  const innerRadius = (cfg.variant === "donut" || cfg.innerRadius)
+    ? (typeof cfg.innerRadius === "number" ? cfg.innerRadius : 60)
+    : 0;
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <ResponsiveContainer width="100%" height={280}>
         <PieChart>
           <Pie data={data} dataKey={valueKey} nameKey={nameKey} cx="50%" cy="50%"
-            outerRadius={100} label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
+            outerRadius={100} innerRadius={innerRadius}
+            label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ""} ${((percent ?? 0) * 100).toFixed(0)}%`}
             labelLine={false} fontSize={11}>
             {data.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -141,18 +167,20 @@ export function PieWidget({ spec }: { spec: WidgetSpec }) {
           <Tooltip />
         </PieChart>
       </ResponsiveContainer>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function FunnelWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
   const cfg = spec.config ?? {};
   const nameKey = (cfg.nameKey as string) ?? "name";
   const valueKey = (cfg.valueKey as string) ?? "value";
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <ResponsiveContainer width="100%" height={280}>
         <FunnelChart>
@@ -165,13 +193,16 @@ export function FunnelWidget({ spec }: { spec: WidgetSpec }) {
           </Funnel>
         </FunnelChart>
       </ResponsiveContainer>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
 
 export function TableWidget({ spec }: { spec: WidgetSpec }) {
-  const data = (spec.data ?? []) as Record<string, unknown>[];
-  if (data.length === 0) {
+  const { data: rawData, loading } = useWidgetData(spec);
+  const data = (rawData ?? []) as Record<string, unknown>[];
+
+  if (!loading && data.length === 0) {
     return (
       <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
         <p className="text-sm font-medium text-zinc-500">{spec.title}</p>
@@ -179,10 +210,11 @@ export function TableWidget({ spec }: { spec: WidgetSpec }) {
       </div>
     );
   }
-  const columns = Object.keys(data[0]);
+
+  const columns = data.length > 0 ? Object.keys(data[0]) : [];
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm overflow-x-auto">
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm overflow-x-auto">
       <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
       <table className="w-full text-sm">
         <thead>
@@ -205,6 +237,7 @@ export function TableWidget({ spec }: { spec: WidgetSpec }) {
       {data.length > 50 && (
         <p className="mt-2 text-xs text-zinc-400">Showing 50 of {data.length} rows</p>
       )}
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
@@ -213,7 +246,40 @@ export function TextWidget({ spec }: { spec: WidgetSpec }) {
   return (
     <div className="rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
       <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
-      <p className="mt-2 text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{spec.description ?? ""}</p>
+      <div className="mt-2 text-zinc-700 dark:text-zinc-300 prose prose-sm dark:prose-invert max-w-none">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {spec.description ?? ""}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+export function QuoteWidget({ spec }: { spec: WidgetSpec }) {
+  const { data: rawData, loading } = useWidgetData(spec);
+  const quotes = (rawData ?? []) as Array<{ text: string; attribution?: string; source?: string }>;
+
+  return (
+    <div className="relative rounded-xl border bg-white dark:bg-zinc-900 p-6 shadow-sm">
+      <p className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">{spec.title}</p>
+      <div className="space-y-4">
+        {quotes.map((q, i) => (
+          <blockquote key={i} className="border-l-4 border-indigo-400 pl-4 py-2">
+            <p className="text-base italic text-zinc-700 dark:text-zinc-300">&ldquo;{q.text}&rdquo;</p>
+            {(q.attribution || q.source) && (
+              <footer className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                {q.attribution && <span className="font-medium">{q.attribution}</span>}
+                {q.attribution && q.source && <span> &mdash; </span>}
+                {q.source && <span>{q.source}</span>}
+              </footer>
+            )}
+          </blockquote>
+        ))}
+        {!loading && quotes.length === 0 && (
+          <p className="text-sm text-zinc-400">No quotes yet</p>
+        )}
+      </div>
+      {loading && <LoadingOverlay />}
     </div>
   );
 }
@@ -252,6 +318,7 @@ export function DashboardWidget({ spec }: { spec: WidgetSpec }) {
     case "funnel": return <FunnelWidget spec={spec} />;
     case "table": return <TableWidget spec={spec} />;
     case "text": return <TextWidget spec={spec} />;
+    case "quote": return <QuoteWidget spec={spec} />;
     default: return <TextWidget spec={{ ...spec, description: `Unknown widget type: ${spec.type}` }} />;
   }
 }

@@ -1,5 +1,6 @@
 # Session cookies and probe results contain sensitive data
 harness/results/.session-cookies.json
+harness/results/.api-keys.json
 harness/results/session-*.json
 harness/results/cdp-*.jsonl
 harness/results/probe-*.json

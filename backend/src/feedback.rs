@@ -338,6 +338,7 @@ pub async fn synthesize_feedback(
     model: &str,
     catalog: Option<&AgentCatalog>,
 ) -> anyhow::Result<Vec<Uuid>> {
+    // sql-format-ok: SYNTHESIS_THRESHOLD is a compile-time constant.
     let groups_sql = format!(
         r#"SELECT agent_slug, impact, SUM(weight) as total_weight, COUNT(*) as cnt
         FROM feedback_signals
@@ -347,7 +348,7 @@ pub async fn synthesize_feedback(
         ORDER BY SUM(weight) DESC"#
     );
 
-    let groups = db.execute(&groups_sql).await?;
+    let groups = db.execute_unparameterized(&groups_sql).await?;
     let mut created_prs = Vec::new();
 
     for group in &groups {

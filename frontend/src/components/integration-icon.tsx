@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, Zap, Search, Database, BookOpen, BarChart3, Megaphone, Users } from "lucide-react";
+import { Globe, Zap, Search, Database, BookOpen, BarChart3, Megaphone, Users, LayoutDashboard, Heart, Rocket } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const ICON_COLORS: Record<string, string> = {
@@ -13,6 +13,9 @@ const ICON_COLORS: Record<string, string> = {
   tavily: "#F59E0B",
   meta: "#0668E1",
   google_ads: "#4285F4",
+  dashboard: "#6366F1",
+  lovable: "#EC4899",
+  apollo: "#3B82F6",
 };
 
 const ICON_LABELS: Record<string, string> = {
@@ -25,6 +28,9 @@ const ICON_LABELS: Record<string, string> = {
   tavily: "Tv",
   meta: "M",
   google_ads: "G",
+  dashboard: "",
+  lovable: "",
+  apollo: "",
   http: "",
   generic: "",
 };
@@ -38,6 +44,9 @@ const LUCIDE_FALLBACK: Record<string, LucideIcon> = {
   hubspot: Users,
   meta: Megaphone,
   google_ads: BarChart3,
+  dashboard: LayoutDashboard,
+  lovable: Heart,
+  apollo: Rocket,
 };
 
 interface IntegrationIconProps {

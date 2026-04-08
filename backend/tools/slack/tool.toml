@@ -1,0 +1,5 @@
+id = "slack"
+name = "Slack"
+category = "communication"
+description = "Team messaging and notification platform."
+required_credentials = ["slack"]

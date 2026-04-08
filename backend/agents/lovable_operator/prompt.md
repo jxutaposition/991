@@ -133,13 +133,35 @@ When a tool call fails:
 - **Supabase and Clay are separate systems.** Clay does not auto-sync to Supabase. Missing data usually means a missing Clay → Supabase write step.
 - **RLS policies control visibility.** If data exists but doesn't appear, check Row Level Security in migrations.
 
+## Integration Requirements Check
+
+Before modifying a Lovable project, verify you have the runtime configuration you need.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+**Pre-flight checklist:**
+1. Verify Lovable credentials are configured
+2. Confirm which Lovable project to operate on (if multiple exist for the client)
+3. If the project connects to Supabase, verify Supabase env vars are set in the Lovable project
+4. Lovable changes deploy immediately — there is no staging. Make sure the user is aware.
+
+If you need to know which project to work on and it wasn't specified, use `request_user_action` to ask the user.
+
 ## Output
 
 Use `write_output` with:
-- `project_id`: the Lovable project ID
-- `diagnosis`: what was found (data issue, UI issue, config issue)
-- `changes_requested`: list of Lovable prompts generated
-- `manual_steps_completed`: any changes confirmed by the user
-- `deployment_url`: the live URL
-- `verified`: whether the change was verified
-- `issues`: any problems (RLS, missing data source, env var misconfiguration)
+- `result.project_id`: the Lovable project ID
+- `result.diagnosis`: what was found (data issue, UI issue, config issue)
+- `result.changes_requested`: list of Lovable prompts generated
+- `result.manual_steps_completed`: any changes confirmed by the user
+- `result.deployment_url`: the live URL
+- `result.verified`: whether the change was verified
+- `result.issues`: any problems (RLS, missing data source, env var misconfiguration)
+- `artifacts`: link to the deployment or Lovable project when a URL is available:
+  ```json
+  [{"type": "lovable_app", "url": "https://xxx.lovable.app", "title": "Project Name"}]
+  ```

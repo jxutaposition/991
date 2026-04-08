@@ -69,7 +69,7 @@ async fn cluster_signals(
         ORDER BY COUNT(*) DESC
     "#;
 
-    let groups = db.execute(groups_sql).await?;
+    let groups = db.execute_unparameterized(groups_sql).await?;
     if groups.is_empty() {
         return Ok(0);
     }
@@ -81,7 +81,7 @@ async fn cluster_signals(
         WHERE resolution IS NULL
         ORDER BY weight DESC, created_at
     "#;
-    let all_signals = db.execute(all_signals_sql).await?;
+    let all_signals = db.execute_unparameterized(all_signals_sql).await?;
 
     // Group by (agent_slug, signal_type) in memory
     let mut signal_groups: std::collections::HashMap<(String, String), Vec<Value>> =
@@ -135,13 +135,19 @@ async fn cluster_signals(
                 continue;
             }
 
-            let dup_id_list: String = dup_ids.iter().map(|id| format!("'{id}'::uuid")).collect::<Vec<_>>().join(", ");
-            let batch_sql = format!(
+            let dup_uuids: Vec<Uuid> = dup_ids.iter()
+                .filter_map(|id| id.parse::<Uuid>().ok())
+                .collect();
+            let canonical_uuid = match canonical_id.parse::<Uuid>() {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            if let Ok(rows) = db.execute_with(
                 "UPDATE feedback_signals \
-                 SET resolution = 'deduped', canonical_signal_id = '{canonical_id}'::uuid \
-                 WHERE id IN ({dup_id_list}) AND resolution IS NULL"
-            );
-            if let Ok(rows) = db.execute(&batch_sql).await {
+                 SET resolution = 'deduped', canonical_signal_id = $1 \
+                 WHERE id = ANY($2) AND resolution IS NULL",
+                crate::pg_args!(canonical_uuid, dup_uuids),
+            ).await {
                 total_deduped += rows.len().max(dup_ids.len());
             }
 
@@ -235,6 +241,7 @@ async fn detect_patterns(
     api_key: &str,
     model: &str,
 ) -> anyhow::Result<usize> {
+    // sql-format-ok: MIN_SESSIONS_FOR_PATTERN is a compile-time constant.
     let candidates_sql = format!(
         r#"SELECT agent_slug, signal_type,
                   COUNT(DISTINCT session_id) as session_count,
@@ -247,13 +254,13 @@ async fn detect_patterns(
            ORDER BY COUNT(DISTINCT session_id) DESC"#
     );
 
-    let candidates = db.execute(&candidates_sql).await?;
+    let candidates = db.execute_unparameterized(&candidates_sql).await?;
     if candidates.is_empty() {
         return Ok(0);
     }
 
     // Pre-load all active patterns in one query to avoid per-candidate existence checks (N+1).
-    let existing_patterns = db.execute(
+    let existing_patterns = db.execute_unparameterized(
         "SELECT agent_slug, pattern_type FROM feedback_patterns WHERE status = 'active'"
     ).await.unwrap_or_default();
     let existing_set: std::collections::HashSet<(String, String)> = existing_patterns
@@ -333,7 +340,6 @@ async fn detect_patterns(
             format!("Recurring {} pattern for agent {}", candidate.signal_type, candidate.agent_slug)
         });
 
-        let signal_ids_sql = format_uuid_array(&candidate.signal_ids);
         let severity = match candidate.session_count {
             n if n >= 10 => "critical",
             n if n >= 5 => "high",
@@ -341,21 +347,22 @@ async fn detect_patterns(
         };
 
         let pattern_id = Uuid::new_v4();
-        let slug_escaped = candidate.agent_slug.replace('\'', "''");
-        let type_escaped = candidate.signal_type.replace('\'', "''");
-        let desc_escaped = description.replace('\'', "''");
 
-        let insert_sql = format!(
+        match db.execute_with(
             r#"INSERT INTO feedback_patterns
                 (id, agent_slug, pattern_type, description, signal_ids,
                  session_count, severity, status)
-               VALUES
-                ('{pattern_id}', '{slug_escaped}', '{type_escaped}', '{desc_escaped}',
-                 {signal_ids_sql}, {}, '{severity}', 'active')"#,
-            candidate.session_count,
-        );
-
-        match db.execute(&insert_sql).await {
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')"#,
+            crate::pg_args!(
+                pattern_id,
+                candidate.agent_slug.clone(),
+                candidate.signal_type.clone(),
+                description.clone(),
+                candidate.signal_ids.clone(),
+                candidate.session_count as i64,
+                severity.to_string(),
+            ),
+        ).await {
             Ok(_) => {
                 patterns_created += 1;
                 info!(
@@ -414,10 +421,3 @@ fn extract_signal_ids(candidate: &Value) -> Vec<Uuid> {
         .unwrap_or_default()
 }
 
-fn format_uuid_array(ids: &[Uuid]) -> String {
-    if ids.is_empty() {
-        return "ARRAY[]::uuid[]".to_string();
-    }
-    let items: Vec<String> = ids.iter().map(|id| format!("'{id}'::uuid")).collect();
-    format!("ARRAY[{}]::uuid[]", items.join(", "))
-}

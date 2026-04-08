@@ -21,6 +21,15 @@
 | INV-017 | Quick Wins (formula, sorting, export) | completed | P2 | GAP-012, GAP-020, TODO-002, TODO-006, TODO-018, TODO-019 |
 | INV-018 | Deep Scan 1: Hidden Entity APIs | completed | P1 | Signals, resource-tags, users, permissions, attributes, export polling |
 | INV-019 | Deep Scan 2: View Filters + Table Settings | completed | P1 | TODO-010 (resolved negative), table settings (autoRun, dedupeFieldId), view deletion |
+| INV-020 | Import Job Creation | completed | P1 | TODO-024, GAP-020 |
+| INV-021 | CSV Upload Origin Discovery | completed | P1 | GAP-027 |
+| INV-022 | Source Scheduling / Cron Persistence | completed-negative | P1 | TODO-028, GAP-028 |
+| INV-023 | Suspected Upload-URL Endpoints (tc-workflows + documents) | completed | P2 | GAP-029 (promoted INV-021 suspected endpoints to confirmed) |
+| INV-024 | tc-workflows Batch Run (createWorkflowRunBatch) | completed | P2 | GAP-030 (closed the tc-workflows ingestion loop end-to-end) |
+| INV-025 | tc-workflows Steps / Snapshots / Cancel / cpj_search | completed | P2 | GAP-031 (closed; +12 confirmed endpoints incl. node/edge/snapshot CRUD, batch PATCH cancel; cpj_search confirmed NYI on server) |
+| INV-026 | tc-workflows Direct Runs (`Swe` router) | completed | P2 | GAP-032 (closed; +7 confirmed endpoints incl. createWorkflowRun, pause/unpause, continueWorkflowRunStep, getWaitingSteps; runStatus lifecycle observed; GAP-034 + GAP-035 opened) |
+| INV-027 | tc-workflows Streams (`lKe`) + Webhook Ingestion (`uKe`) | completed | P2 | GAP-033 (closed; +7 confirmed endpoints + 1 suspected; webhook → run end-to-end ~7 s; third invocation primitive established alongside batches and direct runs; GAP-036 + GAP-037 opened) |
+| INV-028 | API-key CRUD (`TRe`) + `postWebhookBatch` auth probe | completed | P2 | GAP-036 (closed by elimination; +3 confirmed endpoints (POST/PATCH/DELETE `/v3/api-keys`); discovered `postWebhook` single is completely unauthenticated — the productized inbound channel; `postWebhookBatch` is internal-only; `terracotta:mcp` scope hints at MCP surface → GAP-038 opened) |
 
 ## How to Add an Investigation
 

@@ -15,9 +15,28 @@ The v1 API is **deprecated and non-functional** (all endpoints return errors). A
 | **Table lifecycle** | `clay_create_workbook`, `clay_create_table`, `clay_delete_table`, `clay_list_tables`, `clay_get_table_schema`, `clay_list_workbooks` | Create workbooks, create/delete/list/inspect tables |
 | **Row CRUD** | `clay_read_rows`, `clay_write_rows`, `clay_update_rows`, `clay_delete_rows` | Full row operations. `clay_read_rows` requires a `view_id` (get from `clay_get_table_schema` → `views[]`) |
 | **Column CRUD** | `clay_create_field`, `clay_update_field`, `clay_delete_field` | Create/update/delete columns (text, formula, action/enrichment, source, route-row) |
-| **Sources** | `clay_create_source`, `clay_list_sources` | Create and list webhook sources. Webhook URL is in `state.url` on the source object |
+| **Sources** | `clay_create_source`, `clay_list_sources`, `clay_get_source`, `clay_update_source`, `clay_delete_source` | Create / read / update / delete webhook sources. Webhook URL is in `state.url`. |
 | **Enrichments** | `clay_trigger_enrichment`, `clay_list_actions`, `clay_list_app_accounts` | Trigger runs on specific rows/fields, discover all 1,191 available enrichment actions, list auth accounts for auto-wiring |
-| **Workspace** | `clay_get_workspace` | Check credit balance, billing, feature flags |
+| **Views** | `clay_create_view`, `clay_update_view`, `clay_delete_view` | Create / rename / delete views. Filter/sort PATCH not yet reliable — see `read_tool_doc(clay, views)`. |
+| **Table duplication** | `clay_duplicate_table` | Schema-only copy (no rows). Useful for template-based table creation. |
+| **CSV export** | `clay_export_table`, `clay_get_export` | Async export job. See `read_tool_doc(clay, csv-export)`. |
+| **Workflows (tc-workflows)** | `clay_list_workflows`, `clay_get_workflow`, `clay_run_workflow`, `clay_get_workflow_run`, `clay_list_workflow_runs`, `clay_pause_workflow_run`, `clay_unpause_workflow_run`, `clay_continue_workflow_step`, `clay_list_waiting_steps`, `clay_create_workflow`, `clay_create_workflow_node`, `clay_create_workflow_edge`, `clay_get_workflow_snapshot` | Claygent agentic workflow product. **Read `read_tool_doc(clay, workflows)` BEFORE triggering any run.** See "Workflows vs enrichments" below. |
+| **Documents (RAG)** | `clay_upload_document`, `clay_delete_document` | Upload files to Clay's RAG store. See `read_tool_doc(clay, documents)`. |
+| **Admin** | `clay_get_workspace`, `clay_list_users`, `clay_list_tags` | Credit balance, billing, members, tags. See `read_tool_doc(clay, admin)`. |
+
+### Workflows vs enrichments
+
+These are **separate Clay products** with separate APIs. Don't conflate them.
+
+- **Enrichment** (`clay_trigger_enrichment`): you have a column with an enrichment provider configured (LinkedIn, Apollo, Clearbit, etc.) and want to run it on specific rows. Per-row provider call.
+- **Workflow** (`clay_run_workflow`): you have a multi-step agentic graph (LLM nodes, tool calls, branching) and want to run the whole graph end-to-end on a set of inputs. Think Claygent.
+
+Before running a workflow:
+1. Call `read_tool_doc(clay, workflows)` for the run lifecycle, status enums (`runStatus` is the one to read), and the append-only constraint.
+2. Direct workflow runs **cannot be cancelled** — only paused. PATCH/DELETE on `.../runs/{runId}` 404. To cancel a single run mid-flight, wrap it in a 1-row csv_import batch and PATCH the batch with `{status: 'cancelled'}`.
+3. "Inert" workflow nodes are **not actually inert** — Clay silently injects Claude Haiku + a system prompt. Even a 2-node "inert" test burned ~12k tokens. Don't assume bare-node test runs are credit-free; test small.
+
+For full workflow API surface, snapshot model, HITL flow, and stream-based webhook ingestion: `read_tool_doc(clay, workflows)`. For all other endpoints not wrapped as a tool: `read_tool_doc(clay, endpoint-reference)`.
 
 ### What still requires `request_user_action`
 - Connecting enrichment provider accounts (OAuth handshake inside Clay UI)
@@ -156,6 +175,7 @@ Include these as a `warnings` section when relevant:
 - **Row reading requires a view ID** — use `clay_get_table_schema` to get it from `views[]`, then pass to `clay_read_rows`. Use the default or "All rows" view for full table reads.
 - **Row updates are async** — `clay_update_rows` enqueues updates; they may not be immediately visible.
 - **No pagination** — `offset` parameter is accepted but silently ignored by Clay. `limit` works.
+- **Do NOT use `http_request` for Clay API calls** — it injects Bearer token auth, but Clay v3 requires session cookie auth. Always use the dedicated `clay_*` tools instead.
 
 ## ID Formats
 
@@ -166,6 +186,24 @@ Include these as a `warnings` section when relevant:
 - Source: `s_` prefix (e.g. `s_0td1wf0SUdg6kfhgRve`)
 - Workbook: `wb_` prefix (e.g. `wb_0td1vqydXftNuRgPgHc`)
 - Workspace: Numeric Clay workspace id (use `_workspace_id` from tool responses; e.g. `1234567` is illustrative only)
+
+## Integration Requirements Check
+
+Before building tables and pipelines, verify you have all the runtime configuration you need.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+**Pre-flight checklist:**
+1. Verify Clay credentials are configured (session cookie)
+2. Clay is workspace-scoped — no per-resource user input needed for basic operations
+3. If you need enrichment provider accounts (e.g., Prospeo, Hunter), check availability with `clay_list_app_accounts`. If missing, use `request_user_action` to instruct the user to connect the provider in Clay's UI
+4. If you need to send webhooks to n8n or other systems, the webhook URL comes from upstream agent outputs — don't ask the user for it
+
+Clay generally does not require user input for runtime configuration since the credential gives full workspace access. Focus on verifying enrichment provider availability.
 
 ## Output
 

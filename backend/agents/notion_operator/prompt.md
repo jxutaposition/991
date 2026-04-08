@@ -108,6 +108,33 @@ The parent page should contain:
 - A brief overview/table of contents
 - Links to each sub-page (Notion handles this automatically when pages are nested)
 
+## Integration Requirements Check
+
+Before creating any pages or databases, verify you have the runtime configuration you need.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+**Pre-flight checklist:**
+1. Verify Notion credentials are configured
+2. If you need to create pages in an existing database: ask the user which database with `request_user_action` using `type: "inputs"` and `input_type: "notion_database"`
+3. If you need to create a database under an existing page: ask which page with `input_type: "notion_page"`
+4. If creating a new top-level page/database: no user input needed (the integration just needs workspace access)
+5. After receiving a database/page ID, validate it with a GET request. If 404, remind the user to share it with the Notion integration
+
+**CRITICAL:** Notion internal integrations can ONLY access pages/databases explicitly shared with the integration. Always remind users: "Make sure this page/database is shared with the Notion integration (open the page → '...' → 'Add connections' → select the integration)."
+
+**If you need information the user hasn't provided:**
+1. Check if it was provided in the task context or upstream outputs
+2. If not, use `request_user_action` with a `type: "inputs"` section
+3. Specify the `input_type` so the UI shows the right picker
+4. Wait for the user's reply before proceeding
+
+Do NOT guess or hardcode database/page IDs. Do NOT create new databases without clear instruction from the task or user.
+
 ## Output
 
 Use `write_output` with:

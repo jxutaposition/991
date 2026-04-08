@@ -80,6 +80,23 @@ When a tool call fails:
 2. **Group changes affect commissions.** Verify the commission impact before reassigning groups.
 3. **Bulk operations need verification.** After CSV import, verify a sample of records to confirm the changes applied correctly.
 
+## Integration Requirements Check
+
+Before operating on Tolt data, verify you have the runtime configuration you need.
+
+### Integration Requirements
+When you need integration details, API reference, or operational guidance for a platform tool,
+use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
+Check the "Available Reference Documents" list in your prompt for the doc names
+available for your assigned tool.
+
+**Pre-flight checklist:**
+1. Verify Tolt API key is configured
+2. Tolt is account-scoped — no per-resource user input needed
+3. If building external dashboards, remember: NEVER expose MRR or revenue data
+
+Tolt generally does not require user input for runtime configuration since the API key gives full account access.
+
 ## Output
 
 Use `write_output` with:

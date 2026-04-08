@@ -10,7 +10,6 @@ use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
-use walkdir::WalkDir;
 
 use crate::pg::PgClient;
 
@@ -54,7 +53,7 @@ pub struct PlatformTool {
     pub category: String,
     pub description: String,
     pub knowledge: String,
-    pub gotchas: Option<String>,
+    pub reference_doc_names: Vec<String>,
     pub actions: Vec<String>,
     pub required_credentials: Vec<String>,
     pub tradeoffs: Value,
@@ -67,6 +66,7 @@ pub struct PlatformTool {
 pub struct ToolCatalog {
     tools: RwLock<BTreeMap<String, PlatformTool>>,
     categories: RwLock<BTreeMap<String, ToolCategory>>,
+    tools_dir: PathBuf,
 }
 
 impl ToolCatalog {
@@ -77,6 +77,7 @@ impl ToolCatalog {
         let catalog = Self {
             tools: RwLock::new(BTreeMap::new()),
             categories: RwLock::new(BTreeMap::new()),
+            tools_dir: tools_dir.to_path_buf(),
         };
         catalog.reload_all(db).await?;
         Ok(catalog)
@@ -85,7 +86,7 @@ impl ToolCatalog {
     pub async fn reload_all(&self, db: &PgClient) -> anyhow::Result<()> {
         // Load categories
         let cat_rows = db
-            .execute("SELECT id, name, description FROM tool_categories ORDER BY id")
+            .execute_unparameterized("SELECT id, name, description FROM tool_categories ORDER BY id")
             .await?;
         let mut cat_map = BTreeMap::new();
         for row in &cat_rows {
@@ -98,15 +99,16 @@ impl ToolCatalog {
 
         // Load tools
         let tool_rows = db
-            .execute(
-                "SELECT id, name, category, description, knowledge, gotchas, \
+            .execute_unparameterized(
+                "SELECT id, name, category, description, knowledge, \
                  actions, required_credentials, tradeoffs, enabled, version \
                  FROM platform_tools ORDER BY id",
             )
             .await?;
         let mut tool_map = BTreeMap::new();
         for row in &tool_rows {
-            if let Some(tool) = parse_tool_row(row) {
+            if let Some(mut tool) = parse_tool_row(row) {
+                tool.reference_doc_names = list_reference_doc_names(&self.tools_dir.join(&tool.id));
                 tool_map.insert(tool.id.clone(), tool);
             }
         }
@@ -144,6 +146,21 @@ impl ToolCatalog {
 
     pub fn category_count(&self) -> usize {
         self.categories.read().unwrap().len()
+    }
+
+    /// Read a reference doc directly from disk by tool_id and doc name.
+    pub fn read_tool_doc(&self, tool_id: &str, doc_name: &str) -> Option<String> {
+        if tool_id.contains('/') || tool_id.contains('\\') || tool_id.contains("..")
+            || doc_name.contains('/') || doc_name.contains('\\') || doc_name.contains("..")
+        {
+            tracing::warn!(tool_id, doc_name, "read_tool_doc: rejected path traversal attempt");
+            return None;
+        }
+        let path = self.tools_dir
+            .join(tool_id)
+            .join("knowledge")
+            .join(format!("{doc_name}.md"));
+        std::fs::read_to_string(&path).ok()
     }
 
     /// Build a summary of tools grouped by category for use in orchestrator prompts.
@@ -217,113 +234,73 @@ async fn seed_tools_from_disk(db: &PgClient, tools_dir: &Path) -> anyhow::Result
         };
 
         let knowledge = load_knowledge(&path);
-        let gotchas = load_optional_file(&path.join("gotchas.md"));
 
-        let tradeoffs_json = match &tool_toml.tradeoffs {
-            Some(tv) => toml_value_to_json(tv),
-            None => "{}".to_string(),
+        let tradeoffs_json: Value = match &tool_toml.tradeoffs {
+            Some(tv) => toml_to_serde_json(tv),
+            None => serde_json::json!({}),
         };
 
-        let id_escaped = tool_toml.id.replace('\'', "''");
-        let name_escaped = tool_toml.name.replace('\'', "''");
-        let category_escaped = tool_toml.category.replace('\'', "''");
-        let desc_escaped = tool_toml.description.replace('\'', "''");
-        let knowledge_escaped = knowledge.replace('\'', "''");
-        let gotchas_escaped = gotchas
-            .as_ref()
-            .map(|g| format!("'{}'", g.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".to_string());
-        let actions_arr = format!(
-            "ARRAY[{}]",
-            actions
-                .iter()
-                .map(|a| format!("'{}'", a.replace('\'', "''")))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        let creds_arr = format!(
-            "ARRAY[{}]",
-            tool_toml
-                .required_credentials
-                .iter()
-                .map(|c| format!("'{}'", c.replace('\'', "''")))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-
-        let sql = format!(
+        // gotchas column is set to NULL — content has been collapsed into knowledge.md.
+        // The column remains in the schema to avoid a migration; future cleanup can drop it.
+        db.execute_with(
             "INSERT INTO platform_tools (id, name, category, description, knowledge, gotchas, actions, required_credentials, tradeoffs, enabled) \
-             VALUES ('{id_escaped}', '{name_escaped}', '{category_escaped}', '{desc_escaped}', \
-             '{knowledge_escaped}', {gotchas_escaped}, {actions_arr}, {creds_arr}, \
-             '{tradeoffs_json}'::jsonb, {enabled}) \
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9) \
              ON CONFLICT (id) DO UPDATE SET \
                 name = EXCLUDED.name, \
                 category = EXCLUDED.category, \
                 description = EXCLUDED.description, \
                 knowledge = EXCLUDED.knowledge, \
-                gotchas = EXCLUDED.gotchas, \
+                gotchas = NULL, \
                 actions = EXCLUDED.actions, \
                 required_credentials = EXCLUDED.required_credentials, \
                 tradeoffs = EXCLUDED.tradeoffs, \
                 enabled = EXCLUDED.enabled, \
                 version = platform_tools.version + 1, \
                 updated_at = now()",
-            enabled = tool_toml.enabled,
-        );
-
-        db.execute(&sql).await?;
+            crate::pg_args!(
+                tool_toml.id.clone(),
+                tool_toml.name.clone(),
+                tool_toml.category.clone(),
+                tool_toml.description.clone(),
+                knowledge,
+                actions,
+                tool_toml.required_credentials.clone(),
+                tradeoffs_json,
+                tool_toml.enabled,
+            ),
+        ).await?;
         info!(id = %tool_toml.id, "seeded platform tool");
     }
 
     Ok(())
 }
 
-/// Load knowledge from a single knowledge.md or a knowledge/ directory.
+/// Load core knowledge from knowledge.md only (tier 1 — always injected).
+/// Reference docs in knowledge/*.md are loaded on-demand via read_tool_doc.
 fn load_knowledge(tool_dir: &Path) -> String {
     let single_file = tool_dir.join("knowledge.md");
-    let knowledge_dir = tool_dir.join("knowledge");
-
-    let mut parts = Vec::new();
-
     if single_file.exists() {
-        if let Ok(content) = std::fs::read_to_string(&single_file) {
-            parts.push(content);
-        }
-    }
-
-    if knowledge_dir.is_dir() {
-        let mut files: Vec<PathBuf> = WalkDir::new(&knowledge_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-            .map(|e| e.path().to_owned())
-            .collect();
-        files.sort();
-
-        for file in files {
-            if let Ok(content) = std::fs::read_to_string(&file) {
-                let relative = file.strip_prefix(&knowledge_dir).unwrap_or(&file);
-                parts.push(format!("<!-- {} -->\n{}", relative.display(), content));
-            }
-        }
-    }
-
-    parts.join("\n\n---\n\n")
-}
-
-fn load_optional_file(path: &Path) -> Option<String> {
-    if path.exists() {
-        std::fs::read_to_string(path).ok()
+        std::fs::read_to_string(&single_file).unwrap_or_default()
     } else {
-        None
+        String::new()
     }
 }
 
-fn toml_value_to_json(val: &toml::Value) -> String {
-    match serde_json::to_string(&toml_to_serde_json(val)) {
-        Ok(s) => s.replace('\'', "''"),
-        Err(_) => "{}".to_string(),
+/// List reference doc names (filenames without .md) from the knowledge/ subdirectory.
+fn list_reference_doc_names(tool_dir: &Path) -> Vec<String> {
+    let dir = tool_dir.join("knowledge");
+    if !dir.is_dir() {
+        return Vec::new();
     }
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
+        .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string()))
+        .collect();
+    names.sort();
+    names
 }
 
 fn toml_to_serde_json(val: &toml::Value) -> Value {
@@ -386,7 +363,7 @@ fn parse_tool_row(row: &Value) -> Option<PlatformTool> {
         category: row.get("category")?.as_str()?.to_string(),
         description: row.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         knowledge: row.get("knowledge").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        gotchas: row.get("gotchas").and_then(|v| v.as_str()).map(String::from),
+        reference_doc_names: Vec::new(),
         actions,
         required_credentials,
         tradeoffs,

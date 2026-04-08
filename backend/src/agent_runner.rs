@@ -98,9 +98,10 @@ async fn maybe_emit_early_artifact(
     session_id: &str,
     node_id: &str,
     tool_name: &str,
+    tool_input: Option<&Value>,
     result: &str,
 ) {
-    let artifact = match extract_artifact(tool_name, result) {
+    let artifact = match extract_artifact(tool_name, tool_input, result) {
         Some(a) => a,
         None => return,
     };
@@ -117,7 +118,7 @@ async fn maybe_emit_early_artifact(
     })).await;
 }
 
-fn extract_artifact(tool_name: &str, result: &str) -> Option<Value> {
+fn extract_artifact(tool_name: &str, tool_input: Option<&Value>, result: &str) -> Option<Value> {
     let result_json: Value = serde_json::from_str(result).ok()?;
 
     // Clay workbook/table creation
@@ -171,7 +172,7 @@ fn extract_artifact(tool_name: &str, result: &str) -> Option<Value> {
 
         // n8n workflow creation (response has "id" + "name" + "nodes" fields)
         if result_json.get("nodes").is_some() && result_json.get("name").is_some() {
-            if let Some(wf_id) = result_json.get("id").and_then(|v| v.as_str().or(v.as_i64().map(|_| "").or(Some("")))) {
+            if let Some(_wf_id) = result_json.get("id").and_then(|v| v.as_str().or(v.as_i64().map(|_| "").or(Some("")))) {
                 let wf_id_str = result_json.get("id").map(|v| match v {
                     Value::String(s) => s.clone(),
                     Value::Number(n) => n.to_string(),
@@ -179,8 +180,17 @@ fn extract_artifact(tool_name: &str, result: &str) -> Option<Value> {
                 }).unwrap_or_default();
                 if !wf_id_str.is_empty() {
                     let name = result_json.get("name").and_then(Value::as_str).unwrap_or("n8n Workflow");
-                    let _ = wf_id;
-                    return Some(json!({"type": "n8n_workflow", "id": wf_id_str, "title": name}));
+                    let base_url = tool_input
+                        .and_then(|ti| ti.get("url"))
+                        .and_then(Value::as_str)
+                        .and_then(|u| u.split("/api/").next())
+                        .unwrap_or("");
+                    let wf_url = if base_url.is_empty() {
+                        format!("#n8n-workflow-{}", wf_id_str)
+                    } else {
+                        format!("{}/workflow/{}", base_url, wf_id_str)
+                    };
+                    return Some(json!({"type": "n8n_workflow", "url": wf_url, "id": wf_id_str, "title": name}));
                 }
             }
         }
@@ -621,7 +631,71 @@ impl AgentRunner {
             system_prompt
         };
 
-        // SD-004: Inject platform tool knowledge if this node has a tool_id
+        // SD-008: Inject assigned resource metadata from project_resources
+        let system_prompt = if let Some(ref desc) = node_description {
+            if let Some(assigned) = desc.get("assigned_resources").and_then(serde_json::Value::as_array) {
+                let resource_ids: Vec<uuid::Uuid> = assigned.iter()
+                    .filter_map(|r| r.get("resource_id").and_then(serde_json::Value::as_str))
+                    .filter_map(|s| s.parse().ok())
+                    .collect();
+                if !resource_ids.is_empty() {
+                    if let Ok(rows) = self.db.execute_with(
+                        "SELECT integration_slug, resource_type, display_name, external_id, \
+                                external_url, discovered_metadata \
+                         FROM project_resources WHERE id = ANY($1)",
+                        crate::pg_args!(resource_ids.clone()),
+                    ).await {
+                        if !rows.is_empty() {
+                            let mut p = system_prompt;
+                            p.push_str("\n\n## Your Assigned Resources\n");
+                            p.push_str("You are responsible for the following resources. Use these directly.\n\n");
+                            let mut current_integration = String::new();
+                            for row in &rows {
+                                let slug = row.get("integration_slug").and_then(serde_json::Value::as_str).unwrap_or("");
+                                let rtype = row.get("resource_type").and_then(serde_json::Value::as_str).unwrap_or("");
+                                let name = row.get("display_name").and_then(serde_json::Value::as_str).unwrap_or("");
+                                let ext_id = row.get("external_id").and_then(serde_json::Value::as_str).unwrap_or("");
+                                let url = row.get("external_url").and_then(serde_json::Value::as_str);
+                                let metadata = row.get("discovered_metadata");
+
+                                if slug != current_integration {
+                                    p.push_str(&format!("### {slug}\n"));
+                                    current_integration = slug.to_string();
+                                }
+                                p.push_str(&format!("- **{name}** ({rtype}, id: `{ext_id}`)"));
+                                if let Some(u) = url {
+                                    p.push_str(&format!(" — [link]({u})"));
+                                }
+                                p.push('\n');
+                                if let Some(meta) = metadata {
+                                    if meta.is_object() && !meta.as_object().unwrap().is_empty() {
+                                        if let Ok(pretty) = serde_json::to_string_pretty(meta) {
+                                            p.push_str(&format!("  ```json\n  {pretty}\n  ```\n"));
+                                        }
+                                    }
+                                }
+                            }
+                            tracing::debug!(agent = %plan_node.agent_slug, resource_count = rows.len(), "injected assigned resource context");
+                            p
+                        } else {
+                            system_prompt
+                        }
+                    } else {
+                        system_prompt
+                    }
+                } else {
+                    system_prompt
+                }
+            } else {
+                system_prompt
+            }
+        } else {
+            system_prompt
+        };
+
+        // SD-004: Inject platform tool knowledge if this node has a tool_id.
+        // Tier 1 (knowledge.md) is always injected into the base prompt.
+        // Tier 2 (knowledge/*.md) is listed by filename — agents fetch on-demand via read_tool_doc.
         let system_prompt = if let Some(ref tool_id) = plan_node.tool_id {
             if let Some(tool) = self.tool_catalog.get_tool(tool_id) {
                 let mut p = system_prompt;
@@ -631,10 +705,14 @@ impl AgentRunner {
                 if !tool.knowledge.is_empty() {
                     p.push_str(&tool.knowledge);
                 }
-                if let Some(ref gotchas) = tool.gotchas {
-                    if !gotchas.is_empty() {
-                        p.push_str("\n\n");
-                        p.push_str(gotchas);
+                if !tool.reference_doc_names.is_empty() {
+                    p.push_str("\n\nReference docs available via `read_tool_doc(tool_id=\"");
+                    p.push_str(tool_id);
+                    p.push_str("\", doc_name=\"...\")`:\n");
+                    for name in &tool.reference_doc_names {
+                        p.push_str("- ");
+                        p.push_str(name);
+                        p.push('\n');
                     }
                 }
                 debug!(agent = %plan_node.agent_slug, tool = %tool_id, "injected tool knowledge into prompt");
@@ -868,6 +946,24 @@ impl AgentRunner {
                         duration_ms: node_started_at.elapsed().as_millis() as u64,
                     };
                 }
+            }
+
+            // ── Gate: fail if executor never called write_output ──────────────
+            let has_output = executor_output.as_ref()
+                .map(|o| !o.is_null() && o != &json!({}))
+                .unwrap_or(false);
+            if !has_output {
+                warn!(uid = %uid_str, attempt, "executor produced no structured output (no write_output call) — failing");
+                return AgentResult {
+                    node_uid: uid_str,
+                    status: NodeStatus::Failed,
+                    judge_score: None,
+                    judge_feedback: Some("Executor did not call write_output".to_string()),
+                    final_summary: Some(executor_summary),
+                    output: executor_output,
+                    error: Some("No write_output call — agent may have hit max_tokens or exhausted iterations".to_string()),
+                    duration_ms: node_started_at.elapsed().as_millis() as u64,
+                };
             }
 
             // ── Stage 2: Judge ────────────────────────────────────────────────
@@ -1176,6 +1272,39 @@ impl AgentRunner {
                 break;
             }
 
+            if stop_reason == "max_tokens" {
+                warn!(node_id = %node_id, iteration = iteration + 1, "response truncated (max_tokens) — continuing");
+                emit_event(&self.db, &self.event_bus, session_id, node_id, "executor_max_tokens", &json!({
+                    "iteration": iteration + 1,
+                })).await;
+
+                // The truncated assistant message is already in `messages` (line above).
+                // If it contained partial tool_use blocks, we must provide matching
+                // tool_result entries so the Anthropic API doesn't reject the next call.
+                let truncated_tool_uses = response.tool_uses();
+                if !truncated_tool_uses.is_empty() {
+                    let error_results: Vec<(String, String)> = truncated_tool_uses
+                        .iter()
+                        .map(|(id, name, _)| (
+                            id.to_string(),
+                            json!({"error": format!(
+                                "Response was truncated (max_tokens). The {} call was cut off. \
+                                 Please retry with a smaller payload.",
+                                name
+                            )}).to_string(),
+                        ))
+                        .collect();
+                    messages.push(tool_results_message(&error_results));
+                }
+
+                messages.push(user_message(
+                    "[System: Your previous response was cut off due to output length limits. \
+                     Continue from where you left off. If you were building a large payload, \
+                     break it into smaller chunks across multiple tool calls.]".to_string()
+                ));
+                continue;
+            }
+
             if !response.is_tool_use() {
                 info!(node_id = %node_id, iterations = iteration + 1, "executor finished (no tool use)");
                 final_summary = response.text();
@@ -1325,6 +1454,19 @@ impl AgentRunner {
                         .unwrap_or("")
                         .to_string();
 
+                    // Merge summary + verification into stored output so the canvas
+                    // and blocker pipeline can read them from output.summary / output.verification.
+                    if let Some(ref mut output) = final_output {
+                        if let Some(obj) = output.as_object_mut() {
+                            if !final_summary.is_empty() {
+                                obj.entry("summary").or_insert_with(|| Value::String(final_summary.clone()));
+                            }
+                            if let Some(v) = tool_input.get("verification") {
+                                obj.entry("verification").or_insert_with(|| v.clone());
+                            }
+                        }
+                    }
+
                     // Merge top-level artifacts into the output so work_queue can extract them.
                     // Resolve "self" references in artifact URLs to the actual node_id.
                     if let Some(artifacts) = tool_input.get("artifacts") {
@@ -1364,6 +1506,13 @@ impl AgentRunner {
                     let chunk_idx = tool_input.get("chunk_index").and_then(Value::as_i64).unwrap_or(0);
                     let range = tool_input.get("range").and_then(Value::as_i64).unwrap_or(5).min(20);
                     self.execute_read_knowledge(doc_id, chunk_idx, range, client_id).await
+                } else if tool_name == "read_tool_doc" {
+                    let tid = tool_input.get("tool_id").and_then(Value::as_str).unwrap_or("");
+                    let dname = tool_input.get("doc_name").and_then(Value::as_str).unwrap_or("");
+                    match self.tool_catalog.read_tool_doc(tid, dname) {
+                        Some(content) => json!({"tool_id": tid, "doc_name": dname, "content": content}).to_string(),
+                        None => json!({"error": format!("Doc '{}' not found for tool '{}'", dname, tid)}).to_string(),
+                    }
                 } else {
                     actions::execute_action(tool_name, tool_input, session_id, upstream_outputs, credentials, &self.settings, &self.http_client).await
                 };
@@ -1382,7 +1531,7 @@ impl AgentRunner {
                     "tool_name": tool_name,
                 })).await;
 
-                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
+                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, Some(tool_input), &result).await;
 
                 tool_results.push((tool_use_id.clone(), result));
             }
@@ -1639,15 +1788,21 @@ Respond with ONLY the JSON object:
                 "hidden": true,
             })).await;
 
-            // LLM enrichment call — no tools, just context preparation
-            let enrichment_response = if let Some(budget) = thinking_budget {
-                client
-                    .messages_with_thinking(system_prompt, &messages, &[], 4096, Some(model), budget)
-                    .await
-            } else {
-                client
-                    .messages(system_prompt, &messages, &[], 4096, Some(model))
-                    .await
+            // LLM enrichment call — streamed so the frontend sees live thinking/text
+            let (mut enrichment_delta_rx, enrichment_handle) = client.messages_stream(
+                system_prompt,
+                &messages,
+                &[],
+                4096,
+                Some(model),
+                thinking_budget,
+            );
+            while let Some(event) = enrichment_delta_rx.recv().await {
+                forward_stream_delta(&self.event_bus, &sid, &nid, i + 1, &event).await;
+            }
+            let enrichment_response = match enrichment_handle.await {
+                Ok(r) => r,
+                Err(e) => Err(anyhow::anyhow!("enrichment LLM task panicked: {e}")),
             };
 
             let enrichment_text = match enrichment_response {
@@ -1770,6 +1925,20 @@ Respond with ONLY the JSON object:
             } else if final_status != "passed" {
                 all_passed = false;
                 blockers.push(format!("Step {} ({}) ended with status: {}", i + 1, agent_slug, final_status));
+            } else {
+                // Status is "passed" — verify the child actually produced actionable output.
+                let child_output = result.get("output");
+                let has_real_output = child_output
+                    .map(|o| !o.is_null() && o != &json!({}) && !o.get("summary").map_or(false, |s| s.is_string() && o.as_object().map_or(false, |obj| obj.len() <= 2)))
+                    .unwrap_or(false);
+                if !has_real_output {
+                    warn!(step = i + 1, agent = %agent_slug, "step passed but produced no actionable output");
+                    all_passed = false;
+                    blockers.push(format!(
+                        "Step {} ({}) passed but produced no structured output — downstream steps may lack required data",
+                        i + 1, agent_slug
+                    ));
+                }
             }
 
             // Extract and persist artifacts + step_index on the child node
@@ -1843,14 +2012,20 @@ Respond with ONLY the JSON object:
             "all_passed": all_passed,
         })).await;
 
-        let synthesis_response = if let Some(budget) = thinking_budget {
-            client
-                .messages_with_thinking(system_prompt, &messages, &[], 8192, Some(model), budget)
-                .await
-        } else {
-            client
-                .messages(system_prompt, &messages, &[], 8192, Some(model))
-                .await
+        let (mut synthesis_delta_rx, synthesis_handle) = client.messages_stream(
+            system_prompt,
+            &messages,
+            &[],
+            8192,
+            Some(model),
+            thinking_budget,
+        );
+        while let Some(event) = synthesis_delta_rx.recv().await {
+            forward_stream_delta(&self.event_bus, &sid, &nid, preview_children.len() + 1, &event).await;
+        }
+        let synthesis_response = match synthesis_handle.await {
+            Ok(r) => r,
+            Err(e) => Err(anyhow::anyhow!("synthesis LLM task panicked: {e}")),
         };
 
         let (final_output, final_summary) = match synthesis_response {
@@ -1949,30 +2124,30 @@ Respond with ONLY the JSON object:
             embedding.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
         );
 
-        // project_clause uses a parameter ($3) when project_id is present
+        // project_clause uses a parameter ($4) when project_id is present
         let project_clause = if project_id.is_some() {
-            "AND (c.project_id IS NULL OR c.project_id = $3)"
+            "AND (c.project_id IS NULL OR c.project_id = $4)"
         } else {
             ""
         };
 
-        // Step 2: Hybrid search — vector + BM25 merged via Reciprocal Rank Fusion
-        // Note: embedding_str is generated from API float values, not user input,
-        // and pgvector literals can't be parameterized easily, so they stay as format.
+        // Step 2: Hybrid search — vector + BM25 merged via Reciprocal Rank Fusion.
+        // sql-format-ok: only `project_clause` is interpolated, and it is one of two
+        // hardcoded string literals above. All values bound via $1..$4.
         let sql = format!(
             "WITH vector_results AS ( \
                 SELECT c.id, c.content, c.context_prefix, c.section_title, \
                        c.chunk_index, c.document_id, c.metadata, \
                        d.source_path, d.source_filename, \
-                       1 - (c.embedding <=> '{embedding_str}'::vector) AS similarity, \
-                       ROW_NUMBER() OVER (ORDER BY c.embedding <=> '{embedding_str}'::vector) AS rank_v \
+                       1 - (c.embedding <=> $3::vector) AS similarity, \
+                       ROW_NUMBER() OVER (ORDER BY c.embedding <=> $3::vector) AS rank_v \
                 FROM knowledge_chunks c \
                 JOIN knowledge_documents d ON c.document_id = d.id \
                 WHERE c.tenant_id = $1 \
                   AND d.status = 'ready' \
                   {project_clause} \
-                  AND 1 - (c.embedding <=> '{embedding_str}'::vector) > 0.25 \
-                ORDER BY c.embedding <=> '{embedding_str}'::vector \
+                  AND 1 - (c.embedding <=> $3::vector) > 0.25 \
+                ORDER BY c.embedding <=> $3::vector \
                 LIMIT 20 \
             ), \
             bm25_results AS ( \
@@ -2007,9 +2182,9 @@ Respond with ONLY the JSON object:
         );
 
         let args = if let Some(pid) = project_id {
-            crate::pg_args!(tenant_id, query.to_string(), pid)
+            crate::pg_args!(tenant_id, query.to_string(), embedding_str.clone(), pid)
         } else {
-            crate::pg_args!(tenant_id, query.to_string())
+            crate::pg_args!(tenant_id, query.to_string(), embedding_str.clone())
         };
 
         let candidates = match self.db.execute_with(&sql, args).await {
@@ -2068,6 +2243,8 @@ Respond with ONLY the JSON object:
                     pi += 4;
                 }
             }
+            // sql-format-ok: `conditions` are hardcoded `column = $N` fragments built
+            // above, all values bound via PgArguments.
             let neighbor_sql = format!(
                 "SELECT c.id, c.content, c.context_prefix, c.section_title, \
                         c.chunk_index, c.document_id::text \
@@ -2377,7 +2554,7 @@ Respond with ONLY the JSON object:
             tool_name, tool_input, session_id, &upstream_outputs, &credentials, &self.settings, &self.http_client,
         ).await;
 
-        maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
+        maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, Some(tool_input), &result).await;
 
         result
     }
@@ -2663,7 +2840,7 @@ Respond with ONLY the JSON object:
 
         // Load conversation state from DB
         let rows = self.db.execute_with(
-            "SELECT conversation_state, agent_slug, model, max_iterations, task_description FROM execution_nodes WHERE id = $1 AND session_id = $2",
+            "SELECT conversation_state, agent_slug, model, max_iterations, task_description, skip_judge, judge_config FROM execution_nodes WHERE id = $1 AND session_id = $2",
             pg_args!(nid, sid),
         ).await.unwrap_or_default();
 
@@ -2685,6 +2862,10 @@ Respond with ONLY the JSON object:
         let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("");
         let model = row.get("model").and_then(Value::as_str).unwrap_or("claude-haiku-4-5-20251001");
         let max_iterations = row.get("max_iterations").and_then(Value::as_i64).unwrap_or(100) as usize;
+        let skip_judge = row.get("skip_judge").and_then(Value::as_bool).unwrap_or(false);
+        let judge_config: crate::agent_catalog::JudgeConfig = row.get("judge_config")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
 
         if conv_state.is_null() {
             return AgentResult {
@@ -2904,6 +3085,32 @@ Respond with ONLY the JSON object:
                 break;
             }
 
+            let resume_stop_reason = response.stop_reason.as_deref().unwrap_or("end_turn");
+            if resume_stop_reason == "max_tokens" {
+                warn!(node_id = %node_id, iteration = iteration + 1, "resume response truncated (max_tokens) — continuing");
+                let truncated_tool_uses = response.tool_uses();
+                if !truncated_tool_uses.is_empty() {
+                    let error_results: Vec<(String, String)> = truncated_tool_uses
+                        .iter()
+                        .map(|(id, name, _)| (
+                            id.to_string(),
+                            json!({"error": format!(
+                                "Response was truncated (max_tokens). The {} call was cut off. \
+                                 Please retry with a smaller payload.",
+                                name
+                            )}).to_string(),
+                        ))
+                        .collect();
+                    messages.push(tool_results_message(&error_results));
+                }
+                messages.push(user_message(
+                    "[System: Your previous response was cut off due to output length limits. \
+                     Continue from where you left off. If you were building a large payload, \
+                     break it into smaller chunks across multiple tool calls.]".to_string()
+                ));
+                continue;
+            }
+
             if !response.is_tool_use() {
                 info!(node_id = %node_id, iterations = iteration + 1, "resume executor finished (no tool use)");
                 final_summary = response.text();
@@ -2927,6 +3134,17 @@ Respond with ONLY the JSON object:
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
+
+                    if let Some(ref mut output) = final_output {
+                        if let Some(obj) = output.as_object_mut() {
+                            if !final_summary.is_empty() {
+                                obj.entry("summary").or_insert_with(|| Value::String(final_summary.clone()));
+                            }
+                            if let Some(v) = tool_input.get("verification") {
+                                obj.entry("verification").or_insert_with(|| v.clone());
+                            }
+                        }
+                    }
 
                     if let Some(artifacts) = tool_input.get("artifacts") {
                         let mut resolved = artifacts.clone();
@@ -3007,7 +3225,7 @@ Respond with ONLY the JSON object:
                     "tool_name": tool_name,
                 })).await;
 
-                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, &result).await;
+                maybe_emit_early_artifact(&self.db, &self.event_bus, session_id, node_id, tool_name, Some(tool_input), &result).await;
 
                 tool_results.push((tool_use_id.clone(), result));
             }
@@ -3032,17 +3250,80 @@ Respond with ONLY the JSON object:
             pg_args!(conv_state, nid, sid),
         ).await;
 
-        let status = if paused_for_user {
-            NodeStatus::AwaitingReply
-        } else if final_output.is_some() {
-            NodeStatus::Passed
-        } else {
-            NodeStatus::Passed
-        };
+        if paused_for_user {
+            return AgentResult {
+                node_uid: node_id.to_string(),
+                status: NodeStatus::AwaitingReply,
+                judge_score: None,
+                judge_feedback: None,
+                final_summary: Some(final_summary),
+                output: final_output,
+                error: None,
+                duration_ms: started_at.elapsed().as_millis() as u64,
+            };
+        }
+
+        if final_output.is_none() {
+            return AgentResult {
+                node_uid: node_id.to_string(),
+                status: NodeStatus::Failed,
+                judge_score: None,
+                judge_feedback: None,
+                final_summary: Some(final_summary),
+                output: None,
+                error: Some("Executor produced no output after resume (no write_output call)".to_string()),
+                duration_ms: started_at.elapsed().as_millis() as u64,
+            };
+        }
+
+        // Run judge evaluation on the resumed output
+        if !skip_judge {
+            let task_desc = row.get("task_description").and_then(Value::as_str).unwrap_or("(unknown task)");
+            let executor_question = format!("Task: {}", task_desc);
+            let judge_result = self
+                .judge_run(&executor_question, &final_summary, &judge_config, model)
+                .await;
+
+            let llm_verdict = judge_result.get("verdict").and_then(Value::as_str).unwrap_or("fail");
+            let score = judge_result.get("score").and_then(Value::as_f64).unwrap_or(0.0);
+            let feedback = judge_result.get("feedback").and_then(Value::as_str).unwrap_or("").to_string();
+
+            let verdict = if llm_verdict == "pass" && score < judge_config.threshold {
+                "fail"
+            } else {
+                llm_verdict
+            };
+
+            info!(node_id = %node_id, verdict, score, "resume judge evaluation complete");
+
+            if verdict != "pass" {
+                return AgentResult {
+                    node_uid: node_id.to_string(),
+                    status: NodeStatus::Failed,
+                    judge_score: Some(score),
+                    judge_feedback: Some(feedback),
+                    final_summary: Some(final_summary),
+                    output: final_output,
+                    error: Some(format!("Judge rejected resumed output (verdict={}, score={})", verdict, score)),
+                    duration_ms: started_at.elapsed().as_millis() as u64,
+                };
+            }
+
+            return AgentResult {
+                node_uid: node_id.to_string(),
+                status: NodeStatus::Passed,
+                judge_score: Some(score),
+                judge_feedback: Some(feedback),
+                final_summary: Some(final_summary),
+                output: final_output,
+                error: None,
+                duration_ms: started_at.elapsed().as_millis() as u64,
+            };
+        }
 
         AgentResult {
             node_uid: node_id.to_string(),
-            status,
+            status: NodeStatus::Passed,
             judge_score: None,
             judge_feedback: None,
             final_summary: Some(final_summary),

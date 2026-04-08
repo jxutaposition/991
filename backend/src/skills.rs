@@ -54,7 +54,7 @@ impl SkillCatalog {
 
     pub async fn reload_all(&self, db: &PgClient) -> anyhow::Result<()> {
         let rows = db
-            .execute(
+            .execute_unparameterized(
                 "SELECT id, slug, name, description, base_prompt, base_lessons, \
                  judge_config, examples, knowledge_docs, default_tools, \
                  max_iterations, model, skip_judge, expert_id \
@@ -202,26 +202,37 @@ pub async fn resolve_overlays(
     // Load narratives for the relevant scope chain
     let narratives = load_scope_narratives(db, expert_id, client_id, project_id).await;
 
-    let mut scope_clauses = vec![format!(
-        "(primitive_type = 'skill' AND primitive_id = '{skill_id}' AND scope = 'base')"
-    )];
+    use sqlx::Arguments as _;
+    let mut scope_clauses: Vec<String> =
+        vec!["(primitive_type = 'skill' AND primitive_id = $1 AND scope = 'base')".to_string()];
+    let mut args = sqlx::postgres::PgArguments::default();
+    args.add(skill_id).expect("encode");
+    let mut pi: u32 = 2;
 
     if let Some(eid) = expert_id {
         scope_clauses.push(format!(
-            "(primitive_type = 'skill' AND primitive_id = '{skill_id}' AND scope = 'expert' AND scope_id = '{eid}')"
+            "(primitive_type = 'skill' AND primitive_id = $1 AND scope = 'expert' AND scope_id = ${pi})"
         ));
+        args.add(eid).expect("encode");
+        pi += 1;
     }
     if let Some(cid) = client_id {
         scope_clauses.push(format!(
-            "(primitive_type = 'skill' AND primitive_id = '{skill_id}' AND scope = 'client' AND scope_id = '{cid}')"
+            "(primitive_type = 'skill' AND primitive_id = $1 AND scope = 'client' AND scope_id = ${pi})"
         ));
+        args.add(cid).expect("encode");
+        pi += 1;
     }
     if let Some(pid) = project_id {
         scope_clauses.push(format!(
-            "(primitive_type = 'skill' AND primitive_id = '{skill_id}' AND scope = 'project' AND scope_id = '{pid}')"
+            "(primitive_type = 'skill' AND primitive_id = $1 AND scope = 'project' AND scope_id = ${pi})"
         ));
+        args.add(pid).expect("encode");
+        pi += 1;
     }
+    let _ = pi;
 
+    // sql-format-ok: scope_clauses contain only `... = $N` placeholders bound via args.
     let sql = format!(
         "SELECT content, scope, scope_id, created_at FROM overlays \
          WHERE ({}) AND retired_at IS NULL \
@@ -232,7 +243,7 @@ pub async fn resolve_overlays(
         scope_clauses.join(" OR ")
     );
 
-    let rows = match db.execute(&sql).await {
+    let rows = match db.execute_with(&sql, args).await {
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, "failed to resolve overlays");
@@ -294,17 +305,28 @@ async fn load_scope_narratives(
     client_id: Option<uuid::Uuid>,
     project_id: Option<uuid::Uuid>,
 ) -> Vec<(String, String, String)> {
-    let mut clauses = vec!["(scope = 'base' AND scope_id IS NULL)".to_string()];
+    use sqlx::Arguments as _;
+    let mut clauses: Vec<String> = vec!["(scope = 'base' AND scope_id IS NULL)".to_string()];
+    let mut args = sqlx::postgres::PgArguments::default();
+    let mut pi: u32 = 1;
     if let Some(eid) = expert_id {
-        clauses.push(format!("(scope = 'expert' AND scope_id = '{eid}')"));
+        clauses.push(format!("(scope = 'expert' AND scope_id = ${pi})"));
+        args.add(eid).expect("encode");
+        pi += 1;
     }
     if let Some(cid) = client_id {
-        clauses.push(format!("(scope = 'client' AND scope_id = '{cid}')"));
+        clauses.push(format!("(scope = 'client' AND scope_id = ${pi})"));
+        args.add(cid).expect("encode");
+        pi += 1;
     }
     if let Some(pid) = project_id {
-        clauses.push(format!("(scope = 'project' AND scope_id = '{pid}')"));
+        clauses.push(format!("(scope = 'project' AND scope_id = ${pi})"));
+        args.add(pid).expect("encode");
+        pi += 1;
     }
+    let _ = pi;
 
+    // sql-format-ok: clauses contain only `... = $N` placeholders bound via args.
     let sql = format!(
         "SELECT scope, narrative_text, generated_at FROM scope_narratives WHERE {} \
          ORDER BY CASE scope WHEN 'base' THEN 0 WHEN 'expert' THEN 1 \
@@ -312,7 +334,7 @@ async fn load_scope_narratives(
         clauses.join(" OR ")
     );
 
-    match db.execute(&sql).await {
+    match db.execute_with(&sql, args).await {
         Ok(rows) => rows
             .iter()
             .filter_map(|r| {
@@ -410,7 +432,7 @@ pub async fn build_assembled_prompt(
 
 async fn seed_skills_from_agents(db: &PgClient) -> anyhow::Result<()> {
     let rows = db
-        .execute(
+        .execute_unparameterized(
             "SELECT slug, name, category, description, system_prompt, tools, \
              judge_config, examples, knowledge_docs, max_iterations, model, \
              skip_judge, expert_id FROM agent_definitions ORDER BY slug",
@@ -419,96 +441,70 @@ async fn seed_skills_from_agents(db: &PgClient) -> anyhow::Result<()> {
 
     for row in &rows {
         let slug = match row.get("slug").and_then(Value::as_str) {
-            Some(s) => s,
+            Some(s) => s.to_string(),
             None => continue,
         };
 
-        let name = row.get("name").and_then(Value::as_str).unwrap_or("");
-        let description = row.get("description").and_then(Value::as_str).unwrap_or("");
-        let base_prompt = row.get("system_prompt").and_then(Value::as_str).unwrap_or("");
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+        let description = row.get("description").and_then(Value::as_str).unwrap_or("").to_string();
+        let base_prompt = row.get("system_prompt").and_then(Value::as_str).unwrap_or("").to_string();
 
-        let judge_config = row
+        let judge_config: Value = row
             .get("judge_config")
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| r#"{"threshold":7.0,"rubric":[],"need_to_know":[]}"#.to_string());
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({"threshold":7.0,"rubric":[],"need_to_know":[]}));
 
-        let examples = row
+        let examples: Value = row
             .get("examples")
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "[]".to_string());
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
 
-        // Build knowledge_docs as a PostgreSQL array literal using dollar-quoting.
-        // Use a unique delimiter per item to prevent content containing the delimiter
-        // from breaking the SQL (e.g. if a doc literally contains "$kd0$").
-        let knowledge_docs_val: String = row
+        let knowledge_docs: Vec<String> = row
             .get("knowledge_docs")
             .and_then(Value::as_array)
-            .map(|arr| {
-                if arr.is_empty() {
-                    return "ARRAY[]::text[]".to_string();
-                }
-                let items: Vec<String> = arr
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .enumerate()
-                    .map(|(i, s)| {
-                        // Find a delimiter tag that doesn't appear in the content
-                        let mut tag = format!("kd{i}");
-                        while s.contains(&format!("${tag}$")) {
-                            tag.push('_');
-                        }
-                        format!("${tag}${s}${tag}$")
-                    })
-                    .collect();
-                format!("ARRAY[{}]::text[]", items.join(","))
-            })
-            .unwrap_or_else(|| "ARRAY[]::text[]".to_string());
+            .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
+            .unwrap_or_default();
 
-        let tools_val: String = row
+        let tools: Vec<String> = row
             .get("tools")
             .and_then(Value::as_array)
-            .map(|arr| {
-                if arr.is_empty() {
-                    return "ARRAY[]::text[]".to_string();
-                }
-                let items: Vec<String> = arr
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|s| format!("\'{}\'", s))
-                    .collect();
-                format!("ARRAY[{}]::text[]", items.join(","))
-            })
-            .unwrap_or_else(|| "ARRAY[]::text[]".to_string());
+            .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
+            .unwrap_or_default();
 
-        let max_iter = row.get("max_iterations").and_then(Value::as_i64).unwrap_or(15);
-        let model_val = row
+        let max_iter = row.get("max_iterations").and_then(Value::as_i64).unwrap_or(15) as i32;
+        let model_val: Option<String> = row
             .get("model")
             .and_then(Value::as_str)
-            .map(|m| format!("$m${}$m$", m))
-            .unwrap_or_else(|| "NULL".to_string());
+            .map(String::from);
         let skip_judge = row.get("skip_judge").and_then(Value::as_bool).unwrap_or(false);
-        let expert_id_val = row
+        let expert_id_val: Option<uuid::Uuid> = row
             .get("expert_id")
             .and_then(Value::as_str)
-            .map(|id| format!("\'{id}\'"))
-            .unwrap_or_else(|| "NULL".to_string());
+            .and_then(|s| s.parse().ok());
 
-        // Use dollar-quoting for all text fields to avoid single-quote escaping issues
-        let sql = format!(
+        match db.execute_with(
             r#"INSERT INTO skills
                 (slug, name, description, base_prompt, judge_config, examples,
                  knowledge_docs, default_tools, max_iterations, model, skip_judge, expert_id)
-               VALUES
-                ($s${slug}$s$, $n${name}$n$, $d${description}$d$, $bp${base_prompt}$bp$,
-                 $jc${judge_config}$jc$::jsonb, $ex${examples}$ex$::jsonb,
-                 {knowledge_docs_val}, {tools_val}, {max_iter}, {model_val}, {skip_judge},
-                 {expert_id_val})
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                ON CONFLICT (slug) DO NOTHING"#,
-        );
-
-        match db.execute(&sql).await {
-            Ok(_) => info!(slug = slug, "seeded skill from agent_definition"),
-            Err(e) => warn!(slug = slug, error = %e, "failed to seed skill"),
+            crate::pg_args!(
+                slug.clone(),
+                name,
+                description,
+                base_prompt,
+                judge_config,
+                examples,
+                knowledge_docs,
+                tools,
+                max_iter,
+                model_val,
+                skip_judge,
+                expert_id_val,
+            ),
+        ).await {
+            Ok(_) => info!(slug = %slug, "seeded skill from agent_definition"),
+            Err(e) => warn!(slug = %slug, error = %e, "failed to seed skill"),
         }
     }
 

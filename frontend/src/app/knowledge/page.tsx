@@ -17,6 +17,11 @@ import {
   Download,
   Eye,
   List,
+  Brain,
+  Sparkles,
+  BookOpen,
+  Layers,
+  RefreshCw,
 } from "lucide-react";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -358,9 +363,540 @@ function IngestionTracker({
   );
 }
 
+interface LearningStats {
+  sessions_analyzed: number;
+  total_learnings: number;
+  distilled: number;
+  duplicates: number;
+  pending_conflicts: number;
+  rejected: number;
+  transcript_overlays: number;
+  narratives: number;
+}
+
+interface ChatLearning {
+  id: string;
+  session_id: string;
+  learning_text: string;
+  suggested_scope: string;
+  suggested_primitive_slug: string;
+  confidence: string;
+  status: string;
+  created_at: string;
+}
+
+interface Overlay {
+  id: string;
+  primitive_type: string;
+  primitive_id: string;
+  scope: string;
+  source: string;
+  content: string;
+  created_at: string;
+}
+
+function LearningsTab({
+  activeClient,
+  apiFetch,
+  addToast,
+}: {
+  activeClient: string;
+  apiFetch: (url: string, init?: RequestInit) => Promise<Response>;
+  addToast: (type: "error" | "success" | "info", title: string, message?: string) => void;
+}) {
+  interface SessionInfo {
+    id: string;
+    request_text: string;
+    status: string;
+    created_at: string;
+    completed_at: string | null;
+    learning_scanned_up_to: string | null;
+    analysis_skip: boolean;
+    analysis_failure_count: number;
+    project_slug: string | null;
+    learning_count: number;
+    user_message_count: number;
+    has_new_messages: boolean;
+  }
+
+  const [stats, setStats] = useState<LearningStats | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [learnings, setLearnings] = useState<ChatLearning[]>([]);
+  const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+  const [learningsPage, setLearningsPage] = useState(1);
+  const [overlaysPage, setOverlaysPage] = useState(1);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [statsRes, sessionsRes, learningsRes, overlaysRes] = await Promise.all([
+        apiFetch("/api/chat-learnings/stats"),
+        apiFetch(`/api/chat-learnings/sessions?tenant_id=${activeClient}`),
+        apiFetch(
+          `/api/knowledge/observatory/chat_learnings?tenant_id=${activeClient}&page=${learningsPage}&limit=20`
+        ),
+        apiFetch(
+          `/api/knowledge/observatory/overlays?tenant_id=${activeClient}&source=transcript&page=${overlaysPage}&limit=20`
+        ),
+      ]);
+
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setStats(data);
+      }
+      if (sessionsRes.ok) {
+        const data = await sessionsRes.json();
+        setSessions(data.sessions || []);
+      }
+      if (learningsRes.ok) {
+        const data = await learningsRes.json();
+        setLearnings(data.rows || []);
+      }
+      if (overlaysRes.ok) {
+        const data = await overlaysRes.json();
+        setOverlays(data.rows || []);
+      }
+    } catch {
+      // network error
+    }
+    setLoading(false);
+  }, [activeClient, apiFetch, learningsPage, overlaysPage]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    addToast("info", "Analyzing sessions...", "This may take a minute.");
+    try {
+      const res = await apiFetch("/api/chat-learnings/analyze-recent", {
+        method: "POST",
+        body: JSON.stringify({ tenant_id: activeClient, force: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sessions_analyzed === 0) {
+          addToast("info", "No new sessions to analyze", "All recent sessions have already been processed.");
+        } else {
+          addToast(
+            "success",
+            `Analyzed ${data.sessions_analyzed} session${data.sessions_analyzed !== 1 ? "s" : ""}`,
+            `Extracted ${data.learnings_extracted} learning${data.learnings_extracted !== 1 ? "s" : ""}.`
+          );
+        }
+        loadData();
+      } else {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        addToast("error", "Analysis failed", err.error);
+      }
+    } catch {
+      addToast("error", "Analysis failed", "Network error");
+    }
+    setExtracting(false);
+  };
+
+  if (loading && !stats) {
+    return (
+      <div className="flex items-center justify-center h-full text-ink-3 text-sm gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading learnings...
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full">
+      {/* Left panel: stats + action */}
+      <div className="w-72 border-r border-rim bg-page overflow-y-auto shrink-0">
+        <div className="p-4 space-y-4">
+          <button
+            onClick={handleExtract}
+            disabled={extracting}
+            className={clsx(
+              "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              extracting
+                ? "bg-surface text-ink-3 cursor-wait"
+                : "bg-brand text-white hover:bg-brand/90"
+            )}
+          >
+            {extracting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            {extracting ? "Analyzing..." : "Extract from recent sessions"}
+          </button>
+
+          {stats && (
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
+                Learning Stats
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
+                <StatCard label="Sessions analyzed" value={stats.sessions_analyzed} />
+                <StatCard label="Total learnings" value={stats.total_learnings} />
+                <StatCard label="Distilled" value={stats.distilled} />
+                <StatCard label="Active overlays" value={stats.transcript_overlays} />
+                <StatCard label="Duplicates" value={stats.duplicates} />
+                <StatCard label="Conflicts" value={stats.pending_conflicts} />
+                <StatCard label="Rejected" value={stats.rejected} />
+                <StatCard label="Narratives" value={stats.narratives} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Sessions section */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <FileText className="w-4 h-4 text-ink-3" />
+            <h3 className="text-sm font-semibold">Recent Sessions</h3>
+            <span className="text-xs text-ink-3">
+              Execution sessions available for learning extraction
+            </span>
+            <button
+              onClick={loadData}
+              className="ml-auto p-1 rounded hover:bg-surface transition-colors text-ink-3 hover:text-ink-2"
+              title="Refresh"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {sessions.length === 0 ? (
+            <div className="text-center py-6 text-ink-3 text-sm border border-dashed border-rim rounded-lg">
+              No recent sessions found.
+            </div>
+          ) : (
+            <div className="border border-rim rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-surface text-left text-xs text-ink-3">
+                    <th className="px-3 py-2 font-medium">Request</th>
+                    <th className="px-3 py-2 font-medium w-24">Status</th>
+                    <th className="px-3 py-2 font-medium w-20 text-center">Messages</th>
+                    <th className="px-3 py-2 font-medium w-32">Analysis</th>
+                    <th className="px-3 py-2 font-medium w-24 text-center">Learnings</th>
+                    <th className="px-3 py-2 font-medium w-28">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => (
+                    <tr key={s.id} className="border-t border-rim hover:bg-surface/50">
+                      <td className="px-3 py-2">
+                        <span className="line-clamp-1 text-ink" title={s.request_text}>
+                          {s.request_text || "(no request text)"}
+                        </span>
+                        {s.project_slug && (
+                          <span className="text-[11px] text-ink-3">{s.project_slug}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <SessionStatusBadge status={s.status} />
+                      </td>
+                      <td className="px-3 py-2 text-center text-ink-2 tabular-nums">
+                        {Number(s.user_message_count)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <AnalysisStatusBadge
+                          scannedUpTo={s.learning_scanned_up_to}
+                          skip={s.analysis_skip}
+                          learningCount={Number(s.learning_count)}
+                          hasNewMessages={s.has_new_messages}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center tabular-nums">
+                        {Number(s.learning_count) > 0 ? (
+                          <span className="text-green-700 font-medium">{Number(s.learning_count)}</span>
+                        ) : (
+                          <span className="text-ink-3">0</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-[11px] text-ink-3 whitespace-nowrap">
+                        {new Date(s.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Learnings section */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Brain className="w-4 h-4 text-purple-500" />
+            <h3 className="text-sm font-semibold">Chat Learnings</h3>
+            <span className="text-xs text-ink-3">
+              Insights extracted from your conversations
+            </span>
+          </div>
+          {learnings.length === 0 ? (
+            <div className="text-center py-8 text-ink-3 text-sm border border-dashed border-rim rounded-lg">
+              <Brain className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p>No learnings yet.</p>
+              <p className="text-xs mt-1">
+                Click &ldquo;Extract from recent sessions&rdquo; to analyze your conversations.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {learnings.map((l) => (
+                <div
+                  key={l.id}
+                  className="p-3 border border-rim rounded-lg bg-surface"
+                >
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <LearningStatusBadge status={l.status} />
+                    {l.suggested_primitive_slug && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                        {l.suggested_primitive_slug}
+                      </span>
+                    )}
+                    {l.suggested_scope && (
+                      <span
+                        className={clsx(
+                          "text-xs px-1.5 py-0.5 rounded-full",
+                          SCOPE_BADGE[l.suggested_scope] || "bg-muted-subtle text-muted"
+                        )}
+                      >
+                        {l.suggested_scope}
+                      </span>
+                    )}
+                    {l.confidence && (
+                      <span className="text-xs text-ink-3 ml-auto">
+                        {l.confidence} confidence
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-ink">{l.learning_text}</p>
+                  <p className="text-[11px] text-ink-3 mt-1.5">
+                    {new Date(l.created_at).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={() => setLearningsPage((p) => Math.max(1, p - 1))}
+                  disabled={learningsPage <= 1}
+                  className="text-xs px-2 py-1 rounded border border-rim hover:bg-surface disabled:opacity-30"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-ink-3">Page {learningsPage}</span>
+                <button
+                  onClick={() => setLearningsPage((p) => p + 1)}
+                  disabled={learnings.length < 20}
+                  className="text-xs px-2 py-1 rounded border border-rim hover:bg-surface disabled:opacity-30"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Overlays section */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="w-4 h-4 text-blue-500" />
+            <h3 className="text-sm font-semibold">Active Overlays</h3>
+            <span className="text-xs text-ink-3">
+              Lessons applied to future agent runs
+            </span>
+          </div>
+          {overlays.length === 0 ? (
+            <div className="text-center py-8 text-ink-3 text-sm border border-dashed border-rim rounded-lg">
+              <Layers className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p>No transcript overlays yet.</p>
+              <p className="text-xs mt-1">
+                Overlays are created when learnings are distilled into reusable rules.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {overlays.map((o) => (
+                <div
+                  key={o.id}
+                  className="p-3 border border-rim rounded-lg bg-surface"
+                >
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      {o.source}
+                    </span>
+                    <span
+                      className={clsx(
+                        "text-xs px-1.5 py-0.5 rounded-full",
+                        SCOPE_BADGE[o.scope] || "bg-muted-subtle text-muted"
+                      )}
+                    >
+                      {o.scope}
+                    </span>
+                    {o.primitive_type && (
+                      <span className="text-xs text-ink-3">
+                        {o.primitive_type}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-ink whitespace-pre-wrap">{o.content}</p>
+                  <p className="text-[11px] text-ink-3 mt-1.5">
+                    {new Date(o.created_at).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={() => setOverlaysPage((p) => Math.max(1, p - 1))}
+                  disabled={overlaysPage <= 1}
+                  className="text-xs px-2 py-1 rounded border border-rim hover:bg-surface disabled:opacity-30"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-ink-3">Page {overlaysPage}</span>
+                <button
+                  onClick={() => setOverlaysPage((p) => p + 1)}
+                  disabled={overlays.length < 20}
+                  className="text-xs px-2 py-1 rounded border border-rim hover:bg-surface disabled:opacity-30"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="p-2.5 rounded-lg bg-surface border border-rim">
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
+      <p className="text-[11px] text-ink-3 leading-tight">{label}</p>
+    </div>
+  );
+}
+
+function LearningStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case "distilled":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+          <CheckCircle2 className="w-3 h-3" /> Distilled
+        </span>
+      );
+    case "duplicate":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+          Duplicate
+        </span>
+      );
+    case "conflict":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+          <AlertCircle className="w-3 h-3" /> Conflict
+        </span>
+      );
+    case "rejected":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted-subtle text-muted">
+          Rejected
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+          <Clock className="w-3 h-3" /> Pending
+        </span>
+      );
+  }
+}
+
+function SessionStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case "completed":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+          <CheckCircle2 className="w-3 h-3" /> Done
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+          <AlertCircle className="w-3 h-3" /> Failed
+        </span>
+      );
+    case "stopped":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+          Stopped
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted-subtle text-muted">
+          {status}
+        </span>
+      );
+  }
+}
+
+function AnalysisStatusBadge({
+  scannedUpTo,
+  skip,
+  learningCount,
+  hasNewMessages,
+}: {
+  scannedUpTo: string | null;
+  skip: boolean;
+  learningCount: number;
+  hasNewMessages: boolean;
+}) {
+  if (skip) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+        <AlertCircle className="w-3 h-3" /> Skipped
+      </span>
+    );
+  }
+  if (!scannedUpTo) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted-subtle text-muted">
+        Not scanned
+      </span>
+    );
+  }
+  if (hasNewMessages) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+        <RefreshCw className="w-3 h-3" /> New messages
+      </span>
+    );
+  }
+  if (learningCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+        <CheckCircle2 className="w-3 h-3" /> Up to date
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+      No learnings
+    </span>
+  );
+}
+
 export default function KnowledgePage() {
   const { activeClient, token, apiFetch } = useAuth();
   const { toasts, addToast, dismiss: dismissToast } = useToast();
+  const [activeTab, setActiveTab] = useState<"corpus" | "learnings">("corpus");
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -690,7 +1226,41 @@ export default function KnowledgePage() {
   return (
     <>
     <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-    <div className="flex h-[calc(100vh-57px)]">
+    <div className="flex flex-col h-[calc(100vh-57px)]">
+      {/* Top tab bar */}
+      <div className="flex items-center gap-1 px-4 border-b border-rim bg-page shrink-0">
+        <button
+          onClick={() => setActiveTab("corpus")}
+          className={clsx(
+            "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "corpus"
+              ? "border-brand text-brand"
+              : "border-transparent text-ink-3 hover:text-ink-2"
+          )}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          Corpus
+        </button>
+        <button
+          onClick={() => setActiveTab("learnings")}
+          className={clsx(
+            "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "learnings"
+              ? "border-brand text-brand"
+              : "border-transparent text-ink-3 hover:text-ink-2"
+          )}
+        >
+          <Brain className="w-3.5 h-3.5" />
+          Learnings
+        </button>
+      </div>
+
+      {activeTab === "learnings" ? (
+        <div className="flex-1 overflow-hidden">
+          <LearningsTab activeClient={activeClient} apiFetch={apiFetch} addToast={addToast} />
+        </div>
+      ) : (
+      <div className="flex flex-1 overflow-hidden">
       {/* Sidebar: folder tree */}
       <div className="w-64 border-r border-rim bg-page overflow-y-auto shrink-0">
         <div className="p-3 border-b border-rim">
@@ -1020,6 +1590,8 @@ export default function KnowledgePage() {
           </div>
         </div>
       </div>
+      </div>
+      )}
     </div>
     </>
   );

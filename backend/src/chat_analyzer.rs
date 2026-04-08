@@ -81,11 +81,13 @@ pub async fn run_analysis_cycle(
 
     let backlog_rows = db
         .execute_with(
-            "SELECT COUNT(*) as cnt FROM execution_sessions \
-             WHERE status IN ('completed', 'stopped', 'failed') \
-               AND learning_analyzed_at IS NULL \
-               AND analysis_skip = FALSE \
-               AND created_at > NOW() - make_interval(days => $1)",
+            "SELECT COUNT(*) as cnt FROM execution_sessions es \
+             WHERE es.analysis_skip = FALSE \
+               AND es.created_at > NOW() - make_interval(days => $1) \
+               AND EXISTS (SELECT 1 FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') \
+               AND (es.learning_scanned_up_to IS NULL \
+                    OR EXISTS (SELECT 1 FROM node_messages nm2 \
+                               WHERE nm2.session_id = es.id AND nm2.created_at > es.learning_scanned_up_to))",
             pg_args!(lookback_days as f64),
         )
         .await?;
@@ -103,14 +105,16 @@ pub async fn run_analysis_cycle(
 
     let sessions = db
         .execute_with(
-            "SELECT es.id, es.request, es.project_id, es.client_id, \
+            "SELECT es.id, es.request_text, es.project_id, es.client_id, \
                     p.expert_id, p.slug as project_slug \
              FROM execution_sessions es \
              LEFT JOIN projects p ON es.project_id = p.id \
-             WHERE es.status IN ('completed', 'stopped', 'failed') \
-               AND es.learning_analyzed_at IS NULL \
-               AND es.analysis_skip = FALSE \
+             WHERE es.analysis_skip = FALSE \
                AND es.created_at > NOW() - make_interval(days => $1) \
+               AND EXISTS (SELECT 1 FROM node_messages nm WHERE nm.session_id = es.id AND nm.role = 'user') \
+               AND (es.learning_scanned_up_to IS NULL \
+                    OR EXISTS (SELECT 1 FROM node_messages nm2 \
+                               WHERE nm2.session_id = es.id AND nm2.created_at > es.learning_scanned_up_to)) \
              ORDER BY es.created_at DESC \
              LIMIT $2",
             pg_args!(lookback_days as f64, batch_size),
@@ -134,14 +138,6 @@ pub async fn run_analysis_cycle(
             None => continue,
         };
 
-        // Mark as analyzed immediately to prevent double-processing
-        let _ = db
-            .execute_with(
-                "UPDATE execution_sessions SET learning_analyzed_at = NOW() WHERE id = $1",
-                pg_args!(session_id),
-            )
-            .await;
-
         match analyze_session(
             db,
             api_key,
@@ -153,6 +149,16 @@ pub async fn run_analysis_cycle(
         .await
         {
             Ok(_) => {
+                // Advance watermark to current max message time on success
+                let _ = db
+                    .execute_with(
+                        "UPDATE execution_sessions \
+                         SET learning_scanned_up_to = (SELECT MAX(created_at) FROM node_messages WHERE session_id = $1), \
+                             learning_analyzed_at = NOW() \
+                         WHERE id = $1",
+                        pg_args!(session_id),
+                    )
+                    .await;
                 processed += 1;
             }
             Err(e) => {
@@ -160,8 +166,7 @@ pub async fn run_analysis_cycle(
                 let _ = db
                     .execute_with(
                         "UPDATE execution_sessions \
-                         SET learning_analyzed_at = NULL, \
-                             analysis_failure_count = analysis_failure_count + 1, \
+                         SET analysis_failure_count = analysis_failure_count + 1, \
                              analysis_skip = CASE WHEN analysis_failure_count + 1 >= $2 \
                                              THEN TRUE ELSE FALSE END \
                          WHERE id = $1",
@@ -302,6 +307,11 @@ struct ScopeContext {
 
 // ── Stage 0: Transcript Collection ───────────────────────────────────────────
 
+// Known limitation: this reads the FULL transcript every time, even for
+// incremental re-scans triggered by new messages after the watermark. The
+// distill stage's LLM-based dedup should catch most duplicate extractions.
+// TODO: accept an optional `since: Option<DateTime>` parameter and filter
+// node_messages to `created_at > since` for true incremental analysis.
 async fn collect_session_transcript(
     db: &PgClient,
     session_id: Uuid,
@@ -420,7 +430,7 @@ fn format_transcript_for_llm(segments: &[TranscriptSegment]) -> String {
 // ── Stage 1: Extract Learnings ───────────────────────────────────────────────
 
 async fn load_skill_slugs(db: &PgClient) -> anyhow::Result<Vec<String>> {
-    let rows = db.execute("SELECT slug FROM skills ORDER BY slug").await?;
+    let rows = db.execute_unparameterized("SELECT slug FROM skills ORDER BY slug").await?;
     Ok(rows
         .iter()
         .filter_map(|r| r.get("slug").and_then(Value::as_str).map(String::from))
@@ -738,7 +748,7 @@ async fn load_existing_overlays(db: &PgClient, slug: &str) -> Vec<(Uuid, String)
         .await
         .unwrap_or_default()
     } else if slug == "general" {
-        db.execute(
+        db.execute_unparameterized(
             "SELECT id, content FROM overlays \
              WHERE scope = 'base' AND retired_at IS NULL \
              ORDER BY created_at DESC LIMIT 50",
@@ -896,7 +906,7 @@ pub async fn maybe_regenerate_narrative(
         )
     };
     let count = db
-        .execute(&count_sql)
+        .execute_unparameterized(&count_sql)
         .await
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(Value::as_i64)))
@@ -935,12 +945,12 @@ pub async fn maybe_regenerate_narrative(
     };
 
     let existing_gen = db
-        .execute(&narrative_sql)
+        .execute_unparameterized(&narrative_sql)
         .await
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.get("generated_at")?.as_str().map(String::from)));
     let latest_overlay = db
-        .execute(&latest_overlay_sql)
+        .execute_unparameterized(&latest_overlay_sql)
         .await
         .ok()
         .and_then(|rows| rows.first().and_then(|r| r.get("latest")?.as_str().map(String::from)));
@@ -968,7 +978,7 @@ pub async fn maybe_regenerate_narrative(
             scope
         )
     };
-    let overlay_rows = match db.execute(&overlays_sql).await {
+    let overlay_rows = match db.execute_unparameterized(&overlays_sql).await {
         Ok(rows) => rows,
         Err(_) => {
             regenerated.insert(key);

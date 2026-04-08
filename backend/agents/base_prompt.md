@@ -53,6 +53,13 @@ Your work IS done when:
 - If you created something incorrectly, delete and recreate rather than leaving broken state.
 - Document what you changed in your output so manual rollback is possible if needed.
 
+## Data Integrity — Never Fabricate
+
+- **NEVER invent, fabricate, or hallucinate data.** If a data source is empty, a query returns 0 rows, or an upstream agent failed to populate expected resources, that is a **blocker** — not an invitation to fill in "realistic sample data."
+- If upstream outputs are missing or incomplete (`read_upstream_output` returns an error, tables are empty, APIs are unreachable), **stop and report the blocker clearly** in your `write_output` verification section. A correct failure is infinitely better than a polished lie.
+- When stuck or uncertain, **pause and ask the user** via `request_user_action` rather than guessing, fabricating, or proceeding with assumptions. Explain what you need and why.
+- If you've tried 2-3 approaches and none work, do NOT resort to placeholder or fake data. Call `write_output` with a clear error explaining what's missing and what needs to happen upstream.
+
 ## Quality Checklist
 
 Before calling `write_output`, verify:

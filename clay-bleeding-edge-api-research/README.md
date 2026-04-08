@@ -6,9 +6,9 @@ Reverse-engineering Clay's (clay.com) internal v3 API to enable fully programmat
 
 | Metric | Value |
 |--------|-------|
-| Documented endpoints | 68 (45+ confirmed working) |
-| Investigation sessions | 11 |
-| Exhaustively searched dead-ends | 35 |
+| Documented endpoints | 110 (90+ confirmed working) |
+| Investigation sessions | 18 |
+| Exhaustively searched dead-ends | 36 |
 | Authentication | Session cookie (`claysession`), 7-day auto-refreshing |
 | Rate limiting | None detected (50 req/s tested) |
 | Average latency | ~21ms |
@@ -148,6 +148,36 @@ Clay has **1193 enrichment actions** from 170+ providers. Each is a packaged API
 
 **Webhook sources require a paid plan** (402 Payment Required on Launch plan).
 
+### CSV Import (Full Flow — INV-020 + INV-021)
+
+1. `POST /v3/imports/{workspaceId}/multi-part-upload` `{filename, fileSize, toS3CSVImportBucket: true}` → `{uploadId, s3Key, uploadUrls[]}`
+2. PUT each `uploadUrls[i].url` with the file chunk (Content-Type `application/octet-stream`); capture each `ETag` header
+3. `POST /v3/imports/{workspaceId}/multi-part-upload/complete` `{s3key, uploadId, etags, toS3CSVImportBucket: true}` → `{}`  (note lowercase `s3key`)
+4. `POST /v3/imports` with `{workspaceId, config:{map, source:{key:s3Key, type:"S3_CSV", filename, hasHeader, recordKeys, uploadMode:"import", fieldDelimiter}, destination:{type:"TABLE", tableId}, isImportWithoutRun:true}}` → synchronous (`FINISHED` within ~2s for small files)
+5. `GET /v3/imports/{importId}` to poll status if needed.
+
+Two destination buckets: `clay-base-import-prod` (`toS3CSVImportBucket: true`, consumed by `POST /v3/imports`) and `file-drop-prod` (`false`, general file drop).
+
+### tc-workflows (INV-023 through INV-026)
+
+Programmatic API for Clay's "terracotta" agentic workflow product. All routes under `/v3/workspaces/{wsId}/tc-workflows`.
+
+| Operation | How |
+|-----------|-----|
+| List/create/delete workflows | `GET/POST/DELETE .../tc-workflows[/{wfId}]` |
+| Read graph + validation | `GET .../tc-workflows/{wfId}/graph` — returns `{nodes, edges, validation:{isValid,errors,warnings}}` (free pre-flight) |
+| Node CRUD | `POST/PATCH/DELETE .../{wfId}/nodes[/{nodeId}]` plus batch reposition + batch delete |
+| Edge CRUD | `POST/DELETE .../{wfId}/edges[/{edgeId}]` |
+| Snapshots (read-only) | `GET .../{wfId}/snapshots[/{snapshotId}]` — server-managed, auto-created by batches |
+| CSV → workflow batch | `POST .../{wfId}/batches/csv-upload-url` → S3 POST → `POST .../{wfId}/batches {workflowSnapshotId:'latest', type:'csv_import', csvUploadToken}` |
+| Batch CRUD + cancel | `GET/PATCH/DELETE .../{wfId}/batches[/{batchId}]` (PATCH `{status:'cancelled'}`) |
+| Direct runs | `POST .../{wfId}/runs {inputs}` → `GET .../{wfId}/runs/{runId}` (full step telemetry) |
+| Run pause/unpause | `POST .../{wfId}/runs/{runId}/{pause,unpause}` |
+| Human-in-the-loop continue | `POST .../{wfId}/runs/{runId}/steps/{stepId}/continue` + `GET .../{wfId}/steps/waiting` |
+| Documents (RAG) | `POST /v3/documents/{wsId}/upload-url` → S3 POST → `POST .../{docId}/confirm-upload` |
+
+**Caveats**: `cpj_search` batch type is server-stubbed (405 NYI). Direct runs are append-only — no cancel/delete; wrap in a 1-row batch to get cancellation. Empty `regular` nodes are NOT inert: Clay injects a default `claude-haiku-4-5` agent. Credit metering on the default LLM is unverified on paid workspaces (GAP-034).
+
 ### CSV Export (Full Flow)
 
 1. `POST /v3/tables/{id}/export` → `{id: "ej_xxx", status: "ACTIVE"}`
@@ -195,9 +225,8 @@ Clay has **1193 enrichment actions** from 170+ providers. Each is a packaged API
 | Custom action packages | `POST /v3/actions` exists but `actionPackageDefinition` format undocumented |
 | Per-action credit tracking | Only aggregate via workspace details |
 | Tag-to-table association | Tags exist but no way to link them to tables via REST |
-| Import job creation | Endpoint exists (500 not 404) but requires file upload, not JSON |
 
-Full list of 35 dead-ends: see [exhaustively_searched/](exhaustively_searched/).
+Full list of 36 dead-ends: see [exhaustively_searched/](exhaustively_searched/).
 
 ---
 
@@ -241,18 +270,18 @@ Full list of 35 dead-ends: see [exhaustively_searched/](exhaustively_searched/).
 clay-bleeding-edge-api-research/
 ├── README.md                       # This file
 ├── AGENT.md                        # Instructions for deployed research agents
-├── timeline/                       # Chronological progress (13 entries, 11 sessions)
+├── timeline/                       # Chronological progress (28 entries)
 ├── knowledge/                      # API reference docs (v3 API, auth, webhooks, Claymate analysis)
 ├── architecture/                   # System design, tool specs, integration plan
 ├── registry/
-│   ├── endpoints.jsonl             # Machine-readable endpoint registry (68 entries)
+│   ├── endpoints.jsonl             # Machine-readable endpoint registry (110 entries)
 │   ├── capabilities.md             # Capability matrix
 │   ├── gaps.md                     # Open research questions
 │   └── changelog.md                # Timestamped discovery log
 ├── harness/
 │   ├── scripts/                    # 20+ investigation scripts (TypeScript/tsx)
 │   └── results/                    # Raw JSON probe results + session cookies
-├── investigations/                 # 28 completed investigations (INV-001 through INV-028)
-├── exhaustively_searched/          # 35 documented dead-ends (things that DON'T work)
-└── todo/                           # 10 open items, 40+ resolved
+├── investigations/                 # 26 completed investigations (INV-001 through INV-026)
+├── exhaustively_searched/          # 36 documented dead-ends (things that DON'T work)
+└── todo/                           # Open + resolved tracker
 ```

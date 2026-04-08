@@ -178,14 +178,11 @@ fn extract_token(cred: &DecryptedCredential) -> String {
 
 /// Probe a single integration using its decrypted credential value.
 ///
-/// `settings` — when provided, global fallback URLs (e.g. N8N_BASE_URL)
-/// are used to enrich credentials that lack embedded URL fields.
-///
 /// Returns `None` only for integration slugs with no known probe logic.
 pub async fn probe_one(
     slug: &str,
     cred: &DecryptedCredential,
-    settings: Option<&crate::config::Settings>,
+    _settings: Option<&crate::config::Settings>,
 ) -> Option<ProbeResult> {
     let start = Instant::now();
     let http = match reqwest::Client::builder()
@@ -294,13 +291,7 @@ pub async fn probe_one(
                 .get("base_url")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let base_url = if base_url_from_cred.is_empty() {
-                settings
-                    .and_then(|s| s.n8n_base_url.as_deref())
-                    .unwrap_or("")
-            } else {
-                base_url_from_cred
-            };
+            let base_url = base_url_from_cred;
             if base_url.is_empty() {
                 return Some(config_missing_result(
                     slug,
@@ -479,7 +470,7 @@ pub fn required_slugs_for_agent(
 }
 
 /// Filter a full credential map to only the required integrations, respecting
-/// global fallback env vars for tavily and n8n.
+/// the global fallback env var for tavily.
 pub fn filter_required_credentials<'a>(
     all_credentials: &'a HashMap<String, DecryptedCredential>,
     required_slugs: &[String],
@@ -496,19 +487,6 @@ pub fn filter_required_credentials<'a>(
                     DecryptedCredential {
                         credential_type: "api_key".into(),
                         value: key.clone(),
-                        metadata: serde_json::json!({}),
-                    },
-                );
-            }
-        } else if slug == "n8n" {
-            if let (Some(ref key), Some(ref url)) =
-                (&settings.n8n_api_key, &settings.n8n_base_url)
-            {
-                filtered.insert(
-                    slug.clone(),
-                    DecryptedCredential {
-                        credential_type: "api_key".into(),
-                        value: serde_json::json!({"api_key": key, "base_url": url}).to_string(),
                         metadata: serde_json::json!({}),
                     },
                 );

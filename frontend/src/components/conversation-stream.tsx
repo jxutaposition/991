@@ -32,6 +32,7 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ExecutionNode } from "./execution-canvas";
 import { humanizeToolName, humanizeEventType, isVisibleEvent } from "@/lib/utils";
+import { InputsSection } from "./input-picker";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ interface ConversationStreamProps {
   liveThinkingChunks?: Record<string, string>;
   liveTextChunks?: Record<string, string>;
   chatPending?: boolean;
+  clientSlug?: string;
 }
 
 // ── Segment model for grouping entries ───────────────────────────────────────
@@ -244,6 +246,7 @@ export function ConversationStream({
   liveThinkingChunks = {},
   liveTextChunks = {},
   chatPending = false,
+  clientSlug,
 }: ConversationStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [replyText, setReplyText] = useState("");
@@ -338,7 +341,7 @@ export function ConversationStream({
                   return <SynthesisMessage key={seg.key} entry={seg.entries[0]} />;
 
                 case "manual_action":
-                  return <ManualActionCard key={seg.key} entry={seg.entries[0]} />;
+                  return <ManualActionCard key={seg.key} entry={seg.entries[0]} clientSlug={clientSlug} nodeId={selectedNode.id} onReply={onReply} />;
 
                 default:
                   return null;
@@ -749,7 +752,7 @@ function StreamChatMessage({
 // ── Manual Action Card (progressive disclosure) ────────────────────────────
 
 interface ActionSection {
-  type: "overview" | "table_spec" | "steps" | "warnings" | "reference";
+  type: "overview" | "table_spec" | "steps" | "warnings" | "reference" | "inputs";
   title: string;
   content?: string;
   summary?: string;
@@ -757,6 +760,7 @@ interface ActionSection {
   steps?: { step: number; label: string; detail?: string }[];
   items?: string[];
   entries?: Record<string, unknown>;
+  inputs?: { id: string; label: string; input_type: string; required?: boolean; description?: string; default?: string; options?: { value: string; label: string }[] }[];
 }
 
 interface ParsedAction {
@@ -799,9 +803,19 @@ function parseActionEntry(entry: StreamEntry): ParsedAction {
   };
 }
 
-function ManualActionCard({ entry }: { entry: StreamEntry }) {
+function ManualActionCard({ entry, clientSlug, nodeId, onReply }: { entry: StreamEntry; clientSlug?: string; nodeId?: string; onReply?: (nodeId: string, message: string) => Promise<void> }) {
   const { actionTitle, summary, sections, context, resumeHint } =
     parseActionEntry(entry);
+
+  const handleInputSubmit = useCallback(async (values: Record<string, string>) => {
+    if (!onReply || !nodeId) return;
+    const payload = JSON.stringify({ inputs: values });
+    try {
+      await onReply(nodeId, payload);
+    } catch (e) {
+      console.error("Failed to submit inputs:", e);
+    }
+  }, [onReply, nodeId]);
 
   return (
     <div className="mx-4 rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden animate-fade-in-up">
@@ -814,7 +828,7 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
       </div>
 
       {sections.map((section, i) => (
-        <ActionSectionRenderer key={i} section={section} />
+        <ActionSectionRenderer key={i} section={section} clientSlug={clientSlug} onInputSubmit={handleInputSubmit} />
       ))}
 
       {context && Object.keys(context).length > 0 && (
@@ -835,7 +849,7 @@ function ManualActionCard({ entry }: { entry: StreamEntry }) {
   );
 }
 
-function ActionSectionRenderer({ section }: { section: ActionSection }) {
+function ActionSectionRenderer({ section, clientSlug, onInputSubmit }: { section: ActionSection; clientSlug?: string; onInputSubmit?: (values: Record<string, string>) => void }) {
   switch (section.type) {
     case "overview":
       return <SectionOverview section={section} />;
@@ -850,6 +864,14 @@ function ActionSectionRenderer({ section }: { section: ActionSection }) {
         <CollapsibleReferenceEntries
           title={section.title}
           entries={section.entries ?? {}}
+        />
+      );
+    case "inputs":
+      return (
+        <InputsSection
+          section={{ title: section.title, inputs: section.inputs }}
+          onSubmit={onInputSubmit ?? (() => {})}
+          clientSlug={clientSlug}
         />
       );
     default:

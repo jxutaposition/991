@@ -120,7 +120,7 @@ pub async fn get_workflow_steps(
 
 pub async fn list_workflows(db: &PgClient) -> anyhow::Result<Vec<Workflow>> {
     let rows = db
-        .execute(
+        .execute_unparameterized(
             "SELECT id, slug, name, description, client_id, version, schedule, next_run_at \
              FROM workflows ORDER BY name",
         )
@@ -406,7 +406,7 @@ async fn poll_scheduled_workflows(
     db: &PgClient,
     catalog: &AgentCatalog,
 ) -> anyhow::Result<()> {
-    let due = db.execute(
+    let due = db.execute_unparameterized(
         "SELECT id, slug, schedule \
          FROM workflows \
          WHERE schedule IS NOT NULL \

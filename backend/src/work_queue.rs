@@ -39,7 +39,7 @@ pub fn spawn(
         info!("work queue started");
 
         // On startup: recover any stale running nodes from a prior crash
-        if let Err(e) = recover_stale_nodes(&db).await {
+        if let Err(e) = recover_stale_nodes(&db, &event_bus).await {
             warn!(error = %e, "stale node recovery failed on startup");
         }
 
@@ -61,7 +61,7 @@ pub fn spawn(
             stale_check_counter += 1;
             if stale_check_counter >= 30 {
                 stale_check_counter = 0;
-                if let Err(e) = recover_stale_nodes(&db).await {
+                if let Err(e) = recover_stale_nodes(&db, &event_bus).await {
                     warn!(error = %e, "periodic stale node recovery failed");
                 }
             }
@@ -338,7 +338,7 @@ async fn execute_node(
     // Unblock or skip downstream nodes
     match result.status {
         NodeStatus::Passed => {
-            if let Err(e) = unblock_downstream(&db, &uid, &session_id).await {
+            if let Err(e) = unblock_downstream(&db, &uid, &session_id, &event_bus).await {
                 error!(uid = %uid, error = %e, "failed to unblock downstream");
             }
             // Check if all nodes are terminal → mark session completed
@@ -352,7 +352,7 @@ async fn execute_node(
                 error = ?result.error,
                 "node failed — skipping downstream"
             );
-            if let Err(e) = skip_downstream(&db, &uid, &session_id).await {
+            if let Err(e) = skip_downstream(&db, &uid, &session_id, &event_bus).await {
                 error!(uid = %uid, error = %e, "failed to skip downstream");
             }
             check_session_completion(&db, &session_id, &event_bus).await;
@@ -369,7 +369,7 @@ async fn claim_ready_nodes(
 ) -> anyhow::Result<Vec<ExecutionPlanNode>> {
     // Mark nodes as running atomically using a CTE
     // Skip breakpoint nodes — they stay "ready" until user explicitly removes the breakpoint
-    let sql = format!(
+    let rows = db.execute_with(
         r#"
         WITH claimed AS (
             UPDATE execution_nodes
@@ -380,11 +380,11 @@ async fn claim_ready_nodes(
                 SELECT en.id FROM execution_nodes en
                 JOIN execution_sessions es ON es.id = en.session_id
                 WHERE en.status = 'ready'
-                  AND en.attempt_count < {MAX_ATTEMPTS}
+                  AND en.attempt_count < $1
                   AND (en.breakpoint IS NULL OR en.breakpoint = false)
                   AND es.status = 'executing'
                 ORDER BY en.created_at
-                LIMIT {limit}
+                LIMIT $2
                 FOR UPDATE OF en SKIP LOCKED
             )
             RETURNING *
@@ -397,10 +397,9 @@ async fn claim_ready_nodes(
             variant_group, variant_label, variant_selected, client_id,
             tool_id, execution_mode, integration_overrides
         FROM claimed
-        "#
-    );
-
-    let rows = db.execute(&sql).await?;
+        "#,
+        crate::pg_args!(MAX_ATTEMPTS as i32, limit as i64),
+    ).await?;
     let nodes = rows.iter().filter_map(parse_node_row).collect();
     Ok(nodes)
 }
@@ -542,6 +541,7 @@ async fn persist_node_result(
     };
 
     if let Some(ref artifacts) = new_artifacts {
+        // sql-format-ok: `completed_clause` is one of two hardcoded string literals above.
         let sql = format!(
             "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, artifacts = $6, error_category = $7, {} WHERE id = $5",
             completed_clause
@@ -551,6 +551,7 @@ async fn persist_node_result(
             pg_args!(status, result.output.clone(), result.judge_score, effective_feedback, *uid, artifacts.clone(), error_category),
         ).await?;
     } else {
+        // sql-format-ok: `completed_clause` is one of two hardcoded string literals above.
         let sql = format!(
             "UPDATE execution_nodes SET status = $1, output = $2, judge_score = $3, judge_feedback = $4, error_category = $6, {} WHERE id = $5",
             completed_clause
@@ -592,6 +593,7 @@ pub async fn unblock_downstream(
     db: &PgClient,
     completed_uid: &Uuid,
     session_id: &Uuid,
+    event_bus: &EventBus,
 ) -> anyhow::Result<()> {
     let sql = r#"
         WITH dependents AS (
@@ -621,6 +623,14 @@ pub async fn unblock_downstream(
     for row in &updated {
         if let Some(uid) = row.get("id").and_then(Value::as_str) {
             info!(uid = %uid, "unblocked downstream node");
+            event_bus.send(
+                &session_id.to_string(),
+                serde_json::json!({
+                    "type": "node_status_changed",
+                    "node_uid": uid,
+                    "status": "ready",
+                }),
+            ).await;
         }
     }
 
@@ -633,6 +643,7 @@ pub async fn skip_downstream(
     db: &PgClient,
     failed_uid: &Uuid,
     session_id: &Uuid,
+    event_bus: &EventBus,
 ) -> anyhow::Result<()> {
     let sql = r#"
         WITH RECURSIVE downstream AS (
@@ -659,6 +670,18 @@ pub async fn skip_downstream(
     let skipped = db.execute_with(sql, pg_args!(*session_id, *failed_uid)).await?;
     if !skipped.is_empty() {
         info!(count = skipped.len(), failed_uid = %failed_uid, "skipped downstream nodes");
+    }
+    for row in &skipped {
+        if let Some(uid) = row.get("id").and_then(Value::as_str) {
+            event_bus.send(
+                &session_id.to_string(),
+                serde_json::json!({
+                    "type": "node_status_changed",
+                    "node_uid": uid,
+                    "status": "skipped",
+                }),
+            ).await;
+        }
     }
 
     Ok(())
@@ -707,37 +730,48 @@ pub async fn check_session_completion(db: &PgClient, session_id: &Uuid, event_bu
 }
 
 /// Recover nodes stuck in 'running' state for longer than STALE_NODE_TIMEOUT.
-async fn recover_stale_nodes(db: &PgClient) -> anyhow::Result<()> {
-    let timeout_secs = STALE_NODE_TIMEOUT.as_secs();
+async fn recover_stale_nodes(db: &PgClient, event_bus: &EventBus) -> anyhow::Result<()> {
+    let timeout_secs = STALE_NODE_TIMEOUT.as_secs() as i64;
 
-    let sql = format!(
+    // MAX_ATTEMPTS is a compile-time constant; timeout_secs is an i64 bound via $1.
+    let recovered = db.execute_with(
         r#"
         UPDATE execution_nodes
         SET status = CASE
-            WHEN attempt_count >= {MAX_ATTEMPTS} THEN 'failed'
+            WHEN attempt_count >= $2 THEN 'failed'
             ELSE 'ready'
         END,
         error_category = CASE
-            WHEN attempt_count >= {MAX_ATTEMPTS} THEN 'timeout'
+            WHEN attempt_count >= $2 THEN 'timeout'
             ELSE error_category
         END,
         started_at = NULL
         WHERE status = 'running'
-          AND (started_at IS NULL OR started_at < NOW() - INTERVAL '{timeout_secs} seconds')
+          AND (started_at IS NULL OR started_at < NOW() - make_interval(secs => $1))
         RETURNING id, attempt_count, session_id, agent_slug, task_description
-        "#
-    );
-
-    let recovered = db.execute(&sql).await?;
+        "#,
+        crate::pg_args!(timeout_secs as f64, MAX_ATTEMPTS as i32),
+    ).await?;
     if !recovered.is_empty() {
         warn!(count = recovered.len(), "recovered stale running nodes");
     }
 
     for row in &recovered {
+        let node_id = row.get("id").and_then(Value::as_str).unwrap_or("");
+        let session_id = row.get("session_id").and_then(Value::as_str).unwrap_or("");
         let attempt = row.get("attempt_count").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let new_status = if attempt >= MAX_ATTEMPTS { "failed" } else { "ready" };
+
+        if !session_id.is_empty() && !node_id.is_empty() {
+            event_bus.send(session_id, serde_json::json!({
+                "type": "node_status_changed",
+                "node_uid": node_id,
+                "status": new_status,
+            })).await;
+        }
+
         if attempt >= MAX_ATTEMPTS {
             let agent_slug = row.get("agent_slug").and_then(Value::as_str).unwrap_or("unknown");
-            let session_id = row.get("session_id").and_then(Value::as_str).unwrap_or("");
             let task_desc = row.get("task_description").and_then(Value::as_str).unwrap_or("");
             if let Err(e) = feedback::record_failure_signal(
                 db,

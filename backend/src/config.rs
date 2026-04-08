@@ -64,10 +64,6 @@ pub struct Settings {
     pub apollo_oauth_client_id: Option<String>,
     pub apollo_oauth_client_secret: Option<String>,
 
-    // n8n (global fallback for local/shared instance)
-    pub n8n_base_url: Option<String>,
-    pub n8n_api_key: Option<String>,
-
     /// Token budget for extended thinking (chain-of-thought).
     /// Set to 0 to disable. Only applies to models that support it.
     pub thinking_budget_tokens: u32,
@@ -149,8 +145,6 @@ impl Settings {
             slack_oauth_client_secret: env::var("SLACK_OAUTH_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
             apollo_oauth_client_id: env::var("APOLLO_OAUTH_CLIENT_ID").ok().filter(|s| !s.is_empty()),
             apollo_oauth_client_secret: env::var("APOLLO_OAUTH_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
-            n8n_base_url: env::var("N8N_BASE_URL").ok().filter(|s| !s.is_empty()),
-            n8n_api_key: env::var("N8N_API_KEY").ok().filter(|s| !s.is_empty()),
             thinking_budget_tokens: env::var("THINKING_BUDGET_TOKENS")
                 .ok()
                 .and_then(|v| v.parse().ok())

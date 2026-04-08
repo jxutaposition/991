@@ -25,5 +25,5 @@ Features and APIs that have been thoroughly investigated and confirmed **not pos
 | [website-tracking-api.md](website-tracking-api.md) | Website tracking/intent | All paths 404 |
 | [notifications-api.md](notifications-api.md) | Notifications | All paths 404 |
 | [search-api.md](search-api.md) | Search endpoint | All paths 404 |
-| [workflows-api.md](workflows-api.md) | Workflows/claygent | All paths 404 |
+| [workflows-api.md](workflows-api.md) | Legacy `/v3/workflows`+`/v3/claygent` | Still 404 — **SUPERSEDED**: tc-workflows has a full API surface (INV-023..INV-026) |
 | [activity-audit-billing.md](activity-audit-billing.md) | Activity log, audit, billing, quotas, limits, access | All 404 or 403 (admin-only) |
