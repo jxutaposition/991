@@ -801,7 +801,7 @@ export default function SessionPage() {
       };
       poll();
     },
-    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream, session?.status]
+    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream]
   );
 
   const handleSessionChat = useCallback(

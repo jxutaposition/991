@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { readSuggestedIntegrationsFromStorage } from "@/lib/onboarding-storage";
 import Link from "next/link";
+import Image from "next/image";
 import { IntegrationIcon } from "@/components/integration-icon";
 import { Check, X, ExternalLink, ChevronDown, Search, Hash } from "lucide-react";
 import type { ReactNode } from "react";
@@ -225,7 +226,7 @@ export default function IntegrationsPage() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [refreshCredentials]);
+  }, [refreshCredentials, runProbes]);
 
   const saveApiKey = async (slug: string) => {
     const rawKey = inputValues[slug];
@@ -670,7 +671,13 @@ function ProjectMembersPanel({ projectId, apiFetch }: { projectId: string; apiFe
           <div key={m.user_id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface transition-colors">
             <div className="w-7 h-7 rounded-full bg-brand/10 flex items-center justify-center text-xs font-medium text-brand shrink-0">
               {m.avatar_url ? (
-                <img src={m.avatar_url} alt="" className="w-7 h-7 rounded-full" />
+                <Image
+                  src={m.avatar_url}
+                  alt=""
+                  width={28}
+                  height={28}
+                  className="w-7 h-7 rounded-full"
+                />
               ) : (
                 m.name?.[0]?.toUpperCase() ?? m.email[0].toUpperCase()
               )}

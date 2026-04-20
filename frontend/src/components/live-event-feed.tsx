@@ -64,7 +64,7 @@ export function LiveEventFeed({ sessionId }: { sessionId: string | null }) {
       if (data.tasks) setTasks(data.tasks);
       if (data.prs) setPrs(data.prs);
     } catch { /* ignore — session may not exist yet */ }
-  }, []);
+  }, [apiFetch]);
 
   useEffect(() => {
     if (!sessionId || !token) return;

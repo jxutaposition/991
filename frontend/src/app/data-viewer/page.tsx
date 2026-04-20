@@ -83,7 +83,7 @@ export default function DataViewerPage() {
         setTablesLoading(false);
       })
       .catch((err) => { console.error("Failed to load tables:", err); setTablesLoading(false); });
-  }, []);
+  }, [apiFetch]);
 
   const executeQuery = useCallback(async (queryStr?: string) => {
     const q = queryStr ?? sqlRef.current;
@@ -109,7 +109,7 @@ export default function DataViewerPage() {
       });
     }
     setQueryLoading(false);
-  }, []);
+  }, [apiFetch]);
 
   // Auto-refresh polling
   useEffect(() => {

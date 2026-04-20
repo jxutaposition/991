@@ -272,7 +272,7 @@ export function ConversationStream({
     } finally {
       setSending(false);
     }
-  }, [replyText, onReply, sending, selectedNode.id, selectedNode.status]);
+  }, [replyText, onReply, sending, selectedNode.id]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

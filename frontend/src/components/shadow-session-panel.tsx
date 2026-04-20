@@ -41,7 +41,7 @@ export function ShadowSessionPanel({
     fetchSessions();
     const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, apiFetch]);
 
   const recording = sessions.filter((s) => s.status === "recording");
   const completed = sessions.filter((s) => s.status === "completed").slice(0, 10);

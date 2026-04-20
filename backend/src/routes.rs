@@ -3284,19 +3284,6 @@ pub async fn execution_session_chat(
     let project_id = session_row.get("project_id").and_then(Value::as_str)
         .and_then(|s| s.parse::<Uuid>().ok());
 
-    // #region agent log
-    crate::agent_runner::debug_dee83e_log(
-        "H2b",
-        "routes.rs:execution_session_chat:session",
-        "session row client/project for knowledge tools",
-        json!({
-            "has_client_id": client_id.is_some(),
-            "has_project_id": project_id.is_some(),
-            "session_status": session_status,
-        }),
-    );
-    // #endregion
-
     let is_pre_execution = session_status == "awaiting_approval" || session_status == "planning";
     let is_post_execution = session_status == "completed" || session_status == "executing" || session_status == "failed" || session_status == "stopped";
 

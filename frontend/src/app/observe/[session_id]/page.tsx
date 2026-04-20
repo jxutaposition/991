@@ -70,7 +70,7 @@ export default function ObserveSessionPage() {
         setLoading(false);
       })
       .catch((err) => { console.error("Failed to load session:", err); setLoading(false); });
-  }, [session_id]);
+  }, [session_id, apiFetch]);
 
   if (loading) return <div className="p-8 text-ink-3 text-sm">Loading...</div>;
   if (!session) return <div className="p-8 text-ink-3 text-sm">Session not found.</div>;

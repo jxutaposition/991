@@ -2,6 +2,8 @@
 name = "lele2-backend"
 version = "0.1.0"
 edition = "2021"
+# Multiple [[bin]] targets (see src/bin/); plain `cargo run` runs the API server.
+default-run = "lele2-backend"
 
 [dependencies]
 anyhow = "1.0"

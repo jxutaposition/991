@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "lint:eslint": "eslint --max-warnings 0 --fix src",
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit && next lint",
     "prepare": "cd .. && husky frontend/.husky"
@@ -36,7 +37,7 @@
   },
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
-      "eslint --fix"
+      "eslint --fix --max-warnings 0"
     ]
   },
   "devDependencies": {
