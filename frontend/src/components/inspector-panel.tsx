@@ -436,7 +436,7 @@ function NodeDetailContent({
                 <Lock className="w-3.5 h-3.5 shrink-0" />
                 <span>Missing credentials: <strong>{credInfo.missing.join(", ")}</strong></span>
                 <a
-                  href={`/settings/integrations#${credInfo.missing[0]}`}
+                  href={`/integrations#${credInfo.missing[0]}`}
                   className="ml-auto text-brand hover:underline flex items-center gap-0.5"
                 >
                   Configure <ExternalLink className="w-2.5 h-2.5" />
@@ -476,7 +476,7 @@ function NodeDetailContent({
                 {p.error && <span className="text-red-600">{p.error}</span>}
                 {p.hint && (
                   <a
-                    href="/settings/integrations"
+                    href="/integrations"
                     className="ml-auto text-brand hover:underline flex items-center gap-0.5 shrink-0"
                   >
                     Fix <ExternalLink className="w-2.5 h-2.5" />
@@ -845,7 +845,7 @@ function NodeDetailContent({
             })}
             {(credInfo?.missing?.length ?? 0) > 0 && (
               <a
-                href={`/settings/integrations#${credInfo?.missing[0]}`}
+                href={`/integrations#${credInfo?.missing[0]}`}
                 className="flex items-center gap-1 text-xs text-brand hover:underline mt-1"
               >
                 Configure integrations <ExternalLink className="w-2.5 h-2.5" />
@@ -1509,6 +1509,7 @@ export const InspectorPanel = React.memo(function InspectorPanel({
               onReply={onReply}
               liveThinkingChunks={liveThinkingChunks}
               liveTextChunks={liveTextChunks}
+              chatPending={chatPending}
               clientSlug={clientSlug}
             />
           ) : masterNode ? (

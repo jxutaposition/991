@@ -22,6 +22,24 @@ use crate::actions;
 
 const MAX_JUDGE_RETRIES: u32 = 2;
 
+// #region agent log
+pub(crate) fn debug_dee83e_log(hypothesis_id: &str, location: &str, message: &str, data: Value) {
+    let payload = json!({
+        "sessionId": "dee83e",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": chrono::Utc::now().timestamp_millis(),
+    });
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../debug-dee83e.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", payload);
+    }
+}
+// #endregion
+
 /// Persist a conversation message for a node and broadcast as a stream entry.
 async fn persist_message(
     db: &PgClient,
@@ -2101,22 +2119,68 @@ Respond with ONLY the JSON object:
         client_id: Option<uuid::Uuid>,
         project_id: Option<uuid::Uuid>,
     ) -> String {
+        // #region agent log
+        debug_dee83e_log(
+            "H0",
+            "agent_runner.rs:execute_search_knowledge:entry",
+            "search_knowledge called",
+            json!({
+                "has_openai_key": self.settings.openai_api_key.is_some(),
+                "has_client_id": client_id.is_some(),
+                "has_project_id": project_id.is_some(),
+                "query_len": query.len(),
+            }),
+        );
+        // #endregion
         if query.is_empty() {
+            // #region agent log
+            debug_dee83e_log("H6", "agent_runner.rs:execute_search_knowledge", "empty query", json!({}));
+            // #endregion
             return json!({"error": "query parameter is required"}).to_string();
         }
         let api_key = match &self.settings.openai_api_key {
             Some(k) => k.clone(),
-            None => return json!({"error": "No OPENAI_API_KEY configured for knowledge search"}).to_string(),
+            None => {
+                // #region agent log
+                debug_dee83e_log(
+                    "H1",
+                    "agent_runner.rs:execute_search_knowledge",
+                    "missing OPENAI_API_KEY",
+                    json!({}),
+                );
+                // #endregion
+                return json!({"error": "No OPENAI_API_KEY configured for knowledge search"}).to_string();
+            }
         };
         let tenant_id = match client_id {
             Some(id) => id,
-            None => return json!({"error": "No client_id on this execution node — cannot scope knowledge search"}).to_string(),
+            None => {
+                // #region agent log
+                debug_dee83e_log(
+                    "H2",
+                    "agent_runner.rs:execute_search_knowledge",
+                    "missing client_id for tenant scope",
+                    json!({}),
+                );
+                // #endregion
+                return json!({"error": "No client_id on this execution node — cannot scope knowledge search"}).to_string();
+            }
         };
 
         // Step 1: Embed the query
         let embedding = match crate::embeddings::embed_text(&api_key, query).await {
             Ok(e) => e,
-            Err(e) => return json!({"error": format!("Embedding failed: {e}")}).to_string(),
+            Err(e) => {
+                // #region agent log
+                debug_dee83e_log(
+                    "H3",
+                    "agent_runner.rs:execute_search_knowledge",
+                    "embed_text failed",
+                    json!({"err": e.to_string()}),
+                );
+                // #endregion
+                return json!({"error": format!("Embedding failed: {e}")}).to_string();
+            }
         };
 
         let embedding_str = format!(
@@ -2191,13 +2255,37 @@ Respond with ONLY the JSON object:
             Ok(rows) => rows,
             Err(e) => {
                 warn!(error = %e, "search_knowledge hybrid query failed");
+                // #region agent log
+                debug_dee83e_log(
+                    "H4",
+                    "agent_runner.rs:execute_search_knowledge",
+                    "hybrid SQL failed",
+                    json!({"err": e.to_string()}),
+                );
+                // #endregion
                 return json!({"error": format!("Knowledge search failed: {e}")}).to_string();
             }
         };
 
         if candidates.is_empty() {
+            // #region agent log
+            debug_dee83e_log(
+                "H5",
+                "agent_runner.rs:execute_search_knowledge",
+                "zero candidates after hybrid search",
+                json!({"tenant_note": "may be empty corpus or similarity threshold"}),
+            );
+            // #endregion
             return json!({"results": [], "query": query, "note": "No relevant results found in the knowledge corpus."}).to_string();
         }
+        // #region agent log
+        debug_dee83e_log(
+            "H7",
+            "agent_runner.rs:execute_search_knowledge",
+            "hybrid search ok",
+            json!({"candidate_count": candidates.len()}),
+        );
+        // #endregion
 
         // Step 3: Neighbor chunk expansion — fetch chunk_index +/- 1 for each match
         // Build parameterized conditions for neighbor lookup

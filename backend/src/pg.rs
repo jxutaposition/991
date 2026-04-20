@@ -22,7 +22,19 @@ impl PgClient {
             .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(database_url)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to connect to Postgres: {}", e))?;
+            .map_err(|e| {
+                let msg = e.to_string();
+                let supabase_hint = if msg.contains("Tenant or user not found") {
+                    "\n\nSupabase: this error usually means the connection string does not match the selected mode. \
+On IPv4-only networks, use the Session pooler URI from Project Settings → Database → Connect (not the direct `db.*` host if the dashboard warns IPv4 is unsupported). \
+For pooler connections, the username is often `postgres.<project-ref>` as shown in the dashboard. \
+If your database password contains `@`, `#`, `/`, or spaces, percent-encode it in the URL. \
+Append `?sslmode=require` if not already present."
+                } else {
+                    ""
+                };
+                anyhow::anyhow!("Failed to connect to Postgres: {}{}", msg, supabase_hint)
+            })?;
         tracing::info!(max_connections = max_conn, "PostgreSQL pool initialized");
         Ok(Self { pool })
     }

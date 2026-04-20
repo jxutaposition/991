@@ -9,6 +9,9 @@ export default {
     "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
+    fontFamily: {
+      sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+    },
     extend: {
       colors: {
         page:    "var(--page)",

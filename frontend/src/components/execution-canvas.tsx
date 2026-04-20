@@ -248,8 +248,8 @@ function NodeBox({
         </div>
       )}
 
-      {/* Delete node button */}
-      {onNodeDelete && sessionStatus === "awaiting_approval" &&
+      {/* Delete node button — plan children only; never the orchestrator (root). */}
+      {onNodeDelete && isChild && sessionStatus === "awaiting_approval" &&
         ["preview", "pending", "waiting", "ready"].includes(rawStatus) && (
         <button
           className="absolute -top-2 -right-2 z-20 w-5 h-5 rounded-full bg-red-100 text-red-600 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm transition-colors"
@@ -323,34 +323,9 @@ function NodeBox({
         <GitBranch className="absolute top-2.5 left-2.5 w-3 h-3 text-purple-400" />
       )}
 
-      {/* Category badge */}
-      {catalogAgent && !isVariantAlt && (
-        <div className="text-xs font-medium text-ink-3 uppercase tracking-wider pl-4">
-          {catalogAgent.category.replace(/_/g, " ")}
-        </div>
-      )}
-
-      {node.variant_label && (
-        <div className={`text-xs font-medium ${isVariantAlt ? "text-gray-400" : "text-purple-500"}`}>
-          {node.variant_selected ? "\u2713 " : ""}{node.variant_label}
-        </div>
-      )}
-
-      <div
-        className={`text-sm font-semibold truncate w-full pl-4 pr-4`}
-      >
-        {name}
-      </div>
-
-      {desc && (
-        <div className={`text-[11px] leading-snug line-clamp-2 w-full text-left ${isVariantAlt ? "text-gray-400" : "text-ink-2"}`}>
-          {truncate(desc, 100)}
-        </div>
-      )}
-
-      {/* Integration chips with icons */}
+      {/* Integration / tool row at top (no agent slug title) */}
       {hasIntegrations && !isVariantAlt && (
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full pl-4 pr-4 pt-0.5">
           {(credInfo.integration_details ?? credInfo.required_integrations.map((slug) => ({
             slug,
             display_name: slug,
@@ -364,12 +339,12 @@ function NodeBox({
 
             let chipClass = "bg-green-100 text-green-700";
             let chipLabel = "Verified";
-            let chipIcon = <Check className="w-2.5 h-2.5" />;
+            let chipIcon = <Check className="w-3.5 h-3.5 shrink-0" />;
 
             if (isMissing) {
               chipClass = "bg-gray-100 text-gray-600";
               chipLabel = "Not configured";
-              chipIcon = <X className="w-2.5 h-2.5" />;
+              chipIcon = <X className="w-3.5 h-3.5 shrink-0" />;
             } else if (probeFailed) {
               const statusLabels: Record<string, string> = {
                 auth_failed: "Auth failed",
@@ -383,29 +358,65 @@ function NodeBox({
               chipClass = probe.status === "config_missing"
                 ? "bg-amber-100 text-amber-700"
                 : "bg-red-100 text-red-700";
-              chipIcon = <X className="w-2.5 h-2.5" />;
+              chipIcon = <X className="w-3.5 h-3.5 shrink-0" />;
             } else if (probeOk) {
               chipLabel = probe.status === "rate_limited" ? "Verified" : "Verified";
               chipClass = "bg-green-100 text-green-700";
-              chipIcon = <Check className="w-2.5 h-2.5" />;
+              chipIcon = <Check className="w-3.5 h-3.5 shrink-0" />;
             } else if (detail.status === "connected" && !probe) {
               chipLabel = "Saved";
               chipClass = "bg-gray-100 text-gray-500";
-              chipIcon = <Check className="w-2.5 h-2.5" />;
+              chipIcon = <Check className="w-3.5 h-3.5 shrink-0" />;
             }
 
             return (
               <span
                 key={detail.slug}
-                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium ${chipClass}`}
+                className={`inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-lg font-medium ${chipClass}`}
                 title={probe?.hint || probe?.error || `${detail.display_name}: ${chipLabel}`}
               >
-                <IntegrationIcon slug={detail.icon ?? detail.slug} size={10} />
+                <IntegrationIcon slug={detail.icon ?? detail.slug} size={16} />
                 {detail.display_name}
                 {chipIcon}
               </span>
             );
           })}
+        </div>
+      )}
+      {userTools.length > 0 && !isVariantAlt && (
+        <div className="flex items-center gap-2 flex-wrap w-full pl-4 pr-4 pt-0.5">
+          {userTools.slice(0, 4).map((tool) => (
+            <span
+              key={tool.name}
+              className="inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-lg bg-gray-100 text-ink font-mono"
+              title={tool.credential ? `Requires: ${tool.credential}` : "No auth required"}
+            >
+              {tool.credential && <IntegrationIcon slug={tool.credential} size={14} />}
+              {tool.name.replace(/_/g, " ")}
+            </span>
+          ))}
+          {userTools.length > 4 && (
+            <span className="text-sm text-ink-3">+{userTools.length - 4}</span>
+          )}
+        </div>
+      )}
+
+      {/* Category badge */}
+      {catalogAgent && !isVariantAlt && (
+        <div className="text-xs font-medium text-ink-3 uppercase tracking-wider pl-4">
+          {catalogAgent.category.replace(/_/g, " ")}
+        </div>
+      )}
+
+      {node.variant_label && (
+        <div className={`text-xs font-medium ${isVariantAlt ? "text-gray-400" : "text-purple-500"}`}>
+          {node.variant_selected ? "\u2713 " : ""}{node.variant_label}
+        </div>
+      )}
+
+      {desc && (
+        <div className={`text-[11px] leading-snug line-clamp-2 w-full text-left ${isVariantAlt ? "text-gray-400" : "text-ink-2"}`}>
+          {truncate(desc, 100)}
         </div>
       )}
 
@@ -426,25 +437,6 @@ function NodeBox({
               </span>
             );
           })}
-        </div>
-      )}
-
-      {/* Tool chips (for agents without required_integrations, show what tools they use) */}
-      {!hasIntegrations && userTools.length > 0 && !isVariantAlt && (
-        <div className="flex items-center gap-1 flex-wrap">
-          {userTools.slice(0, 4).map((tool) => (
-            <span
-              key={tool.name}
-              className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-3 font-mono"
-              title={tool.credential ? `Requires: ${tool.credential}` : "No auth required"}
-            >
-              {tool.credential && <IntegrationIcon slug={tool.credential} size={8} />}
-              {tool.name.replace(/_/g, " ")}
-            </span>
-          ))}
-          {userTools.length > 4 && (
-            <span className="text-xs text-ink-3">+{userTools.length - 4}</span>
-          )}
         </div>
       )}
 
@@ -522,11 +514,6 @@ function NodeBox({
         {score && (
           <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs font-mono">
             {score}/10
-          </span>
-        )}
-        {userTools.length > 0 && !hasIntegrations && (
-          <span className="text-xs text-ink-3">
-            {userTools.length} tool{userTools.length !== 1 ? "s" : ""}
           </span>
         )}
       </div>
@@ -738,14 +725,15 @@ function DagEdges({
       const from = offsetRelativeTo(fromEl);
       const to = offsetRelativeTo(toEl);
 
-      const x1 = from.x + from.w / 2;
-      const y1 = from.y + from.h;
-      const x2 = to.x + to.w / 2;
-      const y2 = to.y;
+      // Horizontal layout: connect right-center of "from" to left-center of "to"
+      const x1 = from.x + from.w;
+      const y1 = from.y + from.h / 2;
+      const x2 = to.x;
+      const y2 = to.y + to.h / 2;
 
-      const dy = Math.abs(y2 - y1);
-      const cp = Math.max(dy * 0.45, 20);
-      const d = `M ${x1} ${y1} C ${x1} ${y1 + cp}, ${x2} ${y2 - cp}, ${x2} ${y2}`;
+      const dx = Math.abs(x2 - x1);
+      const cp = Math.max(dx * 0.45, 40);
+      const d = `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${x2 - cp} ${y2}, ${x2} ${y2}`;
       const fromStatus = nodeStatusMap?.[edge.from] ?? "";
       const toStatus = nodeStatusMap?.[edge.to] ?? "";
       const active = fromStatus === "passed" && (toStatus === "running" || toStatus === "ready");
@@ -904,12 +892,12 @@ export const ExecutionCanvas = forwardRef<CanvasHandle, ExecutionCanvasProps>(
         >
           <div
             ref={dagContainerRef}
-            className="relative flex flex-col items-center p-16 gap-10 min-h-[400px]"
+            className="relative flex flex-row items-start p-16 gap-10 min-h-[400px]"
           >
             {layers.map((layer, layerIdx) => (
               <div
                 key={layerIdx}
-                className="flex items-start justify-center gap-10"
+                className="flex flex-col items-start justify-center gap-10"
               >
                 {layer.map((node) => {
                   const tree = dagTrees.get(node.id);

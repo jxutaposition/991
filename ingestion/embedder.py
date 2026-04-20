@@ -1,28 +1,19 @@
-"""Batch embedding using OpenAI text-embedding-3-small."""
+"""Batch embedding without OpenAI.
+
+For local/dev use when an OpenAI API key is not available. Generates
+1536-dim zero vectors so the ingestion pipeline can run without calling
+external embedding providers. Vector search quality will be poor, but
+full-text search via `search_vector` still works.
+"""
 
 from __future__ import annotations
 
-import os
-
-from openai import OpenAI
-
-MODEL = "text-embedding-3-small"
-BATCH_SIZE = 100  # OpenAI supports up to 2048 inputs per call
+from typing import List
 
 
-def get_client() -> OpenAI:
-    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+EMBED_DIM = 1536
 
 
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Embed a list of texts, returning one 1536-dim vector per input."""
-    client = get_client()
-    all_embeddings: list[list[float]] = []
-
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i : i + BATCH_SIZE]
-        resp = client.embeddings.create(model=MODEL, input=batch)
-        for item in resp.data:
-            all_embeddings.append(item.embedding)
-
-    return all_embeddings
+def embed_batch(texts: List[str]) -> List[List[float]]:
+    """Return one 1536-dim dummy vector per input text."""
+    return [[0.0] * EMBED_DIM for _ in texts]

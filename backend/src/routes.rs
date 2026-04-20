@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::agent_catalog::MASTER_ORCHESTRATOR_SLUG;
 use crate::client as client_mod;
-use crate::error::InternalError;
+use crate::error::{ApiError, InternalError};
 use crate::pg_args;
 use crate::feedback;
 use crate::narrator::{self, CapturedEvent};
@@ -1176,6 +1176,248 @@ async fn persist_session(
     Ok(())
 }
 
+const ONBOARDING_SOW_EXCERPT_MAX_CHARS: usize = 120_000;
+
+async fn load_knowledge_document_plaintext(
+    db: &crate::pg::PgClient,
+    doc_uuid: Uuid,
+) -> anyhow::Result<(String, String)> {
+    let rows = db
+        .execute_with(
+            "SELECT source_filename, normalized_markdown, status \
+             FROM knowledge_documents WHERE id = $1",
+            pg_args!(doc_uuid),
+        )
+        .await?;
+    let row = rows
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("document not found"))?;
+    let status = row
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if status != "ready" {
+        anyhow::bail!("document must be in ready status (currently {status})");
+    }
+    let filename = row
+        .get("source_filename")
+        .and_then(Value::as_str)
+        .unwrap_or("document")
+        .to_string();
+    if let Some(md) = row.get("normalized_markdown").and_then(Value::as_str) {
+        if !md.trim().is_empty() {
+            return Ok((filename, md.to_string()));
+        }
+    }
+    let chunks = db
+        .execute_with(
+            "SELECT content FROM knowledge_chunks WHERE document_id = $1 ORDER BY chunk_index ASC",
+            pg_args!(doc_uuid),
+        )
+        .await?;
+    let mut parts: Vec<String> = Vec::new();
+    for r in chunks {
+        if let Some(c) = r.get("content").and_then(Value::as_str) {
+            if !c.trim().is_empty() {
+                parts.push(c.to_string());
+            }
+        }
+    }
+    if parts.is_empty() {
+        anyhow::bail!("document has no extractable text yet");
+    }
+    Ok((filename, parts.join("\n\n")))
+}
+
+fn suggested_integrations_for_agent_slugs(
+    catalog: &crate::agent_catalog::AgentCatalog,
+    agent_slugs: &[String],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for slug in agent_slugs {
+        if let Some(agent) = catalog.get(slug) {
+            for s in crate::preflight::required_slugs_for_agent(
+                &agent.required_integrations,
+                &agent.tools,
+            ) {
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn onboarding_mentions_clay(agent_slugs: &[String], integration_slugs: &[String]) -> bool {
+    integration_slugs.iter().any(|s| s == "clay")
+        || agent_slugs.iter().any(|s| s.contains("clay"))
+}
+
+#[derive(Deserialize)]
+pub struct OnboardingSeedRequest {
+    pub document_id: String,
+    pub client_slug: String,
+}
+
+/// POST /api/onboarding/seed-session-from-document — build awaiting_approval session from a ready knowledge doc.
+pub async fn onboarding_seed_session_from_document(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
+    Json(body): Json<OnboardingSeedRequest>,
+) -> Result<Json<Value>, InternalError> {
+    let doc_uuid = body
+        .document_id
+        .parse::<Uuid>()
+        .map_err(|_| ApiError::bad_request("invalid document_id"))?;
+    let slug = body.client_slug.trim();
+    if slug.is_empty() {
+        return Err(ApiError::bad_request("client_slug is required").into());
+    }
+
+    let client_rows = state
+        .db
+        .execute_with(
+            "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
+            pg_args!(slug.to_string()),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+        })?;
+    let client_id: Uuid = client_rows
+        .first()
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| ApiError::bad_request("client not found"))?;
+
+    let allowed = crate::auth::check_client_role(&state.db, user.user_id, client_id, "member")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+        })?;
+    if !allowed {
+        return Err(ApiError::forbidden("not a member of this client").into());
+    }
+
+    let doc_rows = state
+        .db
+        .execute_with(
+            "SELECT tenant_id FROM knowledge_documents WHERE id = $1",
+            pg_args!(doc_uuid),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+        })?;
+    let tenant = doc_rows
+        .first()
+        .and_then(|r| r.get("tenant_id").and_then(Value::as_str))
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .ok_or_else(|| ApiError::bad_request("document not found"))?;
+    if tenant != client_id {
+        return Err(ApiError::forbidden("document does not belong to this client").into());
+    }
+
+    let (filename, mut text) = load_knowledge_document_plaintext(&state.db, doc_uuid)
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if text.chars().count() > ONBOARDING_SOW_EXCERPT_MAX_CHARS {
+        text = text.chars().take(ONBOARDING_SOW_EXCERPT_MAX_CHARS).collect();
+    }
+
+    let catalog_summary = state.catalog.catalog_summary();
+    let model = state.settings.anthropic_model.as_str();
+    let plan = planner::plan_onboarding_from_sow_text(
+        &text,
+        &catalog_summary,
+        &state.settings.anthropic_api_key,
+        model,
+        &state.catalog,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Onboarding plan failed: {e}")})),
+        )
+    })?;
+
+    let session_id = Uuid::new_v4();
+    let request_text = format!("onboard to the system described in {filename}");
+
+    let mut exec_nodes = planner::plan_to_execution_nodes(
+        &plan,
+        session_id,
+        state.catalog.git_sha(),
+        &state.catalog,
+        Some(model),
+    )
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Plan validation failed: {e}")})),
+        )
+    })?;
+
+    for node in &mut exec_nodes {
+        node.client_id = Some(client_id);
+    }
+
+    let agent_slugs: Vec<String> = exec_nodes.iter().map(|n| n.agent_slug.clone()).collect();
+    let suggested_integration_slugs =
+        suggested_integrations_for_agent_slugs(&state.catalog, &agent_slugs);
+    let mentions_clay = onboarding_mentions_clay(&agent_slugs, &suggested_integration_slugs);
+
+    let plan_json = planner::plan_to_json(&exec_nodes);
+
+    persist_session(
+        &state.db,
+        session_id,
+        None,
+        &request_text,
+        &plan_json,
+        &exec_nodes,
+        Some(client_id),
+    )
+    .await
+    .map_err(|e| {
+        error!(error = %e, "onboarding persist_session failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to create session"})),
+        )
+    })?;
+
+    state.event_bus.ensure_channel(&session_id.to_string()).await;
+
+    info!(
+        session_id = %session_id,
+        doc_id = %doc_uuid,
+        client = %slug,
+        "onboarding session created from knowledge document"
+    );
+
+    Ok(Json(json!({
+        "session_id": session_id.to_string(),
+        "suggested_integration_slugs": suggested_integration_slugs,
+        "mentions_clay": mentions_clay,
+        "node_count": exec_nodes.len(),
+    })))
+}
+
 // ── Observation API ───────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -2041,6 +2283,7 @@ pub struct CreateClientRequest {
     pub name: String,
     pub brief: Option<String>,
     pub industry: Option<String>,
+    pub engagement_stage: Option<String>,
 }
 
 /// POST /api/clients — create a client.
@@ -2048,8 +2291,31 @@ pub async fn client_create(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateClientRequest>,
 ) -> Result<Json<Value>, InternalError> {
+    let stage_ref = body.engagement_stage.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    if let Some(st) = stage_ref {
+        const ENGAGEMENT_STAGES: &[&str] = &[
+            "initial_discovery",
+            "proposal_scoping",
+            "onboarded",
+            "offboarded",
+        ];
+        if !ENGAGEMENT_STAGES.contains(&st) {
+            return Err(crate::error::ApiError::bad_request(format!(
+                "engagement_stage must be one of: {}",
+                ENGAGEMENT_STAGES.join(", ")
+            ))
+            .into());
+        }
+    }
+
     let id = client_mod::create_client(
-        &state.db, &body.slug, &body.name, body.brief.as_deref(), body.industry.as_deref(), None,
+        &state.db,
+        &body.slug,
+        &body.name,
+        body.brief.as_deref(),
+        body.industry.as_deref(),
+        None,
+        stage_ref,
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
@@ -2714,12 +2980,30 @@ pub async fn execution_node_delete(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
-    state.db.execute_with(
-        "DELETE FROM execution_nodes WHERE id = $1 AND session_id = $2 AND status IN ('pending', 'waiting', 'ready', 'preview')",
-        pg_args!(node_uuid, session_uuid),
-    ).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
-    })?;
+    // Never delete the orchestrator (root): parent_uid IS NULL. Removing it breaks
+    // session chat, plan replanning, and master resolution for child targets.
+    let deleted = state
+        .db
+        .execute_with(
+            "DELETE FROM execution_nodes WHERE id = $1 AND session_id = $2 \
+             AND parent_uid IS NOT NULL \
+             AND status IN ('pending', 'waiting', 'ready', 'preview') \
+             RETURNING id",
+            pg_args!(node_uuid, session_uuid),
+        )
+        .await
+        .map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
+        })?;
+    if deleted.is_empty() {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "Cannot remove the orchestrator node or this node is not removable in its current state"
+            })),
+        )
+            .into());
+    }
 
     state.event_bus.send(&session_id, json!({
         "type": "node_removed",
@@ -2965,6 +3249,11 @@ pub async fn execution_node_reply(
 #[derive(Deserialize)]
 pub struct SessionChatRequest {
     pub message: String,
+    /// When set during pre-execution (`awaiting_approval` / `planning`), chat is scoped to this
+    /// node: must be the orchestrator (master) or a direct child plan node. Messages and SSE stream
+    /// use this node's id. Ignored for post-execution chat (always master).
+    #[serde(default)]
+    pub target_node_id: Option<String>,
 }
 
 /// POST /api/execute/:session_id/chat — pre-execution chat for asking questions,
@@ -2995,6 +3284,19 @@ pub async fn execution_session_chat(
     let project_id = session_row.get("project_id").and_then(Value::as_str)
         .and_then(|s| s.parse::<Uuid>().ok());
 
+    // #region agent log
+    crate::agent_runner::debug_dee83e_log(
+        "H2b",
+        "routes.rs:execution_session_chat:session",
+        "session row client/project for knowledge tools",
+        json!({
+            "has_client_id": client_id.is_some(),
+            "has_project_id": project_id.is_some(),
+            "session_status": session_status,
+        }),
+    );
+    // #endregion
+
     let is_pre_execution = session_status == "awaiting_approval" || session_status == "planning";
     let is_post_execution = session_status == "completed" || session_status == "executing" || session_status == "failed" || session_status == "stopped";
 
@@ -3019,6 +3321,50 @@ pub async fn execution_session_chat(
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Invalid master node ID"})))
     })?;
 
+    // Where the user message is recorded and streamed (orchestrator vs a specific plan node).
+    // Post-execution chat always uses the master; pre-exec can target a child for per-agent Q&A.
+    let (user_msg_node_uuid, user_msg_node_id) = if is_post_execution {
+        (master_uuid, master_node_id.clone())
+    } else {
+        match body
+            .target_node_id
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            None => (master_uuid, master_node_id.clone()),
+            Some(tid) if tid == master_node_id.as_str() => (master_uuid, master_node_id.clone()),
+            Some(tid) => {
+                let child_uuid = Uuid::parse_str(tid).map_err(|_| {
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid target_node_id"})))
+                })?;
+                let verify = state
+                    .db
+                    .execute_with(
+                        "SELECT id FROM execution_nodes WHERE id = $1 AND session_id = $2 AND parent_uid = $3",
+                        pg_args!(child_uuid, session_uuid, master_uuid),
+                    )
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": format!("{e}")})),
+                        )
+                    })?;
+                if verify.is_empty() {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": "target_node_id must be the orchestrator or a direct plan node in this session"
+                        })),
+                    )
+                        .into());
+                }
+                (child_uuid, tid.to_string())
+            }
+        }
+    };
+
     // Load current preview children for plan context
     let child_rows = state.db.execute_with(
         "SELECT agent_slug, task_description FROM execution_nodes WHERE session_id = $1 AND parent_uid = $2 ORDER BY created_at ASC",
@@ -3034,7 +3380,7 @@ pub async fn execution_session_chat(
     let user_meta = json!({"source": "human_reply", "phase": phase});
     state.db.execute_with(
         "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'user', $3, $4)",
-        pg_args!(session_uuid, master_uuid, body.message.clone(), user_meta.clone()),
+        pg_args!(session_uuid, user_msg_node_uuid, body.message.clone(), user_meta.clone()),
     ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")})))
     })?;
@@ -3044,7 +3390,7 @@ pub async fn execution_session_chat(
         &session_id,
         json!({
             "type": "stream_entry",
-            "node_uid": master_node_id,
+            "node_uid": user_msg_node_id,
             "stream_entry": {
                 "stream_type": "message",
                 "sub_type": "user",
@@ -3381,10 +3727,10 @@ pub async fn execution_session_chat(
 
     // ── Pre-execution chat (existing behavior) ───────────────────────────────
 
-    // Load full conversation history for this node
+    // Load full conversation history for this node (orchestrator or targeted plan node)
     let history_rows = state.db.execute_with(
         "SELECT role, content FROM node_messages WHERE session_id = $1 AND node_id = $2 ORDER BY created_at ASC",
-        pg_args!(session_uuid, master_uuid),
+        pg_args!(session_uuid, user_msg_node_uuid),
     ).await.unwrap_or_default();
 
     let mut messages: Vec<Value> = history_rows.iter().map(|r| {
@@ -3477,8 +3823,9 @@ Results are automatically scoped to this client's data.\n");
         }
     }
 
-    let system_prompt = format!(
-        "You are a helpful GTM workflow planning assistant. The user is reviewing an execution plan \
+    let system_prompt = if user_msg_node_uuid == master_uuid {
+        format!(
+            "You are a helpful GTM workflow planning assistant. The user is reviewing an execution plan \
 before approving it. Help them understand, refine, or modify the plan.\n\n\
 ## Original Request\n{request_text}\n\n\
 ## Current Plan\n{plan_text}\n\n\
@@ -3509,11 +3856,52 @@ project data, prior work, user logs, bugs, and configurations when the user asks
 data or project history — or when you need context to give a better answer.\n\
 - Keep answers concise and actionable.\n\
 - Be encouraging and help the user feel confident about approving the plan or guide them to the changes they need."
-    );
+        )
+    } else {
+        let node_rows = state
+            .db
+            .execute_with(
+                "SELECT agent_slug, task_description FROM execution_nodes WHERE id = $1 AND session_id = $2",
+                pg_args!(user_msg_node_uuid, session_uuid),
+            )
+            .await
+            .unwrap_or_default();
+        let nr = node_rows.first();
+        let agent_slug = nr
+            .and_then(|r| r.get("agent_slug").and_then(Value::as_str))
+            .unwrap_or("agent");
+        let task_line = nr
+            .and_then(|r| r.get("task_description").and_then(Value::as_str))
+            .unwrap_or("");
+        let specialist_base = state
+            .catalog
+            .get(agent_slug)
+            .map(|a| a.system_prompt.clone())
+            .unwrap_or_else(|| "You are a specialist agent.".to_string());
+        format!(
+            "{specialist_base}\n\n\
+## Pre-execution context\n\
+The user is reviewing the plan before approval. This chat is scoped to **your** step (`{agent_slug}`) only.\n\n\
+## Original request\n{request_text}\n\n\
+## Full plan (all steps)\n{plan_text}\n\n\
+## Your assigned task\n{task_line}\n\n\
+## Available agents (reference)\n{catalog_summary}{knowledge_scope_desc}\n\n\
+## How you can help\n\
+- Answer questions about how you will execute this step: tools, integrations, sequencing, and risks.\n\
+- Use search_knowledge and read_knowledge when prior project context helps.\n\n\
+## Boundaries\n\
+- You **cannot** change the overall plan from this chat. To add/remove/reorder agents or edit dependencies, \
+the user must use the **orchestrator** (master node) chat, where replan JSON blocks are applied.\n\
+- Stay concise and focused on your domain."
+        )
+    };
 
     // Spawn background task with tool loop
     let bg_state = state.clone();
     let bg_session_id = session_id.clone();
+    let bg_stream_node_id = user_msg_node_id.clone();
+    let bg_stream_uuid = user_msg_node_uuid;
+    let bg_is_orchestrator_chat = user_msg_node_uuid == master_uuid;
     let bg_master_node_id = master_node_id.clone();
     let bg_master_uuid = master_uuid;
     let bg_session_uuid = session_uuid;
@@ -3559,7 +3947,7 @@ data or project history — or when you need context to give a better answer.\n\
                 crate::agent_runner::forward_stream_delta_pub(
                     &bg_state.event_bus,
                     &bg_session_id,
-                    &bg_master_node_id,
+                    &bg_stream_node_id,
                     round,
                     &event,
                 ).await;
@@ -3572,11 +3960,11 @@ data or project history — or when you need context to give a better answer.\n\
                     let error_msg = format!("Sorry, I encountered an error: {e}");
                     let _ = bg_state.db.execute_with(
                         "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
-                        pg_args!(bg_session_uuid, bg_master_uuid, error_msg.clone(), json!({"phase": "pre_execution"})),
+                        pg_args!(bg_session_uuid, bg_stream_uuid, error_msg.clone(), json!({"phase": "pre_execution"})),
                     ).await;
                     bg_state.event_bus.send(&bg_session_id, json!({
                         "type": "stream_entry",
-                        "node_uid": bg_master_node_id,
+                        "node_uid": bg_stream_node_id,
                         "stream_entry": {
                             "stream_type": "message",
                             "sub_type": "assistant",
@@ -3587,7 +3975,7 @@ data or project history — or when you need context to give a better answer.\n\
                     })).await;
                     bg_state.event_bus.send(&bg_session_id, json!({
                         "type": "stream_entry",
-                        "node_uid": bg_master_node_id,
+                        "node_uid": bg_stream_node_id,
                         "stream_entry": {
                             "stream_type": "message_stop",
                             "sub_type": "message_stop",
@@ -3600,7 +3988,7 @@ data or project history — or when you need context to give a better answer.\n\
                     warn!(error = %e, "session chat task join failed");
                     bg_state.event_bus.send(&bg_session_id, json!({
                         "type": "stream_entry",
-                        "node_uid": bg_master_node_id,
+                        "node_uid": bg_stream_node_id,
                         "stream_entry": {
                             "stream_type": "message",
                             "sub_type": "assistant",
@@ -3611,7 +3999,7 @@ data or project history — or when you need context to give a better answer.\n\
                     })).await;
                     bg_state.event_bus.send(&bg_session_id, json!({
                         "type": "stream_entry",
-                        "node_uid": bg_master_node_id,
+                        "node_uid": bg_stream_node_id,
                         "stream_entry": {
                             "stream_type": "message_stop",
                             "sub_type": "message_stop",
@@ -3683,7 +4071,7 @@ data or project history — or when you need context to give a better answer.\n\
         // Persist assistant message
         let _ = bg_state.db.execute_with(
             "INSERT INTO node_messages (session_id, node_id, role, content, metadata) VALUES ($1, $2, 'assistant', $3, $4)",
-            pg_args!(bg_session_uuid, bg_master_uuid, response_text.clone(), json!({"phase": "pre_execution"})),
+            pg_args!(bg_session_uuid, bg_stream_uuid, response_text.clone(), json!({"phase": "pre_execution"})),
         ).await;
 
         // Broadcast the finalized assistant message so it appears immediately
@@ -3691,7 +4079,7 @@ data or project history — or when you need context to give a better answer.\n\
         // the complete message is present even if SSE was briefly interrupted)
         bg_state.event_bus.send(&bg_session_id, json!({
             "type": "stream_entry",
-            "node_uid": bg_master_node_id,
+            "node_uid": bg_stream_node_id,
             "stream_entry": {
                 "stream_type": "message",
                 "sub_type": "assistant",
@@ -3705,7 +4093,7 @@ data or project history — or when you need context to give a better answer.\n\
         // Broadcast message_stop so frontend finalizes the streamed message
         let delivered = bg_state.event_bus.send(&bg_session_id, json!({
             "type": "stream_entry",
-            "node_uid": bg_master_node_id,
+            "node_uid": bg_stream_node_id,
             "stream_entry": {
                 "stream_type": "message_stop",
                 "sub_type": "message_stop",
@@ -3718,9 +4106,10 @@ data or project history — or when you need context to give a better answer.\n\
             "session chat message_stop sent"
         );
 
-        // Detect ```replan block and apply plan changes.
+        // Detect ```replan block and apply plan changes (orchestrator chat only).
         // Search all_text_across_rounds (not just the final round) in case the
         // model emitted the replan in a round that also used tool calls.
+        if bg_is_orchestrator_chat {
         let replan_source = if all_text_across_rounds.contains("```replan") {
             &all_text_across_rounds
         } else if response_text.contains("```replan") {
@@ -3815,6 +4204,7 @@ data or project history — or when you need context to give a better answer.\n\
                 session_id = %bg_session_id,
                 "response mentions replan but no ```replan block detected"
             );
+        }
         }
     });
 
@@ -4061,7 +4451,7 @@ pub async fn oauth_authorize(
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
 
-    let redirect = params.redirect.as_deref().unwrap_or("/settings/integrations");
+    let redirect = params.redirect.as_deref().unwrap_or("/integrations");
     let url = crate::oauth::start_authorize(&state.db, &state.settings, &provider, client_id, redirect)
         .await.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("{e}")}))))?;
 
@@ -4129,11 +4519,41 @@ pub async fn auth_me(
     let user_data = rows.first().cloned().unwrap_or(json!({}));
 
     let clients = state.db.execute_with(
-        "SELECT c.slug, c.name, ucr.role FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id WHERE ucr.user_id = $1 AND c.deleted_at IS NULL",
+        "SELECT c.slug, c.name, ucr.role, c.engagement_stage \
+         FROM user_client_roles ucr JOIN clients c ON ucr.client_id = c.id \
+         WHERE ucr.user_id = $1 AND c.deleted_at IS NULL",
         crate::pg_args!(user.user_id),
     ).await.unwrap_or_default();
 
     Ok(Json(json!({"user": user_data, "clients": clients})))
+}
+
+/// GET /api/auth/knowledge/personal-documents — corpus detached from deleted workspaces (current user).
+pub async fn auth_personal_knowledge_documents(
+    State(state): State<Arc<AppState>>,
+    request: axum::extract::Request,
+) -> Result<Json<Value>, InternalError> {
+    let user = request
+        .extensions()
+        .get::<crate::auth::AuthenticatedUser>()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let rows = state
+        .db
+        .execute_with(
+            "SELECT id, tenant_id, library_user_id, project_id, expert_id, source_filename, \
+                    source_path, source_folder, mime_type, file_hash, status, \
+                    error_message, chunk_count, inferred_scope, inferred_scope_id, \
+                    created_at, updated_at \
+             FROM knowledge_documents \
+             WHERE tenant_id IS NULL AND library_user_id = $1 \
+             ORDER BY source_path ASC",
+            crate::pg_args!(user.user_id),
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(json!({ "documents": rows })))
 }
 
 // ── Workspace creation (authenticated) ───────────────────────────────────────
@@ -4144,6 +4564,8 @@ pub struct CreateWorkspaceRequest {
     pub name: String,
     pub brief: Option<String>,
     pub industry: Option<String>,
+    /// One of: initial_discovery | proposal_scoping | onboarded | offboarded
+    pub engagement_stage: String,
 }
 
 /// POST /api/auth/workspaces — create a workspace and link the authenticated user as admin.
@@ -4163,8 +4585,42 @@ pub async fn auth_create_workspace(
             .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid JSON"}))))?
     };
 
+    const ENGAGEMENT_STAGES: &[&str] = &[
+        "initial_discovery",
+        "proposal_scoping",
+        "onboarded",
+        "offboarded",
+    ];
+    let stage = body.engagement_stage.trim();
+    if !ENGAGEMENT_STAGES.contains(&stage) {
+        return Err(crate::error::ApiError::bad_request(format!(
+            "engagement_stage must be one of: {}",
+            ENGAGEMENT_STAGES.join(", ")
+        ))
+        .into());
+    }
+
+    crate::workspace_delete::purge_soft_deleted_workspace_slug_for_user(
+        &state.db,
+        body.slug.trim(),
+        user.user_id,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("{e}")})),
+        )
+    })?;
+
     let client_id = client_mod::create_client(
-        &state.db, &body.slug, &body.name, body.brief.as_deref(), body.industry.as_deref(), None,
+        &state.db,
+        &body.slug,
+        &body.name,
+        body.brief.as_deref(),
+        body.industry.as_deref(),
+        None,
+        Some(stage),
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
@@ -4194,7 +4650,8 @@ pub struct DeleteWorkspaceRequest {
     pub confirmation: String,
 }
 
-/// DELETE /api/auth/workspaces/:slug — soft-delete a workspace (admin only).
+/// DELETE /api/auth/workspaces/:slug — hard-delete workspace (admin only). Knowledge corpus is
+/// retained for the deleting user under their personal library (`tenant_id` cleared).
 pub async fn auth_delete_workspace(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
@@ -4212,33 +4669,33 @@ pub async fn auth_delete_workspace(
             .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid JSON"}))))?
     };
 
-    if body.confirmation.trim().to_lowercase() != "delete workspace" {
-        return Err(crate::error::ApiError::bad_request("Confirmation text must be exactly \"delete workspace\"").into());
+    let conf = body.confirmation.trim().to_lowercase();
+    if conf != "delete workspace" && conf != "delete client" {
+        return Err(crate::error::ApiError::bad_request(
+            "Confirmation text must be exactly \"delete client\" or \"delete workspace\"",
+        )
+        .into());
     }
 
-    // Verify the user is an admin on this workspace
-    let role_rows = state.db.execute_with(
-        "SELECT ucr.role FROM user_client_roles ucr \
+    let id_rows = state.db.execute_with(
+        "SELECT c.id FROM user_client_roles ucr \
          JOIN clients c ON ucr.client_id = c.id \
-         WHERE ucr.user_id = $1 AND c.slug = $2",
+         WHERE ucr.user_id = $1 AND c.slug = $2 AND ucr.role = 'admin'",
         crate::pg_args!(user.user_id, slug.clone()),
     ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
-    let role = role_rows.first()
-        .and_then(|r| r.get("role").and_then(|v| v.as_str().map(String::from)))
+    let client_id: Uuid = id_rows
+        .first()
+        .and_then(|r| r.get("id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found or you don't have access"}))))?;
 
-    if role != "admin" {
-        return Err(crate::error::ApiError::forbidden("Only workspace admins can delete a workspace").into());
-    }
+    crate::workspace_delete::hard_delete_workspace_retain_knowledge(&state.db, client_id, user.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
 
-    // Soft-delete: set deleted_at and deleted_by
-    state.db.execute_with(
-        "UPDATE clients SET deleted_at = NOW(), deleted_by = $1 WHERE slug = $2 AND deleted_at IS NULL",
-        crate::pg_args!(user.user_id, slug.clone()),
-    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
-
-    info!(user = %user.email, workspace = %slug, "workspace soft-deleted");
+    info!(user = %user.email, workspace = %slug, "workspace hard-deleted; knowledge retained for user");
 
     Ok(Json(json!({"ok": true, "slug": slug})))
 }
@@ -4249,6 +4706,106 @@ pub async fn auth_delete_workspace(
 pub struct CredentialCheckQuery {
     pub agents: Option<String>, // comma-separated agent slugs
     pub verify: Option<bool>,   // if true, run live API probes
+}
+
+/// Per-agent integration requirement summary (shared by client + project credential-check).
+fn credential_check_agents_detail(
+    catalog: &crate::agent_catalog::AgentCatalog,
+    agent_slugs: &[&str],
+    connected: &[String],
+    has_global_tavily: bool,
+) -> Value {
+    let mut agents_status = json!({});
+    for agent_slug in agent_slugs {
+        let agent = match catalog.get(agent_slug) {
+            Some(a) => a,
+            None => continue,
+        };
+
+        let mut all_required: Vec<String> = agent.required_integrations.clone();
+        for tool_name in &agent.tools {
+            if let Some(cred) = crate::actions::action_credential(tool_name) {
+                if !all_required.contains(&cred) {
+                    all_required.push(cred);
+                }
+            }
+        }
+
+        let missing: Vec<String> = all_required
+            .iter()
+            .filter(|req| {
+                if *req == "tavily" && has_global_tavily {
+                    return false;
+                }
+                !connected.contains(req)
+            })
+            .cloned()
+            .collect();
+
+        let tool_details: Vec<Value> = agent
+            .tools
+            .iter()
+            .map(|t| {
+                let cred = crate::actions::action_credential(t);
+                let cred_status = match &cred {
+                    Some(c) => {
+                        if connected.contains(c) || (c == "tavily" && has_global_tavily) {
+                            "connected"
+                        } else {
+                            "missing"
+                        }
+                    }
+                    None => "not_required",
+                };
+                let display = cred.as_deref().map(integration_display_name).unwrap_or_default();
+                let icon = cred.as_deref().unwrap_or("generic");
+                json!({
+                    "name": t,
+                    "credential": cred,
+                    "credential_status": cred_status,
+                    "display_name": display,
+                    "icon": icon,
+                })
+            })
+            .collect();
+
+        let status = if all_required.is_empty() {
+            "no_tools"
+        } else if missing.is_empty() {
+            "ready"
+        } else {
+            "blocked"
+        };
+
+        let integration_details: Vec<Value> = all_required
+            .iter()
+            .map(|slug| {
+                let is_missing = missing.contains(slug);
+                let mut detail = json!({
+                    "slug": slug,
+                    "display_name": integration_display_name(slug),
+                    "icon": slug,
+                    "status": if is_missing { "missing" } else { "connected" },
+                });
+                if let Some(steps) = integration_setup_steps(slug) {
+                    detail
+                        .as_object_mut()
+                        .expect("DB row is always a JSON object")
+                        .insert("setup_steps".to_string(), steps);
+                }
+                detail
+            })
+            .collect();
+
+        agents_status[agent_slug] = json!({
+            "tools": tool_details,
+            "required_integrations": all_required,
+            "integration_details": integration_details,
+            "missing": missing,
+            "status": status,
+        });
+    }
+    agents_status
 }
 
 // ── Integration Registry ─────────────────────────────────────────────────────
@@ -4285,7 +4842,13 @@ fn integration_metadata() -> Vec<Value> {
                ]}),
         json!({"slug": "google",     "name": "Google",      "auth_type": "oauth2",  "icon": "google",     "description": "Google Ads, Sheets, and other Google APIs"}),
         json!({"slug": "meta",       "name": "Meta Ads",    "auth_type": "oauth2",  "icon": "meta",       "description": "Meta/Facebook advertising platform"}),
-        json!({"slug": "slack",      "name": "Slack",       "auth_type": "oauth2",  "icon": "slack",      "description": "Team messaging and notifications"}),
+        json!({"slug": "slack",      "name": "Slack",       "auth_type": "oauth2",  "icon": "slack",
+               "description": "Connect one Slack workspace for this client. After connecting, choose where run updates are posted (channel or DM) on this card.",
+               "key_url": "https://api.slack.com/apps",
+               "key_help": "Manual install: open your Slack app → OAuth & Permissions → install the app to your workspace if needed → copy the Bot User OAuth Token (starts with xoxb-).",
+               "credential_placeholder": "xoxb-…",
+               "oauth_connect_help": "A window opens to Slack. Sign in, pick the workspace, and approve. Then use Run notifications on this card (with Client defaults selected) to set a channel or DM for execution updates.",
+               "oauth_unconfigured_help": "One-click Connect is turned off on this server (OAuth credentials are not set on the backend). Use the token field below, or ask whoever deploys the app to enable Slack OAuth so Connect appears."}),
     ]
 }
 
@@ -4352,88 +4915,12 @@ pub async fn client_credential_check(
         .filter(|s| !s.is_empty())
         .collect();
 
-    let mut agents_status = json!({});
-
-    for agent_slug in &agent_slugs {
-        let agent = match state.catalog.get(agent_slug) {
-            Some(a) => a,
-            None => continue,
-        };
-
-        // Collect all required integrations:
-        // 1. From agent's required_integrations (for http_request context)
-        // 2. From each tool's required_credential
-        let mut all_required: Vec<String> = agent.required_integrations.clone();
-        for tool_name in &agent.tools {
-            if let Some(cred) = crate::actions::action_credential(tool_name) {
-                if !all_required.contains(&cred) {
-                    all_required.push(cred);
-                }
-            }
-        }
-
-        // Determine which are missing
-        let missing: Vec<String> = all_required.iter()
-            .filter(|req| {
-                if *req == "tavily" && has_global_tavily { return false; }
-                !connected.contains(req)
-            })
-            .cloned()
-            .collect();
-
-        let tool_details: Vec<Value> = agent.tools.iter().map(|t| {
-            let cred = crate::actions::action_credential(t);
-            let cred_status = match &cred {
-                Some(c) => {
-                    if connected.contains(c) || (c == "tavily" && has_global_tavily) {
-                        "connected"
-                    } else {
-                        "missing"
-                    }
-                }
-                None => "not_required",
-            };
-            let display = cred.as_deref().map(integration_display_name).unwrap_or_default();
-            let icon = cred.as_deref().unwrap_or("generic");
-            json!({
-                "name": t,
-                "credential": cred,
-                "credential_status": cred_status,
-                "display_name": display,
-                "icon": icon,
-            })
-        }).collect();
-
-        let status = if all_required.is_empty() {
-            "no_tools"
-        } else if missing.is_empty() {
-            "ready"
-        } else {
-            "blocked"
-        };
-
-        let integration_details: Vec<Value> = all_required.iter().map(|slug| {
-            let is_missing = missing.contains(slug);
-            let mut detail = json!({
-                "slug": slug,
-                "display_name": integration_display_name(slug),
-                "icon": slug,
-                "status": if is_missing { "missing" } else { "connected" },
-            });
-            if let Some(steps) = integration_setup_steps(slug) {
-                detail.as_object_mut().expect("DB row is always a JSON object").insert("setup_steps".to_string(), steps);
-            }
-            detail
-        }).collect();
-
-        agents_status[*agent_slug] = json!({
-            "tools": tool_details,
-            "required_integrations": all_required,
-            "integration_details": integration_details,
-            "missing": missing,
-            "status": status,
-        });
-    }
+    let agents_status = credential_check_agents_detail(
+        &state.catalog,
+        &agent_slugs,
+        &connected,
+        has_global_tavily,
+    );
 
     // Live probe verification when ?verify=true
     let mut probe_results_json = json!({});
@@ -5131,18 +5618,82 @@ pub async fn project_credential_check(
 
     let connected: Vec<String> = all_credentials.keys().cloned().collect();
 
+    let agent_slugs: Vec<&str> = query.agents.as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let has_global_tavily = state.settings.tavily_api_key.is_some();
+    let agents_status_detail = if agent_slugs.is_empty() {
+        json!({})
+    } else {
+        credential_check_agents_detail(
+            &state.catalog,
+            &agent_slugs,
+            &connected,
+            has_global_tavily,
+        )
+    };
+
     let mut probe_results_json = json!({});
     if query.verify.unwrap_or(false) {
-        let probes = crate::preflight::probe_integrations(&all_credentials, Some(&state.settings)).await;
-        for p in &probes {
-            probe_results_json[&p.integration_slug] = json!({
-                "status": p.status.as_str(),
-                "ok": p.success(),
-                "http_status": p.http_status,
-                "error": if p.error.is_empty() { None } else { Some(&p.error) },
-                "hint": if p.hint.is_empty() { None } else { Some(&p.hint) },
-                "latency_ms": p.latency_ms,
-            });
+        if agent_slugs.is_empty() {
+            // Settings / overview: probe every stored credential for this project scope.
+            let probes = crate::preflight::probe_integrations(&all_credentials, Some(&state.settings)).await;
+            for p in &probes {
+                probe_results_json[&p.integration_slug] = json!({
+                    "status": p.status.as_str(),
+                    "ok": p.success(),
+                    "http_status": p.http_status,
+                    "error": if p.error.is_empty() { None } else { Some(&p.error) },
+                    "hint": if p.hint.is_empty() { None } else { Some(&p.hint) },
+                    "latency_ms": p.latency_ms,
+                });
+            }
+        } else {
+            // Execution approve parity: only integrations required by these agents (matches client_credential_check).
+            let mut all_required: Vec<String> = Vec::new();
+            for agent_slug in &agent_slugs {
+                if let Some(agent) = state.catalog.get(agent_slug) {
+                    for s in crate::preflight::required_slugs_for_agent(&agent.required_integrations, &agent.tools) {
+                        if !all_required.contains(&s) {
+                            all_required.push(s);
+                        }
+                    }
+                }
+            }
+            let needed = crate::preflight::filter_required_credentials(
+                &all_credentials,
+                &all_required,
+                &state.settings,
+            );
+            let probes = crate::preflight::probe_integrations(&needed, Some(&state.settings)).await;
+            for p in &probes {
+                probe_results_json[&p.integration_slug] = json!({
+                    "status": p.status.as_str(),
+                    "ok": p.success(),
+                    "http_status": p.http_status,
+                    "error": if p.error.is_empty() { None } else { Some(&p.error) },
+                    "hint": if p.hint.is_empty() { None } else { Some(&p.hint) },
+                    "latency_ms": p.latency_ms,
+                });
+            }
+            for slug in &all_required {
+                if probe_results_json.get(slug).is_none() {
+                    if needed.contains_key(slug.as_str()) {
+                        probe_results_json[slug] = json!({ "status": "skipped", "ok": true });
+                    } else {
+                        probe_results_json[slug] = json!({
+                            "status": "missing",
+                            "ok": false,
+                            "error": format!("No credentials configured for {slug}"),
+                            "hint": format!("Add {slug} credentials in Settings > Integrations."),
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -5159,6 +5710,7 @@ pub async fn project_credential_check(
     }
 
     Ok(Json(json!({
+        "agents": agents_status_detail,
         "connected": connected,
         "probe_results": probe_results_json,
         "scopes": scopes,
@@ -5371,6 +5923,9 @@ pub struct KnowledgeQuery {
     pub project_id: Option<String>,
     pub folder: Option<String>,
     pub status: Option<String>,
+    /// When true with auth, scope document read/delete to personal library (detached corpus).
+    #[serde(default)]
+    pub personal_library: Option<bool>,
 }
 
 pub async fn knowledge_documents_list(
@@ -5410,7 +5965,7 @@ pub async fn knowledge_documents_list(
     // sql-format-ok: dynamic WHERE — `clauses` are hardcoded `column op $N` fragments
     // built above, all real values bound via `args`.
     let sql = format!(
-        "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+        "SELECT id, tenant_id, library_user_id, project_id, expert_id, source_filename, \
                 source_path, source_folder, mime_type, file_hash, status, \
                 error_message, chunk_count, inferred_scope, inferred_scope_id, \
                 created_at, updated_at \
@@ -5426,6 +5981,7 @@ pub async fn knowledge_documents_list(
 
 pub async fn knowledge_document_get(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(doc_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
@@ -5433,10 +5989,20 @@ pub async fn knowledge_document_get(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let result = if let Some(ref tid) = query.tenant_id {
+    let result = if query.personal_library == Some(true) {
+        state.db.execute_with(
+            "SELECT id, tenant_id, library_user_id, project_id, expert_id, source_filename, \
+                    source_path, source_folder, mime_type, file_hash, normalized_markdown, \
+                    status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
+                    file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
+                    created_at, updated_at \
+             FROM knowledge_documents WHERE id = $1 AND tenant_id IS NULL AND library_user_id = $2",
+            pg_args!(doc_uuid, user.user_id),
+        ).await
+    } else if let Some(ref tid) = query.tenant_id {
         match resolve_tenant_id(tid, &state.db).await {
             Ok(t) => state.db.execute_with(
-                "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+                "SELECT id, tenant_id, library_user_id, project_id, expert_id, source_filename, \
                         source_path, source_folder, mime_type, file_hash, normalized_markdown, \
                         status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
                         file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
@@ -5448,7 +6014,7 @@ pub async fn knowledge_document_get(
         }
     } else {
         state.db.execute_with(
-            "SELECT id, tenant_id, project_id, expert_id, source_filename, \
+            "SELECT id, tenant_id, library_user_id, project_id, expert_id, source_filename, \
                     source_path, source_folder, mime_type, file_hash, normalized_markdown, \
                     status, error_message, chunk_count, inferred_scope, inferred_scope_id, \
                     file_size_bytes, (raw_content IS NOT NULL) as has_raw_content, \
@@ -5463,14 +6029,60 @@ pub async fn knowledge_document_get(
     }
 }
 
+async fn knowledge_doc_accessible_for_chunks_or_raw(
+    db: &crate::pg::PgClient,
+    doc_uuid: Uuid,
+    query: &KnowledgeQuery,
+    user_id: Uuid,
+) -> Result<(), StatusCode> {
+    if query.personal_library == Some(true) {
+        let rows = db
+            .execute_with(
+                "SELECT 1 FROM knowledge_documents \
+                 WHERE id = $1 AND tenant_id IS NULL AND library_user_id = $2",
+                pg_args!(doc_uuid, user_id),
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if rows.is_empty() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        return Ok(());
+    }
+    if let Some(ref tid) = query.tenant_id {
+        let t = resolve_tenant_id(tid, db)
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+        let rows = db
+            .execute_with(
+                "SELECT 1 FROM knowledge_documents WHERE id = $1 AND tenant_id = $2",
+                pg_args!(doc_uuid, t),
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if rows.is_empty() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        return Ok(());
+    }
+    Ok(())
+}
+
 pub async fn knowledge_document_chunks(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(doc_id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
     let doc_uuid = match doc_id.parse::<Uuid>() {
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
+    if let Err(code) =
+        knowledge_doc_accessible_for_chunks_or_raw(&state.db, doc_uuid, &query, user.user_id).await
+    {
+        return (code, Json(json!({"error": "document not found"}))).into_response();
+    }
     match state.db.execute_with(
         "SELECT id, chunk_index, section_title, content, token_count, metadata, created_at \
          FROM knowledge_chunks WHERE document_id = $1 ORDER BY chunk_index",
@@ -5483,12 +6095,19 @@ pub async fn knowledge_document_chunks(
 
 pub async fn knowledge_document_raw(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(doc_id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
     let doc_uuid = match doc_id.parse::<Uuid>() {
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
+    if let Err(code) =
+        knowledge_doc_accessible_for_chunks_or_raw(&state.db, doc_uuid, &query, user.user_id).await
+    {
+        return (code, Json(json!({"error": "document not found"}))).into_response();
+    }
     match state.db.execute_with(
         "SELECT raw_content, source_filename, mime_type \
          FROM knowledge_documents WHERE id = $1",
@@ -5828,6 +6447,7 @@ pub async fn knowledge_document_progress(
 
 pub async fn knowledge_document_delete(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(doc_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<KnowledgeQuery>,
 ) -> impl IntoResponse {
@@ -5835,7 +6455,13 @@ pub async fn knowledge_document_delete(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid document id"}))).into_response(),
     };
-    let result = if let Some(ref tid) = query.tenant_id {
+    let result = if query.personal_library == Some(true) {
+        state.db.execute_with(
+            "DELETE FROM knowledge_documents \
+             WHERE id = $1 AND tenant_id IS NULL AND library_user_id = $2 RETURNING id",
+            pg_args!(doc_uuid, user.user_id),
+        ).await
+    } else if let Some(ref tid) = query.tenant_id {
         if let Ok(t) = resolve_tenant_id(tid, &state.db).await {
             state.db.execute_with(
                 "DELETE FROM knowledge_documents WHERE id = $1 AND tenant_id = $2 RETURNING id",
@@ -6892,6 +7518,7 @@ pub async fn chat_learnings_analyze_recent(
         .and_then(|s| s.parse::<Uuid>().ok());
 
     let force = body.get("force").and_then(Value::as_bool).unwrap_or(false);
+
     if force {
         // Reset watermark and skip flag so all sessions get re-scanned
         let _ = state.db.execute_with(
@@ -6956,6 +7583,7 @@ pub async fn chat_learnings_analyze_recent(
         })?;
 
     let total = sessions.len();
+
     if total == 0 {
         return Ok(Json(
             json!({ "ok": true, "sessions_analyzed": 0, "learnings_extracted": 0 }),
@@ -6975,7 +7603,6 @@ pub async fn chat_learnings_analyze_recent(
             Some(id) => id,
             None => continue,
         };
-
         match crate::chat_analyzer::analyze_session(
             &state.db,
             &state.settings.anthropic_api_key,

@@ -18,25 +18,42 @@ interface SessionSummary {
 const STATUS_BADGE = SESSION_STATUS_BADGE;
 
 export default function ExecutePage() {
-  const { apiFetch } = useAuth();
+  const { apiFetch, token, loading: authLoading } = useAuth();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!token) {
+      setSessionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSessionsLoading(true);
     apiFetch("/api/execute/sessions")
-      .then((r) => {
-        if (!r.ok) throw new Error(r.statusText);
+      .then(async (r) => {
+        if (!r.ok) {
+          const detail = await r.text();
+          throw new Error(
+            `${r.status} ${r.statusText}${detail ? ` — ${detail.slice(0, 200)}` : ""}`
+          );
+        }
         return r.json();
       })
       .then((data) => {
+        if (cancelled) return;
         setSessions(data.sessions ?? []);
         setSessionsLoading(false);
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("Failed to load sessions:", err);
         setSessionsLoading(false);
       });
-  }, [apiFetch]);
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch, token, authLoading]);
 
   const handleDeleteSession = async (
     e: React.MouseEvent,

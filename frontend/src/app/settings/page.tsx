@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
   KeyRound,
@@ -12,16 +13,21 @@ import {
   MessageSquare,
   Table2,
   FlaskConical,
-  Hash,
   Trash2,
 } from "lucide-react";
+import {
+  DEFAULT_ENGAGEMENT_STAGE,
+  ENGAGEMENT_STAGE_OPTIONS,
+  type EngagementStageValue,
+} from "@/lib/engagement-stage";
+import { readOnboardingFlowActive } from "@/lib/onboarding-storage";
 
 const settingsSections = [
   {
-    href: "/settings/integrations",
+    href: "/integrations",
     icon: KeyRound,
     label: "Integrations",
-    description: "Manage API keys and OAuth connections for your agents",
+    description: "Manage API keys and OAuth connections for your agents for this client",
     requiresWorkspace: true,
   },
   {
@@ -51,71 +57,13 @@ const settingsSections = [
 ];
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { user, clients, activeClient, setActiveClient, apiFetch, refreshClients } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
+  const [engagementStage, setEngagementStage] = useState<EngagementStageValue>(DEFAULT_ENGAGEMENT_STAGE);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
-
-  // Slack channel settings
-  const [clientSlackChannel, setClientSlackChannel] = useState("");
-  const [clientSlackLoaded, setClientSlackLoaded] = useState(false);
-  const [savingSlack, setSavingSlack] = useState(false);
-  const [slackSaved, setSlackSaved] = useState(false);
-  const [projects, setProjects] = useState<{ id: string; slug: string; name: string; slack_channel_id: string | null }[]>([]);
-  const [projectSlackValues, setProjectSlackValues] = useState<Record<string, string>>({});
-  const [savingProjectSlack, setSavingProjectSlack] = useState<string | null>(null);
-
-  // Load client slack_channel_id and projects when activeClient changes
-  useEffect(() => {
-    if (!activeClient) return;
-    setClientSlackLoaded(false);
-    apiFetch(`/api/clients/${activeClient}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setClientSlackChannel(data.client?.slack_channel_id || "");
-        setClientSlackLoaded(true);
-      })
-      .catch(() => setClientSlackLoaded(true));
-
-    apiFetch(`/api/projects?client_slug=${activeClient}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const list = data.projects ?? [];
-        setProjects(list);
-        const vals: Record<string, string> = {};
-        for (const p of list) {
-          vals[p.id] = p.slack_channel_id || "";
-        }
-        setProjectSlackValues(vals);
-      })
-      .catch(() => {});
-  }, [activeClient, apiFetch]);
-
-  const saveClientSlack = useCallback(async () => {
-    if (!activeClient) return;
-    setSavingSlack(true);
-    try {
-      await apiFetch(`/api/clients/${activeClient}`, {
-        method: "PATCH",
-        body: JSON.stringify({ slack_channel_id: clientSlackChannel || "" }),
-      });
-      setSlackSaved(true);
-      setTimeout(() => setSlackSaved(false), 2000);
-    } catch { /* ignore */ }
-    setSavingSlack(false);
-  }, [activeClient, clientSlackChannel, apiFetch]);
-
-  const saveProjectSlack = useCallback(async (projectId: string) => {
-    setSavingProjectSlack(projectId);
-    try {
-      await apiFetch(`/api/projects/${projectId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ slack_channel_id: projectSlackValues[projectId] || "" }),
-      });
-    } catch { /* ignore */ }
-    setSavingProjectSlack(null);
-  }, [projectSlackValues, apiFetch]);
 
   // Delete workspace state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -127,7 +75,8 @@ export default function SettingsPage() {
   const activeClientName = clients.find((c) => c.slug === activeClient)?.name;
 
   const deleteWorkspace = async () => {
-    if (!activeClient || deleteConfirmText.trim().toLowerCase() !== "delete workspace") return;
+    const conf = deleteConfirmText.trim().toLowerCase();
+    if (!activeClient || (conf !== "delete workspace" && conf !== "delete client")) return;
     setDeleting(true);
     setDeleteError("");
     try {
@@ -137,13 +86,13 @@ export default function SettingsPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to delete workspace");
+        throw new Error(data.error || "Failed to delete client");
       }
       setShowDeleteConfirm(false);
       setDeleteConfirmText("");
       await refreshClients();
     } catch (e: unknown) {
-      setDeleteError(e instanceof Error ? e.message : "Failed to delete workspace");
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete client");
     } finally {
       setDeleting(false);
     }
@@ -161,20 +110,28 @@ export default function SettingsPage() {
         .replace(/^-|-$/g, "");
       const res = await apiFetch("/api/auth/workspaces", {
         method: "POST",
-        body: JSON.stringify({ slug, name: newName.trim() }),
+        body: JSON.stringify({
+          slug,
+          name: newName.trim(),
+          engagement_stage: engagementStage,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to create workspace");
+        throw new Error(data.error || "Failed to create client");
       }
       const data = await res.json();
       setActiveClient(data.slug);
       setShowCreate(false);
       setNewName("");
+      setEngagementStage(DEFAULT_ENGAGEMENT_STAGE);
       await refreshClients();
+      if (readOnboardingFlowActive()) {
+        router.push("/onboarding");
+      }
     } catch (e: unknown) {
       setCreateError(
-        e instanceof Error ? e.message : "Failed to create workspace"
+        e instanceof Error ? e.message : "Failed to create client"
       );
     } finally {
       setCreating(false);
@@ -218,10 +175,10 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Workspace */}
+      {/* Client */}
       <section className="border border-rim rounded-lg p-5 bg-page mb-6">
         <h2 className="text-sm font-semibold text-ink-3 uppercase tracking-wider mb-4">
-          Workspace
+          Client
         </h2>
         {clients.length > 0 ? (
           <div className="space-y-2">
@@ -259,8 +216,8 @@ export default function SettingsPage() {
         ) : (
           <p className="text-sm text-ink-3 mb-3">
             {user
-              ? "No workspace linked to your account. Create one to manage integrations and run agents."
-              : "Sign in to create or join a workspace."}
+              ? "No client linked to your account. Create one to manage integrations and run agents."
+              : "Sign in to create or join a client."}
           </p>
         )}
 
@@ -270,7 +227,7 @@ export default function SettingsPage() {
             className="mt-3 flex items-center gap-2 text-sm text-brand hover:text-brand-hover transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Create workspace
+            Create client
           </button>
         )}
 
@@ -280,11 +237,23 @@ export default function SettingsPage() {
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="Workspace name (e.g. My Company)"
+              placeholder="Client name (e.g. Acme Corp)"
               className="w-full bg-page border border-rim rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-brand"
               onKeyDown={(e) => e.key === "Enter" && createWorkspace()}
               autoFocus
             />
+            <div>
+              <label className="text-xs font-medium text-ink-3 block mb-1">Engagement stage</label>
+              <select
+                value={engagementStage}
+                onChange={(e) => setEngagementStage(e.target.value as EngagementStageValue)}
+                className="w-full bg-page border border-rim rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-brand"
+              >
+                {ENGAGEMENT_STAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
             {createError && (
               <p className="text-xs text-red-500">{createError}</p>
             )}
@@ -300,6 +269,7 @@ export default function SettingsPage() {
                 onClick={() => {
                   setShowCreate(false);
                   setNewName("");
+                  setEngagementStage(DEFAULT_ENGAGEMENT_STAGE);
                   setCreateError("");
                 }}
                 className="px-4 py-1.5 rounded text-xs font-medium text-ink-3 hover:text-ink border border-rim"
@@ -310,14 +280,14 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Delete workspace (admin only) */}
+        {/* Delete client (admin only) */}
         {activeClient && activeRole === "admin" && !showDeleteConfirm && (
           <button
             onClick={() => setShowDeleteConfirm(true)}
             className="mt-4 flex items-center gap-2 text-xs text-red-500 hover:text-red-600 transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Delete workspace
+            Delete client
           </button>
         )}
 
@@ -327,17 +297,18 @@ export default function SettingsPage() {
               Delete &ldquo;{activeClientName}&rdquo;?
             </p>
             <p className="text-xs text-red-500 dark:text-red-400/80">
-              This workspace will be recoverable for 30 days, after which it will be permanently removed along with all associated data.
+              This client will be recoverable for 30 days, after which it will be permanently removed along with all associated data.
             </p>
             <div>
               <label className="text-xs text-ink-3 block mb-1">
-                Type <span className="font-mono font-medium text-ink">delete workspace</span> to confirm
+                Type <span className="font-mono font-medium text-ink">delete client</span> or{" "}
+                <span className="font-mono font-medium text-ink">delete workspace</span> to confirm
               </label>
               <input
                 type="text"
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="delete workspace"
+                placeholder="delete client"
                 className="w-full bg-page border border-rim rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-red-400"
                 onKeyDown={(e) => e.key === "Enter" && deleteWorkspace()}
                 autoFocus
@@ -349,10 +320,14 @@ export default function SettingsPage() {
             <div className="flex gap-2">
               <button
                 onClick={deleteWorkspace}
-                disabled={deleteConfirmText.trim().toLowerCase() !== "delete workspace" || deleting}
+                disabled={
+                  (deleteConfirmText.trim().toLowerCase() !== "delete workspace" &&
+                    deleteConfirmText.trim().toLowerCase() !== "delete client") ||
+                  deleting
+                }
                 className="bg-red-600 text-white px-4 py-1.5 rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {deleting ? "Deleting..." : "Delete workspace"}
+                {deleting ? "Deleting..." : "Delete client"}
               </button>
               <button
                 onClick={() => {
@@ -368,77 +343,6 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
-
-      {/* Slack Notifications */}
-      {activeClient && clientSlackLoaded && (
-        <section className="border border-rim rounded-lg p-5 bg-page mb-6">
-          <h2 className="text-sm font-semibold text-ink-3 uppercase tracking-wider mb-4">
-            Slack Notifications
-          </h2>
-          <p className="text-xs text-ink-3 mb-4">
-            Execution updates will be posted to the configured Slack channel. Set a default at the workspace level, or override per-project.
-          </p>
-
-          {/* Workspace default */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-ink-3 block mb-1">
-              Workspace default channel
-            </label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                <input
-                  type="text"
-                  value={clientSlackChannel}
-                  onChange={(e) => { setClientSlackChannel(e.target.value); setSlackSaved(false); }}
-                  placeholder="C01ABCDEF"
-                  className="w-full bg-page border border-rim rounded px-3 py-1.5 pl-8 text-sm text-ink focus:outline-none focus:border-brand font-mono"
-                />
-              </div>
-              <button
-                onClick={saveClientSlack}
-                disabled={savingSlack}
-                className="bg-brand text-white px-4 py-1.5 rounded text-xs font-medium hover:bg-brand-hover disabled:opacity-50"
-              >
-                {slackSaved ? "Saved" : savingSlack ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-
-          {/* Per-project overrides */}
-          {projects.length > 0 && (
-            <div>
-              <label className="text-xs font-medium text-ink-3 block mb-2">
-                Per-project overrides
-              </label>
-              <div className="space-y-2">
-                {projects.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2">
-                    <span className="text-xs text-ink w-32 truncate" title={p.name}>{p.name}</span>
-                    <div className="relative flex-1">
-                      <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                      <input
-                        type="text"
-                        value={projectSlackValues[p.id] || ""}
-                        onChange={(e) => setProjectSlackValues((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                        placeholder={clientSlackChannel || "C01ABCDEF"}
-                        className="w-full bg-page border border-rim rounded px-3 py-1 pl-8 text-xs text-ink focus:outline-none focus:border-brand font-mono"
-                      />
-                    </div>
-                    <button
-                      onClick={() => saveProjectSlack(p.id)}
-                      disabled={savingProjectSlack === p.id}
-                      className="text-xs text-brand hover:text-brand-hover disabled:opacity-50 font-medium whitespace-nowrap"
-                    >
-                      {savingProjectSlack === p.id ? "..." : "Save"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
 
       {/* Sub-section navigation */}
       <section className="space-y-2">

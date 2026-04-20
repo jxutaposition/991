@@ -272,11 +272,14 @@ export function ConversationStream({
     } finally {
       setSending(false);
     }
-  }, [replyText, onReply, sending, selectedNode.id]);
+  }, [replyText, onReply, sending, selectedNode.id, selectedNode.status]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
     },
     [handleSend]
   );

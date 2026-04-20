@@ -11,6 +11,37 @@ use crate::pg::PgClient;
 
 const NONCE_LEN: usize = 12;
 
+/// Normalize `CREDENTIAL_MASTER_KEY` from env: trim, strip wrapping quotes, optional `0x`, validate.
+fn normalize_master_key_hex(master_key_hex: &str) -> anyhow::Result<&str> {
+    let mut s = master_key_hex.trim();
+    if s.len() >= 2 {
+        let b = s.as_bytes();
+        if (b[0] == b'"' && b[s.len() - 1] == b'"')
+            || (b[0] == b'\'' && b[s.len() - 1] == b'\'')
+        {
+            s = &s[1..s.len() - 1];
+        }
+    }
+    s = s.trim();
+    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        s = rest.trim();
+    }
+    if s.len() != 64 {
+        anyhow::bail!(
+            "CREDENTIAL_MASTER_KEY must be exactly 64 hex characters (32 bytes) for AES-256-GCM; \
+             after trimming/normalization the length is {}. \
+             Generate one with: openssl rand -hex 32",
+            s.len()
+        );
+    }
+    if !s.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
+        anyhow::bail!(
+            "CREDENTIAL_MASTER_KEY must be hexadecimal only (0-9, a-f). Remove quotes, spaces, or other characters from the value in backend .env."
+        );
+    }
+    Ok(s)
+}
+
 #[derive(Debug, Clone)]
 pub struct DecryptedCredential {
     pub credential_type: String,
@@ -22,7 +53,8 @@ pub type CredentialMap = HashMap<String, DecryptedCredential>;
 
 // Encryption: master_key_hex is 64 hex chars (32 bytes)
 pub fn encrypt(master_key_hex: &str, plaintext: &str) -> anyhow::Result<Vec<u8>> {
-    let key_bytes = hex::decode(master_key_hex)?;
+    let mk = normalize_master_key_hex(master_key_hex)?;
+    let key_bytes = hex::decode(mk)?;
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
@@ -40,7 +72,8 @@ pub fn decrypt(master_key_hex: &str, data: &[u8]) -> anyhow::Result<String> {
     if data.len() < NONCE_LEN + 16 {
         anyhow::bail!("ciphertext too short");
     }
-    let key_bytes = hex::decode(master_key_hex)?;
+    let mk = normalize_master_key_hex(master_key_hex)?;
+    let key_bytes = hex::decode(mk)?;
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)?;
     let nonce = Nonce::from_slice(&data[..NONCE_LEN]);
     let plaintext = cipher

@@ -18,16 +18,26 @@ pub async fn create_client(
     brief: Option<&str>,
     industry: Option<&str>,
     metadata: Option<&Value>,
+    engagement_stage: Option<&str>,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
     let brief_owned = brief.map(|b| b.to_string());
     let industry_owned = industry.map(|i| i.to_string());
     let meta_val = metadata.cloned().unwrap_or_else(|| serde_json::json!({}));
+    let stage_owned = engagement_stage.map(|s| s.to_string());
 
     db.execute_with(
-        "INSERT INTO clients (id, slug, name, brief, industry, metadata) \
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
-        pg_args!(id, slug.to_string(), name.to_string(), brief_owned, industry_owned, meta_val),
+        "INSERT INTO clients (id, slug, name, brief, industry, metadata, engagement_stage) \
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)",
+        pg_args!(
+            id,
+            slug.to_string(),
+            name.to_string(),
+            brief_owned,
+            industry_owned,
+            meta_val,
+            stage_owned
+        ),
     ).await?;
     info!(client = %id, slug = slug, "created client");
     Ok(id)

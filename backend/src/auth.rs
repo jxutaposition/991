@@ -9,7 +9,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::pg::PgClient;
@@ -161,7 +161,12 @@ pub async fn auth_middleware(
             let session_rows = state.db.execute_with(
                 "SELECT 1 FROM user_sessions WHERE token_hash = $1 AND expires_at > NOW()",
                 crate::pg_args!(token_hash),
-            ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            )
+            .await
+            .map_err(|e| {
+                error!(error = %e, "user_sessions lookup failed");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
             if session_rows.is_empty() {
                 warn!("auth rejected — session expired or revoked");
                 return Err(StatusCode::UNAUTHORIZED);

@@ -37,3 +37,16 @@ logs/
 
 # Rust build artifacts
 backend/target/
+
+# Supabase: generated full-schema bootstrap (regenerate locally if needed)
+backend/scripts/build_supabase_schema_bootstrap.py
+backend/supabase_schema_bootstrap.sql
+
+node_modules
+
+# Large local knowledge archives (do not commit)
+closedclaw-knowledge*.zip
+
+# Local one-off git helpers
+_do_commit.bat
+_git_result.txt

@@ -33,6 +33,7 @@ pub mod chat_analyzer;
 pub mod preflight;
 pub mod system_description;
 pub mod discovery;
+pub mod workspace_delete;
 
 #[cfg(feature = "slack")]
 pub mod slack;

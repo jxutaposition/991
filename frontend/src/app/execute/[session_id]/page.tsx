@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Trash2, Square, X, FileText, Columns, LayoutGrid, MessageSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -21,6 +22,12 @@ import type { ProjectDescriptionData, DescriptionVersion } from "@/components/do
 import type { NodeIssue } from "@/components/issue-card";
 import { CommentSidebar, type CommentThread } from "@/components/comment-sidebar";
 import { SESSION_STATUS_TEXT } from "@/lib/tokens";
+import {
+  ONBOARDING_STORAGE,
+  markSeededExecuteOpened,
+  readOnboardingFlowActive,
+  readOnboardingMentionsClay,
+} from "@/lib/onboarding-storage";
 
 interface ExecutionSession {
   id: string;
@@ -111,6 +118,7 @@ export type CatalogMap = Record<string, CatalogAgent>;
 
 export default function SessionPage() {
   const { session_id } = useParams();
+  const sessionIdParam = Array.isArray(session_id) ? session_id[0] : session_id;
   const router = useRouter();
   const { activeClient, apiFetch, token, loading: _authLoading } = useAuth();
   const [session, setSession] = useState<ExecutionSession | null>(null);
@@ -213,6 +221,15 @@ export default function SessionPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !sessionIdParam) return;
+    if (!readOnboardingFlowActive()) return;
+    const stored = sessionStorage.getItem(ONBOARDING_STORAGE.SESSION_ID);
+    if (stored && stored === sessionIdParam) {
+      markSeededExecuteOpened();
+    }
+  }, [sessionIdParam]);
+
   const fetchSession = useCallback(async () => {
     try {
       const r = await apiFetch(`/api/execute/${session_id}`);
@@ -312,17 +329,21 @@ export default function SessionPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, fetchSession]);
 
-  // Fetch credential status for agents in this session
+  // Fetch credential status for agents in this session (verify=true matches server preflight on approve).
   useEffect(() => {
     if (!session || !activeClient) return;
     const slugs = [...new Set(session.nodes.map((n) => n.agent_slug))].join(",");
     if (!slugs) return;
-    apiFetch(`/api/clients/${activeClient}/credential-check?agents=${slugs}`)
+    const params = new URLSearchParams({ agents: slugs, verify: "true" });
+    const path = session.project_id
+      ? `/api/projects/${session.project_id}/credential-check?${params}`
+      : `/api/clients/${activeClient}/credential-check?${params}`;
+    apiFetch(path)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setCredentialStatus(data); })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.nodes, activeClient, apiFetch]);
+  }, [session?.nodes, session?.project_id, activeClient, apiFetch]);
 
   // Fetch catalog for agent metadata (tools, category, description)
   useEffect(() => {
@@ -780,24 +801,32 @@ export default function SessionPage() {
       };
       poll();
     },
-    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream]
+    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream, session?.status]
   );
 
   const handleSessionChat = useCallback(
-    async (_nodeId: string, message: string) => {
+    async (nodeId: string, message: string) => {
       setChatPending(true);
+      const body: { message: string; target_node_id?: string } = { message };
+      if (masterNode && nodeId !== masterNode.id) {
+        body.target_node_id = nodeId;
+      }
       await apiFetch(`/api/execute/${session_id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(body),
       });
       fetchMasterStream();
+      if (selectedNodeIdRef.current) fetchNodeStream();
 
-      // Poll for the assistant response with exponential backoff.
-      // SSE should also deliver it, but polling guarantees it appears regardless.
+      // Poll the stream that receives the assistant reply (orchestrator vs selected plan node).
       const poll = async () => {
-        const nid = masterNodeIdRef.current;
-        if (!nid) return;
+        const pollNid =
+          masterNode && nodeId !== masterNode.id ? nodeId : masterNodeIdRef.current;
+        if (!pollNid) {
+          setChatPending(false);
+          return;
+        }
         let delay = 1000;
         const maxDelay = 8000;
         const maxAttempts = 15;
@@ -806,7 +835,7 @@ export default function SessionPage() {
           delay = Math.min(delay * 1.5, maxDelay);
           try {
             const r = await apiFetch(
-              `/api/execute/${session_id}/nodes/${nid}/stream`
+              `/api/execute/${session_id}/nodes/${pollNid}/stream`
             );
             if (!r.ok) continue;
             const data = await r.json();
@@ -817,7 +846,8 @@ export default function SessionPage() {
               last.stream_type === "message" &&
               (last.sub_type === "assistant" || last.role === "assistant")
             ) {
-              setMasterStreamEntries(entries);
+              fetchMasterStream();
+              if (selectedNodeIdRef.current) fetchNodeStream();
               setChatPending(false);
               break;
             }
@@ -825,12 +855,11 @@ export default function SessionPage() {
             // ignore
           }
         }
-        // If poll exhausted without finding a response, clear pending anyway
         setChatPending(false);
       };
       poll();
     },
-    [session_id, apiFetch, fetchMasterStream]
+    [session_id, apiFetch, fetchMasterStream, fetchNodeStream, masterNode]
   );
 
   const activeReplyHandler = session?.status === "awaiting_approval" || session?.status === "planning"
@@ -919,13 +948,34 @@ export default function SessionPage() {
             `Credential check failed:\n${lines.join("\n")}\nFix in Settings > Integrations.`
           );
         } else {
-          setApprovalError(body.error || "Approval failed");
+          setApprovalError(body.error || "Activation failed");
         }
         return;
       }
-      fetchSession();
+      await fetchSession();
+      // Onboarding: after activate, send the same prompt the user would type in session chat.
+      let onboardingMsg =
+        "Onboard to the systems mentioned in step 3 and connected in step 4 and suggest a system audit in the chat";
+      if (readOnboardingMentionsClay()) {
+        onboardingMsg +=
+          " If Clay is involved, mention saving Clay credits.";
+      }
+      try {
+        await apiFetch(`/api/execute/${session_id}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: onboardingMsg }),
+        });
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem(ONBOARDING_STORAGE.MENTIONS_CLAY);
+          sessionStorage.removeItem(ONBOARDING_STORAGE.SUGGESTED_INTEGRATIONS);
+        }
+        fetchMasterStream();
+      } catch {
+        /* non-fatal — session is already executing */
+      }
     } catch (err) {
-      setApprovalError(err instanceof Error ? err.message : "Approval failed");
+      setApprovalError(err instanceof Error ? err.message : "Activation failed");
     } finally {
       setApproving(false);
     }
@@ -1055,9 +1105,9 @@ export default function SessionPage() {
               onClick={handleApprove}
               disabled={approving || hasProbeFailures}
               className="bg-brand text-white px-3 py-1 rounded text-xs font-medium hover:bg-brand-hover disabled:opacity-50 transition-colors"
-              title={hasProbeFailures ? "Fix credential issues before approving" : undefined}
+              title={hasProbeFailures ? "Fix credential issues before activating" : undefined}
             >
-              {approving ? "Approving\u2026" : "Approve"}
+              {approving ? "Activating\u2026" : "Activate"}
             </button>
           )}
           {session.status === "executing" && (
@@ -1089,11 +1139,21 @@ export default function SessionPage() {
           <div className="space-y-1">
             {probeFailures.map(([slug, r]) => {
               const colors = PROBE_COLORS[r.status] ?? PROBE_COLORS.missing;
+              const badgeClass = `shrink-0 px-1 py-0.5 rounded font-medium border ${colors.bg} ${colors.text} ${colors.border}`;
               return (
                 <div key={slug} className="flex items-center gap-2 text-[11px]">
-                  <span className={`shrink-0 px-1 py-0.5 rounded font-medium ${colors.bg} ${colors.text} border ${colors.border}`}>
-                    {PROBE_LABELS[r.status] ?? r.status}
-                  </span>
+                  {r.status === "missing" ? (
+                    <Link
+                      href={`/integrations#${encodeURIComponent(slug)}`}
+                      className={`${badgeClass} hover:opacity-90 underline-offset-2 hover:underline`}
+                    >
+                      Configure
+                    </Link>
+                  ) : (
+                    <span className={badgeClass}>
+                      {PROBE_LABELS[r.status] ?? r.status}
+                    </span>
+                  )}
                   <span className="font-mono text-ink">{slug}</span>
                   {r.error && <span className="text-ink-2">{"\u2014"} {r.error}</span>}
                 </div>

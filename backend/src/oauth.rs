@@ -160,7 +160,7 @@ pub async fn handle_callback(
         raw_redirect.to_string()
     } else {
         tracing::warn!(redirect = %raw_redirect, "blocked potentially malicious OAuth redirect");
-        "/settings/integrations".to_string()
+        "/integrations".to_string()
     };
 
     let config = get_provider_config(settings, provider)

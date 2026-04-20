@@ -1,6 +1,6 @@
 {
   "hooks": {
-    "postToolUse": [
+    "PostToolUse": [
       {
         "matcher": "Edit|Write",
         "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -q 'frontend/src/'; then cd frontend && npx tsc --noEmit 2>&1 | head -30; fi"

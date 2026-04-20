@@ -31,6 +31,7 @@ interface ClientRole {
   slug: string;
   name: string;
   role: string;
+  engagement_stage?: string | null;
 }
 
 interface AuthContextValue {
@@ -74,16 +75,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) throw new Error("Invalid token");
       const data = await res.json();
       setUser(data.user);
-      setClients(data.clients ?? []);
+      const freshClients: ClientRole[] = data.clients ?? [];
+      setClients(freshClients);
       setToken(jwt);
-      // Default to first client if none active (functional setState avoids dep on activeClient)
-      if (data.clients?.length > 0) {
-        setActiveClientState(prev => {
-          if (prev) return prev;
+      // Pick active client: must exist in fresh list (stale localStorage slug → 404 on /api/clients/:slug/*)
+      setActiveClientState((prev) => {
+        let next: string | null = null;
+        if (prev && freshClients.some((c) => c.slug === prev)) {
+          next = prev;
+        } else {
           const stored = localStorage.getItem(AUTH_ACTIVE_CLIENT_KEY);
-          return stored ?? data.clients[0].slug;
-        });
-      }
+          if (stored && freshClients.some((c) => c.slug === stored)) {
+            next = stored;
+          } else {
+            next = freshClients[0]?.slug ?? null;
+          }
+        }
+        if (next) {
+          localStorage.setItem(AUTH_ACTIVE_CLIENT_KEY, next);
+        } else {
+          localStorage.removeItem(AUTH_ACTIVE_CLIENT_KEY);
+        }
+        return next;
+      });
     } catch {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       setUser(null);

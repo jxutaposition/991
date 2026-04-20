@@ -1,15 +1,14 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { useAuth } from "@/lib/auth-context";
 import {
   ChevronDown,
-  Home,
   Play,
   BookOpen,
   Database,
-  Eye,
+  Plug,
   Settings,
   LogOut,
   LogIn,
@@ -17,25 +16,34 @@ import {
   ChevronsRight,
   Plus,
   Layers,
+  Sparkles,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import {
+  DEFAULT_ENGAGEMENT_STAGE,
+  ENGAGEMENT_STAGE_OPTIONS,
+  type EngagementStageValue,
+} from "@/lib/engagement-stage";
+import { readOnboardingFlowActive } from "@/lib/onboarding-storage";
 
 const navLinks = [
-  { href: "/", label: "Home", icon: Home },
+  { href: "/onboarding", label: "Get started", icon: Sparkles },
   { href: "/execute", label: "Execute", icon: Play },
   { href: "/catalog", label: "Catalog", icon: BookOpen },
   { href: "/knowledge", label: "Knowledge", icon: Database },
   { href: "/knowledge/observatory", label: "Observatory", icon: Layers, indent: true },
-  { href: "/observe", label: "Observe", icon: Eye },
+  { href: "/integrations", label: "Integrations", icon: Plug },
 ];
 
 export function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, clients, activeClient, setActiveClient, signOut, apiFetch, refreshClients } = useAuth();
   const [wsOpen, setWsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showNewWs, setShowNewWs] = useState(false);
   const [newWsName, setNewWsName] = useState("");
+  const [newWsStage, setNewWsStage] = useState<EngagementStageValue>(DEFAULT_ENGAGEMENT_STAGE);
   const [creatingWs, setCreatingWs] = useState(false);
   const wsRef = useRef<HTMLDivElement>(null);
 
@@ -71,14 +79,28 @@ export function Nav() {
       const slug = newWsName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const res = await apiFetch("/api/auth/workspaces", {
         method: "POST",
-        body: JSON.stringify({ slug, name: newWsName.trim() }),
+        body: JSON.stringify({
+          slug,
+          name: newWsName.trim(),
+          engagement_stage: newWsStage,
+        }),
       });
       if (!res.ok) return;
       const data = await res.json();
       setActiveClient(data.slug);
       setShowNewWs(false);
       setNewWsName("");
+      setNewWsStage(DEFAULT_ENGAGEMENT_STAGE);
       await refreshClients();
+      let onboardingActive = false;
+      try {
+        onboardingActive = readOnboardingFlowActive();
+      } catch (error) {
+        throw error;
+      }
+      if (onboardingActive) {
+        router.push("/onboarding");
+      }
     } finally {
       setCreatingWs(false);
     }
@@ -91,7 +113,7 @@ export function Nav() {
         collapsed ? "w-14" : "w-[200px]"
       )}
     >
-      {/* Workspace switcher */}
+      {/* Client switcher */}
       <div className="px-2 pt-3 pb-2" ref={wsRef}>
         {clients.length > 0 ? (
           <div className="relative">
@@ -112,7 +134,7 @@ export function Nav() {
               {!collapsed && (
                 <>
                   <span className="flex-1 text-left text-sm font-medium text-ink truncate">
-                    {activeClientName ?? "Select workspace"}
+                    {activeClientName ?? "Select client"}
                   </span>
                   <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
                 </>
@@ -121,7 +143,7 @@ export function Nav() {
             {wsOpen && !collapsed && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-page border border-rim rounded-lg shadow-lg z-50 py-1">
                 <p className="text-xs text-ink-3 uppercase tracking-wider px-3 py-1.5">
-                  Workspaces
+                  Clients
                 </p>
                 {clients.map((c) => (
                   <button
@@ -160,14 +182,24 @@ export function Nav() {
                         type="text"
                         value={newWsName}
                         onChange={(e) => setNewWsName(e.target.value)}
-                        placeholder="Workspace name"
+                        placeholder="Client name"
                         className="w-full bg-page border border-rim rounded px-2 py-1 text-xs text-ink focus:outline-none focus:border-brand"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") handleCreateWorkspace();
-                          if (e.key === "Escape") { setShowNewWs(false); setNewWsName(""); }
+                          if (e.key === "Escape") { setShowNewWs(false); setNewWsName(""); setNewWsStage(DEFAULT_ENGAGEMENT_STAGE); }
                         }}
                         autoFocus
                       />
+                      <label className="block text-[10px] text-ink-3 uppercase tracking-wide">Engagement stage</label>
+                      <select
+                        value={newWsStage}
+                        onChange={(e) => setNewWsStage(e.target.value as EngagementStageValue)}
+                        className="w-full bg-page border border-rim rounded px-2 py-1 text-xs text-ink focus:outline-none focus:border-brand"
+                      >
+                        {ENGAGEMENT_STAGE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                       <div className="flex gap-1.5">
                         <button
                           onClick={handleCreateWorkspace}
@@ -177,7 +209,7 @@ export function Nav() {
                           {creatingWs ? "Creating..." : "Create"}
                         </button>
                         <button
-                          onClick={() => { setShowNewWs(false); setNewWsName(""); }}
+                          onClick={() => { setShowNewWs(false); setNewWsName(""); setNewWsStage(DEFAULT_ENGAGEMENT_STAGE); }}
                           className="px-2.5 py-1 rounded text-xs text-ink-3 hover:text-ink border border-rim"
                         >
                           Cancel
@@ -190,7 +222,7 @@ export function Nav() {
                       className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 text-ink-3 hover:text-brand hover:bg-raised transition-colors"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      New workspace
+                      New client
                     </button>
                   )}
                 </div>

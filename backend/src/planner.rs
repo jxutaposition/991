@@ -170,6 +170,77 @@ pub async fn plan_execution(
     Err(anyhow::anyhow!("planner output is not valid JSON: {last_error}"))
 }
 
+/// Drop planned nodes whose `agent_slug` is missing from the catalog; remap `depends_on` to new indices.
+pub fn filter_planned_nodes_to_catalog(
+    nodes: Vec<PlannedNode>,
+    catalog: &crate::agent_catalog::AgentCatalog,
+) -> anyhow::Result<Vec<PlannedNode>> {
+    use std::collections::HashMap;
+
+    let pairs: Vec<(usize, PlannedNode)> = nodes
+        .into_iter()
+        .enumerate()
+        .filter(|(_, n)| catalog.get(&n.agent_slug).is_some())
+        .collect();
+
+    if pairs.is_empty() {
+        return Err(anyhow::anyhow!(
+            "planner returned no agents that exist in the catalog"
+        ));
+    }
+
+    let old_to_new: HashMap<usize, usize> = pairs
+        .iter()
+        .enumerate()
+        .map(|(new_idx, (old_idx, _))| (*old_idx, new_idx))
+        .collect();
+
+    let mut out: Vec<PlannedNode> = Vec::with_capacity(pairs.len());
+    for (new_idx, (_, mut n)) in pairs.into_iter().enumerate() {
+        let mut deps: Vec<usize> = n
+            .depends_on
+            .iter()
+            .filter_map(|d| old_to_new.get(d).copied())
+            .filter(|&d| d < new_idx)
+            .collect();
+        deps.sort_unstable();
+        deps.dedup();
+        n.depends_on = deps;
+        out.push(n);
+    }
+
+    Ok(out)
+}
+
+const ONBOARDING_SOW_PLAN_PREFIX: &str = r#"You are planning executable work from a contract or SOW (statement of work). The user message contains an excerpt from that document.
+
+## Rules (same as normal GTM planning)
+- CRITICAL: You may ONLY use agent slugs from the Agent Catalog section below.
+- depends_on is an array of 0-based indices of EARLIER nodes in YOUR returned array only.
+- Prefer 2–8 agents; keep each task_description under 120 characters.
+
+## Task
+Infer concrete implementation work from the document and return a JSON array plan only (no prose).
+
+"#;
+
+/// Plan execution nodes from SOW / contract text using the standard catalog-grounded planner.
+pub async fn plan_onboarding_from_sow_text(
+    sow_excerpt: &str,
+    catalog_summary: &str,
+    api_key: &str,
+    model: &str,
+    catalog: &crate::agent_catalog::AgentCatalog,
+) -> anyhow::Result<Vec<PlannedNode>> {
+    let prompt = format!("{ONBOARDING_SOW_PLAN_PREFIX}\n## Document excerpt\n\n{sow_excerpt}");
+    let raw = plan_execution(&prompt, catalog_summary, api_key, model).await?;
+    let mut filtered = filter_planned_nodes_to_catalog(raw, catalog)?;
+    sanitize_depends_on(&mut filtered);
+    deduplicate_nodes(&mut filtered);
+    enforce_canonical_ordering(&mut filtered);
+    Ok(filtered)
+}
+
 /// Trait to allow post-processing functions to work on both `PlannedNode` and `RichPlannedNode`.
 trait HasDependsOn {
     fn agent_slug(&self) -> &str;

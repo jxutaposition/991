@@ -218,8 +218,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/oauth/:provider/authorize", get(routes::oauth_authorize))
         // Auth
         .route("/api/auth/me", get(routes::auth_me))
+        .route(
+            "/api/onboarding/seed-session-from-document",
+            post(routes::onboarding_seed_session_from_document),
+        )
         .route("/api/auth/workspaces", post(routes::auth_create_workspace))
         .route("/api/auth/workspaces/:slug", axum::routing::delete(routes::auth_delete_workspace))
+        .route(
+            "/api/auth/knowledge/personal-documents",
+            get(routes::auth_personal_knowledge_documents),
+        )
         // Node lookup (by ID only, used by dashboard renderer)
         .route("/api/execute/nodes/:node_id", get(routes::get_node_by_id))
         // DAG editor

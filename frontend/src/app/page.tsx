@@ -111,7 +111,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col items-center px-6 pt-[12vh] pb-12 min-h-full">
-      {/* Workspace badge */}
+      {/* Active client */}
       {activeClient && (
         <div className="flex items-center gap-2 mb-6">
           <span className="w-6 h-6 rounded-full flex items-center justify-center bg-brand text-white text-xs font-bold">
@@ -146,7 +146,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2">
               {!authLoading && !activeClient && (
                 <span className="text-[11px] text-amber-600">
-                  No workspace selected
+                  No client selected
                 </span>
               )}
               {models.length > 0 && (

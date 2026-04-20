@@ -1,6 +1,15 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import {
+  ONBOARDING_STORAGE,
+  markKnowledgeSowReady,
+  readOnboardingFlowActive,
+  readOnboardingStep,
+  setOnboardingActive,
+  setOnboardingStep,
+} from "@/lib/onboarding-storage";
 import {
   FolderOpen,
   FileText,
@@ -894,6 +903,7 @@ function AnalysisStatusBadge({
 }
 
 export default function KnowledgePage() {
+  const router = useRouter();
   const { activeClient, token, apiFetch } = useAuth();
   const { toasts, addToast, dismiss: dismissToast } = useToast();
   const [activeTab, setActiveTab] = useState<"corpus" | "learnings">("corpus");
@@ -916,6 +926,98 @@ export default function KnowledgePage() {
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onboardingSeedAttempted = useRef<Set<string>>(new Set());
+  const onboardingSeedInFlight = useRef(false);
+
+  const tryOnboardingSeedAfterDocReady = useCallback(
+    async (docId: string, fromUploadPoll = false) => {
+      if (!activeClient) return;
+      const fromQuery =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("onboarding") === "1";
+      const fromStorage =
+        typeof window !== "undefined" &&
+        sessionStorage.getItem(ONBOARDING_STORAGE.ACTIVE) === "1";
+      const inOnboardingContext =
+        fromQuery || fromStorage || readOnboardingFlowActive();
+      if (!fromUploadPoll && !inOnboardingContext) return;
+
+      if (onboardingSeedAttempted.current.has(docId) || onboardingSeedInFlight.current) return;
+      onboardingSeedInFlight.current = true;
+
+      const inFlow = readOnboardingFlowActive();
+
+      try {
+        const res = await apiFetch("/api/onboarding/seed-session-from-document", {
+          method: "POST",
+          body: JSON.stringify({ document_id: docId, client_slug: activeClient }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string; session_id?: string; suggested_integration_slugs?: string[]; mentions_clay?: boolean };
+        if (!res.ok) {
+          addToast(
+            "error",
+            inFlow ? "Onboarding plan not created" : "Execution plan not created",
+            typeof body.error === "string" ? body.error : "Request failed"
+          );
+          if (inFlow) {
+            markKnowledgeSowReady();
+            setOnboardingStep(3);
+            router.push("/onboarding");
+          }
+          return;
+        }
+        onboardingSeedAttempted.current.add(docId);
+        if (body.session_id && inFlow) {
+          sessionStorage.setItem(ONBOARDING_STORAGE.SESSION_ID, body.session_id);
+        }
+        if (inFlow) {
+          markKnowledgeSowReady();
+          sessionStorage.setItem(
+            ONBOARDING_STORAGE.SUGGESTED_INTEGRATIONS,
+            JSON.stringify(body.suggested_integration_slugs ?? [])
+          );
+          sessionStorage.setItem(
+            ONBOARDING_STORAGE.MENTIONS_CLAY,
+            body.mentions_clay ? "1" : "0"
+          );
+          setOnboardingActive("3");
+          addToast("success", "Execution plan ready", "Continue to Integrations, then Execute.");
+          router.push("/onboarding");
+        } else if (fromUploadPoll && body.session_id) {
+          addToast("success", "Execution plan ready", "Review and approve when you are ready.");
+          router.push(`/execute/${body.session_id}`);
+        }
+      } catch {
+        addToast(
+          "error",
+          inFlow ? "Onboarding plan failed" : "Execution plan failed",
+          inFlow ? "Network error — try again from Get started." : "Network error — try uploading again."
+        );
+        if (inFlow) {
+          markKnowledgeSowReady();
+          setOnboardingStep(3);
+          router.push("/onboarding");
+        }
+      } finally {
+        onboardingSeedInFlight.current = false;
+      }
+    },
+    [activeClient, apiFetch, addToast, router]
+  );
+
+  /** If a doc is already ready (e.g. user returned after processing), retry seed so SESSION_ID can appear. */
+  useEffect(() => {
+    if (typeof window === "undefined" || !activeClient) return;
+    if (!readOnboardingFlowActive()) return;
+    if (readOnboardingStep() > 2) return;
+    if (sessionStorage.getItem(ONBOARDING_STORAGE.SESSION_ID)) return;
+    const ready = documents.filter((d) => d.status === "ready");
+    if (ready.length === 0) return;
+    const newest = [...ready].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+    void tryOnboardingSeedAfterDocReady(newest.id, false);
+  }, [documents, activeClient, tryOnboardingSeedAfterDocReady]);
 
   const loadDocuments = useCallback(async () => {
     if (!activeClient) return;
@@ -1049,17 +1151,25 @@ export default function KnowledgePage() {
           const parentDone = data.parent_status === "ready" || data.parent_status === "error";
 
           if (parentDone && (c.total === 0 || allDone)) {
+            if (data.parent_status === "ready") {
+              if (readOnboardingFlowActive()) {
+                markKnowledgeSowReady();
+              }
+              void tryOnboardingSeedAfterDocReady(docId, true);
+            }
             stopPolling();
             loadDocuments();
             loadFolders();
           }
-        } catch { /* ignore */ }
+        } catch {
+          // ignore transient polling errors
+        }
       };
 
       poll();
       pollRef.current = setInterval(poll, 2000);
     },
-    [apiFetch, stopPolling, loadDocuments, loadFolders]
+    [apiFetch, stopPolling, loadDocuments, loadFolders, tryOnboardingSeedAfterDocReady]
   );
 
   useEffect(() => () => stopPolling(), [stopPolling]);
