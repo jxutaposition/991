@@ -25,5 +25,5 @@ ENV APP_ENV=production
 ENV AGENTS_DIR=/app/agents
 ENV TOOLS_DIR=/app/tools
 
-EXPOSE 3001
+EXPOSE 3000
 CMD ["/bin/sh", "-ec", "/app/migrate && exec /app/lele2-backend"]
