@@ -31,9 +31,10 @@ function debugLog(runId: string, hypothesisId: string, location: string, message
 type LoginClientProps = {
   googleClientId: string;
   showGoogleDebug: boolean;
+  googleClientIdSource: string;
 };
 
-export default function LoginClient({ googleClientId, showGoogleDebug }: LoginClientProps) {
+export default function LoginClient({ googleClientId, showGoogleDebug, googleClientIdSource }: LoginClientProps) {
   const { user, loading, signIn } = useAuth();
   const router = useRouter();
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -110,6 +111,7 @@ export default function LoginClient({ googleClientId, showGoogleDebug }: LoginCl
           <p>host: {typeof window !== "undefined" ? window.location.host : "unknown"}</p>
           <p>hasGoogleClientId: {String(Boolean(googleClientId))}</p>
           <p>googleClientIdLength: {googleClientId.length}</p>
+          <p>googleClientIdSource: {googleClientIdSource}</p>
           <p>looksLikeGoogleWebClientId: {String(looksLikeGoogleWebClientId)}</p>
           <p>googleClientIdPreview: {googleClientIdPreview}</p>
           <p>signInError: {signInError ?? "(none)"}</p>
