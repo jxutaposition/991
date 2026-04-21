@@ -22,7 +22,6 @@ COPY --from=builder /app/tools /app/tools
 COPY --from=builder /app/migrations /app/migrations
 
 ENV APP_ENV=production
-ENV BIND_ADDR=0.0.0.0:3001
 ENV AGENTS_DIR=/app/agents
 ENV TOOLS_DIR=/app/tools
 
