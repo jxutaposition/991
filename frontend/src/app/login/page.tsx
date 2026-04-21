@@ -3,7 +3,7 @@
 import { useAuth } from "@/lib/auth-context";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 const DEBUG_ENDPOINT = "http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37";
@@ -33,6 +33,7 @@ function debugLog(runId: string, hypothesisId: string, location: string, message
 export default function LoginPage() {
   const { user, loading, signIn } = useAuth();
   const router = useRouter();
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   useEffect(() => {
     debugLog("pre-fix", "H1", "frontend/src/app/login/page.tsx:35", "Login page effect state", {
@@ -73,20 +74,19 @@ export default function LoginPage() {
         <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
           <GoogleLogin
             onSuccess={async (response) => {
-              debugLog("pre-fix", "H4", "frontend/src/app/login/page.tsx:66", "Google login success callback", {
-                hasCredential: Boolean(response.credential),
-              });
               if (response.credential) {
                 try {
+                  setSignInError(null);
                   await signIn(response.credential);
                   router.push("/");
                 } catch (e) {
+                  setSignInError(e instanceof Error ? e.message : "Authentication failed");
                   console.error("Sign-in failed:", e);
                 }
               }
             }}
             onError={() => {
-              debugLog("pre-fix", "H4", "frontend/src/app/login/page.tsx:78", "Google login widget error callback", {});
+              setSignInError("Google login widget failed before token exchange");
               console.error("Google login failed");
             }}
             theme="outline"
@@ -109,6 +109,7 @@ export default function LoginPage() {
           <p>googleClientIdLength: {GOOGLE_CLIENT_ID.length}</p>
           <p>looksLikeGoogleWebClientId: {String(looksLikeGoogleWebClientId)}</p>
           <p>googleClientIdPreview: {googleClientIdPreview}</p>
+          <p>signInError: {signInError ?? "(none)"}</p>
         </div>
       ) : null}
     </div>
