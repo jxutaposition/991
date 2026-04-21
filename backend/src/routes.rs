@@ -34,6 +34,12 @@ use crate::state::AppState;
 // ── Health ────────────────────────────────────────────────────────────────────
 
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    info!(
+        target: "healthcheck",
+        agents_loaded = state.catalog.len(),
+        catalog_git_sha = %state.catalog.git_sha(),
+        "healthcheck endpoint hit"
+    );
     Json(json!({
         "status": "ok",
         "agents_loaded": state.catalog.len(),
