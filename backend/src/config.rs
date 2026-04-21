@@ -1,5 +1,7 @@
 use std::{env, net::SocketAddr, path::PathBuf};
 
+use uuid::Uuid;
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub bind_addr: SocketAddr,
@@ -36,6 +38,8 @@ pub struct Settings {
     pub slack_app_token: Option<String>,
     pub slack_signing_secret: Option<String>,
     pub slack_mode: String, // "socket" or "http"
+    /// Workspace UUID for sessions created from Slack slash commands (required for web/API parity).
+    pub slack_default_client_id: Option<Uuid>,
 
     // Credential encryption
     pub credential_master_key: Option<String>,
@@ -91,6 +95,37 @@ impl Settings {
             !self.anthropic_api_key.is_empty(),
             "ANTHROPIC_API_KEY is required but not set"
         );
+        assert!(
+            self.agents_dir.exists(),
+            "AGENTS_DIR does not exist: {}",
+            self.agents_dir.display()
+        );
+        assert!(
+            self.tools_dir.exists(),
+            "TOOLS_DIR does not exist: {}",
+            self.tools_dir.display()
+        );
+
+        // Railway/prod fail-fast checks: avoid partially-booting with auth/crypto disabled.
+        let app_env = env::var("APP_ENV").unwrap_or_else(|_| "development".to_string());
+        let is_production = app_env.eq_ignore_ascii_case("production")
+            || env::var("RAILWAY_ENVIRONMENT").is_ok();
+        if is_production {
+            assert!(
+                self.jwt_secret.as_deref().is_some_and(|s| !s.trim().is_empty()),
+                "JWT_SECRET is required in production"
+            );
+            assert!(
+                self.credential_master_key
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty()),
+                "CREDENTIAL_MASTER_KEY is required in production"
+            );
+            assert!(
+                !self.cors_origins.is_empty(),
+                "CORS_ORIGINS must include at least one allowed origin in production"
+            );
+        }
     }
 
     pub fn from_env() -> Self {
@@ -130,6 +165,10 @@ impl Settings {
             slack_app_token: env::var("SLACK_APP_TOKEN").ok().filter(|s| !s.is_empty()),
             slack_signing_secret: env::var("SLACK_SIGNING_SECRET").ok().filter(|s| !s.is_empty()),
             slack_mode: env::var("SLACK_MODE").unwrap_or_else(|_| "socket".to_string()),
+            slack_default_client_id: env::var("SLACK_DEFAULT_CLIENT_ID")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse::<Uuid>().ok()),
             credential_master_key: env::var("CREDENTIAL_MASTER_KEY").ok().filter(|s| !s.is_empty()),
             notion_oauth_client_id: env::var("NOTION_OAUTH_CLIENT_ID").ok().filter(|s| !s.is_empty()),
             notion_oauth_client_secret: env::var("NOTION_OAUTH_CLIENT_SECRET").ok().filter(|s| !s.is_empty()),
