@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -34,6 +34,12 @@ use crate::state::AppState;
 // ── Health ────────────────────────────────────────────────────────────────────
 
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    info!(
+        target: "healthcheck",
+        agents_loaded = state.catalog.len(),
+        catalog_git_sha = %state.catalog.git_sha(),
+        "healthcheck endpoint hit"
+    );
     Json(json!({
         "status": "ok",
         "agents_loaded": state.catalog.len(),
@@ -255,22 +261,6 @@ pub async fn catalog_agent_stats(
 
 // ── Execution ─────────────────────────────────────────────────────────────────
 
-/// Try to extract user_id from a JWT in the Authorization header without requiring auth middleware.
-fn extract_user_id_from_jwt(
-    headers: &axum::http::HeaderMap,
-    settings: &crate::config::Settings,
-) -> Option<Uuid> {
-    let jwt_secret = settings.jwt_secret.as_deref()?;
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = jsonwebtoken::decode::<crate::auth::JwtClaims>(
-        token,
-        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &jsonwebtoken::Validation::default(),
-    ).ok()?;
-    claims.claims.sub.parse::<Uuid>().ok()
-}
-
 #[derive(Deserialize)]
 pub struct CreateExecutionRequest {
     pub request_text: String,
@@ -289,28 +279,98 @@ pub struct CreateExecutionResponse {
     pub node_count: usize,
 }
 
-/// GET /api/execute/sessions — list recent execution sessions.
+#[derive(Deserialize)]
+pub struct ExecuteSessionsQuery {
+    pub client_slug: Option<String>,
+}
+
+/// Optional `client_slug` on session-scoped routes: when set, the session must belong to that
+/// workspace (in addition to the user being logged in). Prevents cross-workspace access when the
+/// user is a member of multiple clients.
+#[derive(Deserialize, Default)]
+pub struct ExecuteClientQuery {
+    #[serde(default)]
+    pub client_slug: Option<String>,
+}
+
+async fn guard_session_for_user(
+    db: &crate::pg::PgClient,
+    user_id: Uuid,
+    session_id: &str,
+    workspace_slug: Option<&str>,
+) -> Result<Uuid, InternalError> {
+    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
+    })?;
+    let not_found = || {
+        InternalError::from((StatusCode::NOT_FOUND, Json(json!({"error": "Session not found"}))))
+    };
+    match workspace_slug.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(ws) => {
+            crate::auth::assert_session_in_workspace(db, user_id, session_uuid, ws)
+                .await
+                .map_err(|_| not_found())?;
+        }
+        None => {
+            crate::auth::assert_session_client_access(db, user_id, session_uuid)
+                .await
+                .map_err(|_| not_found())?;
+        }
+    }
+    Ok(session_uuid)
+}
+
+/// GET /api/execute/sessions — list recent execution sessions for one workspace.
 pub async fn execution_sessions_list(
     State(state): State<Arc<AppState>>,
-) -> Json<Value> {
-    let sql = r#"
-        SELECT s.id, s.request_text, s.status, s.plan_approved_at, s.created_at, s.completed_at,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
+    Query(q): Query<ExecuteSessionsQuery>,
+) -> Result<Json<Value>, InternalError> {
+    let slug = q
+        .client_slug
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "client_slug query parameter is required"})),
+            )
+        })?;
+
+    let client_id = crate::auth::resolve_client_id_for_user(&state.db, user.user_id, Some(slug))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Workspace not found"})),
+            )
+        })?;
+
+    let rows = state
+        .db
+        .execute_with(
+            r#"SELECT s.id, s.request_text, s.status, s.plan_approved_at, s.created_at, s.completed_at,
                c.slug as client_slug,
                (SELECT COUNT(*) FROM execution_nodes WHERE session_id = s.id) as node_count,
                (SELECT COUNT(*) FILTER (WHERE status = 'passed') FROM execution_nodes WHERE session_id = s.id) as passed_count
         FROM execution_sessions s
         LEFT JOIN clients c ON c.id = s.client_id
+        WHERE s.client_id = $1
         ORDER BY s.created_at DESC
-        LIMIT 50
-    "#;
-    let rows = state.db.execute_unparameterized(sql).await.unwrap_or_default();
-    Json(json!({"sessions": rows}))
+        LIMIT 50"#,
+            pg_args!(client_id),
+        )
+        .await
+        .unwrap_or_default();
+
+    Ok(Json(json!({"sessions": rows})))
 }
 
 /// POST /api/execute — plan a new execution session.
 pub async fn execution_create(
     State(state): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Json(body): Json<CreateExecutionRequest>,
 ) -> Result<Json<CreateExecutionResponse>, (StatusCode, Json<Value>)> {
     let model = body.model.as_deref().unwrap_or(&state.settings.anthropic_model);
@@ -338,51 +398,44 @@ pub async fn execution_create(
 
     let session_id = Uuid::new_v4();
 
-    // Resolve client_slug to client_id for credential injection
-    let mut client_id: Option<Uuid> = if let Some(ref slug) = body.client_slug {
-        let rows = state.db.execute_with(
-            "SELECT id FROM clients WHERE slug = $1 AND deleted_at IS NULL",
-            pg_args!(slug.clone()),
-        ).await.ok().unwrap_or_default();
-        rows.first()
-            .and_then(|r| r.get("id").and_then(Value::as_str))
-            .and_then(|s| s.parse::<Uuid>().ok())
-    } else {
-        None
-    };
-
-    // Fallback: infer client from JWT user when client_slug was not provided
-    if client_id.is_none() {
-        if let Some(user_id) = extract_user_id_from_jwt(&headers, &state.settings) {
-            let rows = state.db.execute_with(
-                "SELECT c.id, c.slug FROM clients c \
-                 JOIN user_client_roles ucr ON ucr.client_id = c.id \
-                 WHERE ucr.user_id = $1 ORDER BY c.created_at LIMIT 1",
-                pg_args!(user_id),
-            ).await.ok().unwrap_or_default();
-            if let Some(row) = rows.first() {
-                client_id = row.get("id").and_then(Value::as_str).and_then(|s| s.parse::<Uuid>().ok());
-                let slug = row.get("slug").and_then(Value::as_str).unwrap_or("?");
-                info!(user_id = %user_id, client_slug = %slug, "inferred client from JWT (client_slug was missing)");
-            }
+    let client_id = match crate::auth::resolve_client_id_for_user(
+        &state.db,
+        user.user_id,
+        body.client_slug.as_deref(),
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(StatusCode::BAD_REQUEST) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "No workspace — create or join a workspace, or pass client_slug."})),
+            ));
         }
-    }
+        Err(_) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Workspace not found"})),
+            ));
+        }
+    };
 
     let mode = body.mode.as_deref().unwrap_or("orchestrated");
 
     // Resolve project_slug to project_id
     let project_id: Option<Uuid> = if let Some(ref pslug) = body.project_slug {
-        if let Some(cid) = client_id {
-            let rows = state.db.execute_with(
+        let rows = state
+            .db
+            .execute_with(
                 "SELECT id FROM projects WHERE client_id = $1 AND slug = $2",
-                pg_args!(cid, pslug.clone()),
-            ).await.ok().unwrap_or_default();
-            rows.first()
-                .and_then(|r| r.get("id").and_then(Value::as_str))
-                .and_then(|s| s.parse::<Uuid>().ok())
-        } else {
-            None
-        }
+                pg_args!(client_id, pslug.clone()),
+            )
+            .await
+            .ok()
+            .unwrap_or_default();
+        rows.first()
+            .and_then(|r| r.get("id").and_then(Value::as_str))
+            .and_then(|s| s.parse::<Uuid>().ok())
     } else {
         None
     };
@@ -469,7 +522,7 @@ pub async fn execution_create(
             let gathered_context = planner::gather_planner_context(
                 &bg_state.db,
                 &bg_request_text,
-                bg_client_id,
+                Some(bg_client_id),
                 bg_project_id,
                 bg_state.settings.openai_api_key.as_deref(),
             ).await;
@@ -614,7 +667,7 @@ pub async fn execution_create(
                     &rich_plan.components,
                     &node_uids,
                     bg_session_id,
-                    bg_client_id,
+                    Some(bg_client_id),
                 ).await;
             }
 
@@ -659,10 +712,8 @@ pub async fn execution_create(
         )
     })?;
 
-    if let Some(cid) = client_id {
-        for node in &mut exec_nodes {
-            node.client_id = Some(cid);
-        }
+    for node in &mut exec_nodes {
+        node.client_id = Some(client_id);
     }
 
     let node_count = exec_nodes.len();
@@ -675,7 +726,7 @@ pub async fn execution_create(
         &body.request_text,
         &plan_json,
         &exec_nodes,
-        client_id,
+        Some(client_id),
     )
     .await
     .map_err(|e| {
@@ -698,11 +749,11 @@ pub async fn execution_create(
 /// POST /api/execute/:session_id/approve — approve the plan and start execution.
 pub async fn execution_approve(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     // --- Preflight: verify all required integrations have working credentials ---
     let session_rows = state.db.execute_with(
@@ -920,11 +971,11 @@ async fn resolve_slack_channel(
 /// Sets session to 'cancelled' and all non-terminal nodes to 'cancelled'.
 pub async fn execution_stop(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     state.db.execute_with(
         "UPDATE execution_sessions SET status = 'cancelled', completed_at = NOW() WHERE id = $1 AND status IN ('executing', 'awaiting_approval')",
@@ -948,9 +999,11 @@ pub async fn execution_stop(
 /// GET /api/execute/:session_id — get session status and nodes.
 pub async fn execution_get(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let rows = state.db.execute_with(
         "SELECT id, status, request_text, plan, plan_approved_at, created_at, completed_at, \
@@ -984,9 +1037,11 @@ pub async fn execution_get(
 /// GET /api/execute/:session_id/failures — aggregated failure view for the session.
 pub async fn execution_failures(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let nodes = state.db.execute_with(
         "SELECT id, agent_slug, task_description, status, \
@@ -1004,10 +1059,12 @@ pub async fn execution_failures(
 /// GET /api/execute/:session_id/nodes/:node_id/events — get execution events for a node.
 pub async fn execution_node_events(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let events = state.db.execute_with(
         "SELECT id, node_id, event_type, payload, created_at \
@@ -1022,10 +1079,12 @@ pub async fn execution_node_events(
 /// GET /api/execute/:session_id/nodes/:node_id/thinking — thinking blocks for a node.
 pub async fn execution_node_thinking(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let blocks = state.db.execute_with(
         "SELECT id, node_id, iteration, thinking_text, token_count, created_at \
@@ -1041,10 +1100,12 @@ pub async fn execution_node_thinking(
 /// combining execution events, thinking blocks, and conversation messages.
 pub async fn execution_node_stream(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let stream = state.db.execute_with(
         "SELECT id, node_id, 'event' AS stream_type, event_type AS sub_type, \
@@ -1079,8 +1140,17 @@ pub async fn execution_node_stream(
 /// GET /api/execute/:session_id/events — SSE stream for live execution progress.
 pub async fn execution_events_sse(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> impl IntoResponse {
+    if guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref())
+        .await
+        .is_err()
+    {
+        return (StatusCode::NOT_FOUND, "Session not found").into_response();
+    }
+
     let rx = state.event_bus.subscribe(&session_id).await;
 
     match rx {
@@ -2229,11 +2299,38 @@ pub struct RunWorkflowRequest {
 /// POST /api/workflows/:slug/run — instantiate a workflow into an execution session.
 pub async fn workflow_run(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(slug): Path<String>,
     Json(body): Json<RunWorkflowRequest>,
 ) -> Result<Json<Value>, InternalError> {
+    let workflow = workflow_mod::get_workflow(&state.db, &slug)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let Some(client_id) = workflow.client_id else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Workflow has no workspace (client_id)"})),
+        )
+            .into());
+    };
+    let allowed = crate::auth::check_client_role(&state.db, user.user_id, client_id, "member")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+        })?;
+    if !allowed {
+        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workflow not found"}))).into());
+    }
+
     let session_id = workflow_mod::instantiate_workflow(
-        &state.db, &state.catalog, &slug, &body.request_text,
+        &state.db,
+        &state.catalog,
+        &slug,
+        &body.request_text,
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
@@ -2251,12 +2348,12 @@ pub struct SaveAsWorkflowRequest {
 /// POST /api/execute/:session_id/save-as-workflow — save session DAG as workflow template.
 pub async fn execution_save_as_workflow(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<SaveAsWorkflowRequest>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let workflow_id = workflow_mod::save_session_as_workflow(
         &state.db, session_uuid, &body.slug, &body.name, body.description.as_deref(),
@@ -2718,11 +2815,29 @@ pub struct UpdateNodeRequest {
 /// Used by the dashboard renderer to load a node's output/artifacts.
 pub async fn get_node_by_id(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(node_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
+
+    let not_found = || {
+        InternalError::from((StatusCode::NOT_FOUND, Json(json!({"error": "Node not found"}))))
+    };
+    match q.client_slug.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(ws) => {
+            crate::auth::assert_node_in_workspace(&state.db, user.user_id, node_uuid, ws)
+                .await
+                .map_err(|_| not_found())?;
+        }
+        None => {
+            crate::auth::assert_node_client_access(&state.db, user.user_id, node_uuid)
+                .await
+                .map_err(|_| not_found())?;
+        }
+    }
 
     let rows = state.db.execute_with(
         "SELECT id, session_id, agent_slug, status, output, artifacts, task_description, started_at, completed_at \
@@ -2742,14 +2857,14 @@ pub async fn get_node_by_id(
 /// PATCH /api/execute/:session_id/nodes/:node_id — update a node (DAG editor).
 pub async fn execution_node_update(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<UpdateNodeRequest>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
-    })?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
     use sqlx::Arguments as _;
@@ -2874,12 +2989,12 @@ pub struct AddNodeRequest {
 /// POST /api/execute/:session_id/nodes — add a new node to a session (DAG editor).
 pub async fn execution_node_add(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<AddNodeRequest>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     // Validate agent exists in catalog
     if state.catalog.get(&body.agent_slug).is_none() {
@@ -2946,11 +3061,11 @@ pub async fn execution_node_add(
 /// DELETE /api/execute/:session_id — delete an entire session and its nodes.
 pub async fn execution_session_delete(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     // Delete related data first
     let _ = state.db.execute_with("DELETE FROM thinking_blocks WHERE session_id = $1", pg_args!(session_uuid)).await;
@@ -2971,13 +3086,13 @@ pub async fn execution_session_delete(
 /// DELETE /api/execute/:session_id/nodes/:node_id — remove a node (DAG editor).
 pub async fn execution_node_delete(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
-    })?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
     // Never delete the orchestrator (root): parent_uid IS NULL. Removing it breaks
@@ -3016,13 +3131,13 @@ pub async fn execution_node_delete(
 /// POST /api/execute/:session_id/nodes/:node_id/release — release a breakpoint node.
 pub async fn execution_node_release(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
-    })?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
     state.db.execute_with(
@@ -3040,10 +3155,12 @@ pub async fn execution_node_release(
 /// GET /api/execute/:session_id/nodes/:node_id/messages — fetch conversation messages for a node.
 pub async fn execution_node_messages(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let messages = state.db.execute_with(
         "SELECT id, node_id, role, content, metadata, created_at \
@@ -3063,14 +3180,14 @@ pub struct NodeReplyRequest {
 /// POST /api/execute/:session_id/nodes/:node_id/reply — send a user reply to a node's conversation.
 pub async fn execution_node_reply(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<NodeReplyRequest>,
 ) -> Result<Json<Value>, InternalError> {
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
-    })?;
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
     })?;
 
     // Verify node has a conversation state before allowing a reply
@@ -3260,12 +3377,12 @@ pub struct SessionChatRequest {
 /// giving specs, or requesting plan modifications while the session is awaiting approval.
 pub async fn execution_session_chat(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<SessionChatRequest>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     // Load session
     let session_rows = state.db.execute_with(
@@ -6888,6 +7005,7 @@ pub async fn project_description_update(
 /// POST /api/projects/:project_id/execute — generate rich plan + create session
 pub async fn project_execute_rich(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(project_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
@@ -6895,28 +7013,23 @@ pub async fn project_execute_rich(
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid project ID"})))
     })?;
 
+    let client_id = crate::auth::assert_project_client_access(&state.db, user.user_id, project_uuid)
+        .await
+        .map_err(|_| {
+            InternalError::from((StatusCode::NOT_FOUND, Json(json!({"error": "Project not found"}))))
+        })?;
+
     let request_text = body.get("request_text").and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "request_text is required"}))))?;
     let model = body.get("model").and_then(|v| v.as_str()).unwrap_or(&state.settings.anthropic_model);
 
     let catalog_summary = state.catalog.catalog_summary();
 
-    // Resolve client_id from project for knowledge search
-    let client_id: Option<Uuid> = {
-        let rows = state.db.execute_with(
-            "SELECT client_id FROM projects WHERE id = $1",
-            pg_args!(project_uuid),
-        ).await.ok().unwrap_or_default();
-        rows.first()
-            .and_then(|r| r.get("client_id").and_then(Value::as_str))
-            .and_then(|s| s.parse::<Uuid>().ok())
-    };
-
     // Gather context from knowledge corpus + client data
     let gathered_context = planner::gather_planner_context(
         &state.db,
         request_text,
-        client_id,
+        Some(client_id),
         Some(project_uuid),
         state.settings.openai_api_key.as_deref(),
     ).await;
@@ -6959,17 +7072,6 @@ pub async fn project_execute_rich(
     ).map_err(|e| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Plan validation failed: {e}")})))
     })?;
-
-    // Resolve client_id from project
-    let client_id: Option<Uuid> = {
-        let rows = state.db.execute_with(
-            "SELECT client_id FROM projects WHERE id = $1",
-            pg_args!(project_uuid),
-        ).await.ok().unwrap_or_default();
-        rows.first()
-            .and_then(|r| r.get("client_id").and_then(Value::as_str))
-            .and_then(|s| s.parse::<Uuid>().ok())
-    };
 
     // Build plan JSON
     let plan_json = planner::plan_to_json(&exec_nodes);
@@ -7034,7 +7136,7 @@ pub async fn project_execute_rich(
         &rich_plan.components,
         &node_uids,
         session_id,
-        client_id,
+        Some(client_id),
     ).await;
 
     info!(
@@ -7057,12 +7159,12 @@ pub async fn project_execute_rich(
 /// PATCH /api/execute/:session_id/nodes/:node_id/description — update a node's description JSONB
 pub async fn execution_node_description_update(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
-    let _session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let _session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -7086,11 +7188,11 @@ pub async fn execution_node_description_update(
 /// GET /api/execute/:session_id/issues — list all issues for a session
 pub async fn execution_session_issues(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let issues = system_description::list_issues_for_session(&state.db, session_uuid)
         .await
@@ -7102,12 +7204,12 @@ pub async fn execution_session_issues(
 /// POST /api/execute/:session_id/nodes/:node_id/issues — create an issue on a node
 pub async fn execution_node_issue_create(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, node_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let node_uuid = node_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid node ID"})))
     })?;
@@ -7131,9 +7233,12 @@ pub async fn execution_node_issue_create(
 /// PATCH /api/execute/:session_id/issues/:issue_id — resolve or dismiss an issue
 pub async fn execution_issue_update(
     State(state): State<Arc<AppState>>,
-    Path((_session_id, issue_id)): Path<(String, String)>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
+    Path((session_id, issue_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
+    let _ = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let issue_uuid = issue_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid issue ID"})))
     })?;
@@ -7165,12 +7270,12 @@ pub async fn execution_issue_update(
 /// POST /api/execute/:session_id/threads — create a new thread
 pub async fn thread_create(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let node_id = body.get("node_id").and_then(|v| v.as_str())
         .and_then(|s| s.parse::<Uuid>().ok());
@@ -7194,11 +7299,11 @@ pub async fn thread_create(
 /// GET /api/execute/:session_id/threads — list threads for a session
 pub async fn thread_list(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let threads = system_description::list_threads(&state.db, session_uuid)
         .await
@@ -7210,12 +7315,12 @@ pub async fn thread_list(
 /// POST /api/execute/:session_id/threads/:thread_id/messages — post a message (triggers agent response)
 pub async fn thread_message_create(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path((session_id, thread_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
-    let _session_uuid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let _session_uuid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let thread_uuid = thread_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid thread ID"})))
     })?;
@@ -7297,8 +7402,11 @@ pub async fn thread_message_create(
 /// GET /api/execute/:session_id/threads/:thread_id — get a thread with all messages
 pub async fn thread_get(
     State(state): State<Arc<AppState>>,
-    Path((_session_id, thread_id)): Path<(String, String)>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
+    Path((session_id, thread_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
+    let _ = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let thread_uuid = thread_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid thread ID"})))
     })?;
@@ -7314,9 +7422,12 @@ pub async fn thread_get(
 /// PATCH /api/execute/:session_id/threads/:thread_id — resolve/archive a thread
 pub async fn thread_update(
     State(state): State<Arc<AppState>>,
-    Path((_session_id, thread_id)): Path<(String, String)>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
+    Path((session_id, thread_id)): Path<(String, String)>,
+    Query(q): Query<ExecuteClientQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, InternalError> {
+    let _ = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
     let thread_uuid = thread_id.parse::<Uuid>().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid thread ID"})))
     })?;
@@ -7335,11 +7446,11 @@ pub async fn thread_update(
 /// GET /api/chat-learnings/:session_id — list learnings for a session
 pub async fn chat_learnings_list(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let sid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let sid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let rows = state.db.execute_with(
         "SELECT id, learning_text, suggested_scope, suggested_primitive_slug, \
@@ -7427,11 +7538,11 @@ pub async fn chat_learning_resolve_conflict(
 /// POST /api/chat-learnings/analyze/:session_id — trigger on-demand analysis
 pub async fn chat_learnings_analyze(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<crate::auth::AuthenticatedUser>,
     Path(session_id): Path<String>,
+    Query(q): Query<ExecuteClientQuery>,
 ) -> Result<Json<Value>, InternalError> {
-    let sid = session_id.parse::<Uuid>().map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid session ID"})))
-    })?;
+    let sid = guard_session_for_user(&state.db, user.user_id, &session_id, q.client_slug.as_deref()).await?;
 
     let session_rows = state.db.execute_with(
         "SELECT es.id, es.request_text, es.project_id, es.client_id, \

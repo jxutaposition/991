@@ -379,6 +379,12 @@ async fn main() -> anyhow::Result<()> {
 
     let bind_addr = settings.bind_addr;
     info!("listening on {}", bind_addr);
+    info!(
+        target: "healthcheck",
+        bind_addr = %bind_addr,
+        healthcheck_path = "/health",
+        "backend startup complete; waiting for healthchecks"
+    );
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     axum::serve(listener, app)
