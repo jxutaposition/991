@@ -49,26 +49,6 @@ function filterResponseHeaders(upstream: Headers): Headers {
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }): Promise<Response> {
   const { path: segments } = await ctx.params;
   const url = buildTargetUrl(req, segments);
-  // #region agent log
-  fetch("http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "8025bc" },
-    body: JSON.stringify({
-      sessionId: "8025bc",
-      runId: "pre-fix",
-      hypothesisId: "H4",
-      location: "api/[[...path]]/route.ts:proxy",
-      message: "Next API proxy upstream URL",
-      data: {
-        method: req.method,
-        targetUrl: url,
-        envApiBackendUrlSet: Boolean(process.env.API_BACKEND_URL),
-        segment0: segments?.[0] ?? null,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   const headers = filterRequestHeaders(req);
   const hasBody = !["GET", "HEAD"].includes(req.method);
   const upstream = await fetch(url, {

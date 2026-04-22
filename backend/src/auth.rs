@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
+use url::Url;
 use uuid::Uuid;
 
 use crate::pg::PgClient;
@@ -36,27 +37,46 @@ pub async fn google_sign_in(
     jwt_secret: &str,
     id_token: &str,
 ) -> anyhow::Result<(String, AuthenticatedUser)> {
-    // Verify Google token via tokeninfo endpoint
+    // Verify Google token via tokeninfo endpoint (id_token must be query-encoded; raw concat breaks some tokens).
     let http = reqwest::Client::new();
-    let http_resp = http
-        .get(&format!(
-            "https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
-        ))
-        .send()
-        .await?;
+    let tokeninfo_url = Url::parse_with_params(
+        "https://oauth2.googleapis.com/tokeninfo",
+        &[("id_token", id_token)],
+    )
+    .map_err(|e| anyhow::anyhow!("tokeninfo url: {e}"))?;
+    let http_resp = http.get(tokeninfo_url).send().await?;
     let tokeninfo_status = http_resp.status();
     let res = http_resp.json::<serde_json::Value>().await?;
-    if !tokeninfo_status.is_success() {
+    if !tokeninfo_status.is_success() || res.get("error").is_some() {
+        let err_type = res
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("tokeninfo_error");
+        let err_desc = res
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         warn!(
             status = %tokeninfo_status,
-            "google_sign_in: tokeninfo returned non-success (no body logged)"
+            error = %err_type,
+            "google_sign_in: tokeninfo rejected id_token"
+        );
+        anyhow::bail!(
+            "Google tokeninfo rejected the id_token (HTTP {}): {}{}",
+            tokeninfo_status.as_u16(),
+            err_type,
+            if err_desc.is_empty() {
+                String::new()
+            } else {
+                format!(" — {err_desc}")
+            }
         );
     }
 
     let email = res
         .get("email")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("No email in Google token"))?;
+        .ok_or_else(|| anyhow::anyhow!("No email in Google token (tokeninfo response had no email)"))?;
     let name = res.get("name").and_then(|v| v.as_str()).unwrap_or(email);
     let avatar = res
         .get("picture")

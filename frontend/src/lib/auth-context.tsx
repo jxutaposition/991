@@ -2,8 +2,6 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 
-import { agentDebugLog } from "@/lib/agent-debug-log";
-
 const AUTH_TOKEN_KEY = "99percent_token";
 const AUTH_ACTIVE_CLIENT_KEY = "99percent_active_client";
 /** Legacy keys — migrated once on load */
@@ -135,58 +133,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       if (responseText.trim()) backendError = responseText.trim();
     }
-    const contentType = res.headers.get("content-type") ?? "";
-    const snippet = responseText.slice(0, 280).replace(/[^\x20-\x7E]/g, "?");
-    let hypothesisId = "H0-unknown";
-    if (!res.ok && res.status >= 500 && /<\s*html/i.test(responseText)) {
-      hypothesisId = "H1-next-proxy-html-or-unreachable-backend";
-    } else if (!res.ok && res.status >= 500 && responseText.includes("internal_error")) {
-      hypothesisId = "H2-backend-json-internal-error";
-    } else if (!res.ok && res.status >= 500) {
-      hypothesisId = "H3-backend-5xx-non-html";
-    } else if (!res.ok) {
-      hypothesisId = "H4-client-or-auth-4xx";
-    } else {
-      hypothesisId = "H5-success";
-    }
-    // #region agent log
-    agentDebugLog(
-      "auth-google-repro",
-      hypothesisId,
-      "frontend/src/lib/auth-context.tsx:signIn",
-      "google exchange response",
-      {
-        idTokenLength: idToken.length,
-        status: res.status,
-        ok: res.ok,
-        contentType,
-        bodyLength: responseText.length,
-        bodySnippet: snippet,
-        backendError,
-      },
-      { persistSession: !res.ok },
-    );
-    fetch("http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "8025bc" },
-      body: JSON.stringify({
-        sessionId: "8025bc",
-        runId: "pre-fix",
-        hypothesisId: backendError.includes("stub:") ? "H1" : "H2",
-        location: "frontend/src/lib/auth-context.tsx:signIn",
-        message: "google POST result (no token payload)",
-        data: {
-          httpStatus: res.status,
-          ok: res.ok,
-          backendErrorPrefix: backendError.slice(0, 80),
-          stubShapedError: backendError.includes("stub:"),
-          idTokenSegmentCount: idToken.split(".").length,
-          idTokenLength: idToken.length,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (!res.ok) throw new Error(`Authentication failed: ${backendError}`);
     const data = JSON.parse(responseText);
     localStorage.setItem(AUTH_TOKEN_KEY, data.token);
