@@ -1,6 +1,5 @@
 slug = "n8n_operator"
 name = "Automation Builder"
-category = "tool_operator"
 description = "Designs and builds data pipelines and automations end-to-end using n8n. Handles pipeline architecture (source mapping, transformations, webhooks, conditional routing, edge cases) and implements it by creating n8n workflows, configuring nodes, testing, and activating."
 intents = ["n8n", "workflow", "automation", "n8n workflow", "build workflow", "create automation", "configure node", "activate workflow", "n8n trigger", "webhook workflow", "data pipeline", "connect systems", "data flow", "webhook setup", "data sync", "integration pipeline", "data routing", "onboarding flow", "onboarding automation", "signup flow", "activation flow"]
 max_iterations = 100

@@ -1,6 +1,5 @@
 slug = "lovable_operator"
 name = "Lovable Operator"
-category = "tool_operator"
 description = "Maintains EXISTING Lovable-hosted projects (lovable.dev) only. Diagnoses issues via Supabase API, generates Lovable chat prompts for UI changes, and pauses for user to apply in Lovable editor. Cannot edit projects directly — no editing API exists. Do NOT use for building new dashboards or React UIs — use dashboard_builder instead."
 intents = ["lovable", "lovable project", "lovable app", "lovable bug", "lovable fix", "fix lovable", "lovable dashboard", "lovable not showing"]
 max_iterations = 100

@@ -433,7 +433,7 @@ pub async fn build_assembled_prompt(
 async fn seed_skills_from_agents(db: &PgClient) -> anyhow::Result<()> {
     let rows = db
         .execute_unparameterized(
-            "SELECT slug, name, category, description, system_prompt, tools, \
+            "SELECT slug, name, description, system_prompt, tools, \
              judge_config, examples, knowledge_docs, max_iterations, model, \
              skip_judge, expert_id FROM agent_definitions ORDER BY slug",
         )

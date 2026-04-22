@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from "react";
 
+import { agentDebugLog } from "@/lib/agent-debug-log";
+
 const AUTH_TOKEN_KEY = "99percent_token";
 const AUTH_ACTIVE_CLIENT_KEY = "99percent_active_client";
-const DEBUG_ENDPOINT = "http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37";
 /** Legacy keys — migrated once on load */
 const LEGACY_TOKEN_KEY = "lele_token";
 const LEGACY_ACTIVE_CLIENT_KEY = "lele_active_client";
@@ -19,27 +20,6 @@ function migrateLegacyAuthStorage(): void {
     localStorage.setItem(AUTH_ACTIVE_CLIENT_KEY, localStorage.getItem(LEGACY_ACTIVE_CLIENT_KEY)!);
     localStorage.removeItem(LEGACY_ACTIVE_CLIENT_KEY);
   }
-}
-
-function debugLog(runId: string, hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  // #region agent log
-  fetch(DEBUG_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "9c95a4",
-    },
-    body: JSON.stringify({
-      sessionId: "9c95a4",
-      runId,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 }
 
 interface User {
@@ -140,9 +120,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadUser]);
 
   const signIn = useCallback(async (idToken: string) => {
-    debugLog("pre-fix-auth", "A1", "frontend/src/lib/auth-context.tsx:143", "signIn called", {
-      idTokenLength: idToken.length,
-    });
     const res = await fetch("/api/auth/google", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -151,18 +128,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const responseText = await res.text();
     let backendError = "Authentication failed";
     try {
-      const parsed = JSON.parse(responseText) as { error?: string };
+      const parsed = JSON.parse(responseText) as { error?: string; code?: string };
       if (typeof parsed.error === "string" && parsed.error.trim()) {
         backendError = parsed.error.trim();
       }
     } catch {
       if (responseText.trim()) backendError = responseText.trim();
     }
-    debugLog("pre-fix-auth", "A2", "frontend/src/lib/auth-context.tsx:157", "signIn response", {
-      status: res.status,
-      ok: res.ok,
-      backendError,
-    });
+    const contentType = res.headers.get("content-type") ?? "";
+    const snippet = responseText.slice(0, 280).replace(/[^\x20-\x7E]/g, "?");
+    let hypothesisId = "H0-unknown";
+    if (!res.ok && res.status >= 500 && /<\s*html/i.test(responseText)) {
+      hypothesisId = "H1-next-proxy-html-or-unreachable-backend";
+    } else if (!res.ok && res.status >= 500 && responseText.includes("internal_error")) {
+      hypothesisId = "H2-backend-json-internal-error";
+    } else if (!res.ok && res.status >= 500) {
+      hypothesisId = "H3-backend-5xx-non-html";
+    } else if (!res.ok) {
+      hypothesisId = "H4-client-or-auth-4xx";
+    } else {
+      hypothesisId = "H5-success";
+    }
+    // #region agent log
+    agentDebugLog(
+      "auth-google-repro",
+      hypothesisId,
+      "frontend/src/lib/auth-context.tsx:signIn",
+      "google exchange response",
+      {
+        idTokenLength: idToken.length,
+        status: res.status,
+        ok: res.ok,
+        contentType,
+        bodyLength: responseText.length,
+        bodySnippet: snippet,
+        backendError,
+      },
+      { persistSession: !res.ok },
+    );
+    fetch("http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "8025bc" },
+      body: JSON.stringify({
+        sessionId: "8025bc",
+        runId: "pre-fix",
+        hypothesisId: backendError.includes("stub:") ? "H1" : "H2",
+        location: "frontend/src/lib/auth-context.tsx:signIn",
+        message: "google POST result (no token payload)",
+        data: {
+          httpStatus: res.status,
+          ok: res.ok,
+          backendErrorPrefix: backendError.slice(0, 80),
+          stubShapedError: backendError.includes("stub:"),
+          idTokenSegmentCount: idToken.split(".").length,
+          idTokenLength: idToken.length,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!res.ok) throw new Error(`Authentication failed: ${backendError}`);
     const data = JSON.parse(responseText);
     localStorage.setItem(AUTH_TOKEN_KEY, data.token);

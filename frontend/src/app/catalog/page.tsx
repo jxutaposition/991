@@ -6,22 +6,15 @@ import { useAuth } from "@/lib/auth-context";
 interface AgentSummary {
   slug: string;
   name: string;
-  category: string;
   description: string;
   intents: string[];
 }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  program_operations: "Program Operations",
-  tool_operator: "Tool Operators",
-};
 
 export default function CatalogPage() {
   const { apiFetch, token } = useAuth();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) { setLoading(false); return; }
@@ -34,7 +27,6 @@ export default function CatalogPage() {
       .catch((err) => { console.error("Failed to load catalog:", err); setLoading(false); });
   }, [token, apiFetch]);
 
-  const categories = Array.from(new Set(agents.map((a) => a.category)));
   const filtered = agents.filter((a) => {
     const q = search.toLowerCase();
     const matchesSearch =
@@ -42,8 +34,7 @@ export default function CatalogPage() {
       a.name.toLowerCase().includes(q) ||
       a.description.toLowerCase().includes(q) ||
       a.intents.some((i) => i.toLowerCase().includes(q));
-    const matchesCategory = !selectedCategory || a.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
 
   return (
@@ -62,28 +53,6 @@ export default function CatalogPage() {
         />
       </div>
 
-      <div className="flex gap-2 mb-6 flex-wrap">
-        <button
-          onClick={() => setSelectedCategory(null)}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            !selectedCategory ? "bg-brand text-white" : "bg-surface text-ink-2 hover:bg-raised"
-          }`}
-        >
-          All
-        </button>
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              selectedCategory === cat ? "bg-brand text-white" : "bg-surface text-ink-2 hover:bg-raised"
-            }`}
-          >
-            {CATEGORY_LABELS[cat] ?? cat}
-          </button>
-        ))}
-      </div>
-
       {loading ? (
         <div className="text-ink-3 text-sm">Loading catalog...</div>
       ) : (
@@ -94,13 +63,8 @@ export default function CatalogPage() {
               href={`/catalog/${agent.slug}`}
               className="border border-rim rounded-xl p-4 hover:border-rim-strong transition-colors bg-page group"
             >
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="text-sm font-semibold text-ink">
-                  {agent.name}
-                </h3>
-                <span className="text-xs text-ink-3 bg-surface px-2 py-0.5 rounded-full ml-2 shrink-0">
-                  {CATEGORY_LABELS[agent.category] ?? agent.category}
-                </span>
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold text-ink">{agent.name}</h3>
               </div>
               <p className="text-xs text-ink-2 leading-relaxed line-clamp-3">{agent.description}</p>
               <div className="flex flex-wrap gap-1 mt-3">

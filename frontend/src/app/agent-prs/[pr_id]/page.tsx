@@ -58,7 +58,6 @@ interface KnowledgeDoc {
 interface CurrentAgent {
   slug: string;
   name: string;
-  category: string;
   description: string;
   intents: string[];
   tools: ToolDetail[];
@@ -551,7 +550,6 @@ export default function PRDetailPage() {
     if (!changes) return set;
     if (
       hasChange(changes, "name") ||
-      hasChange(changes, "category") ||
       hasChange(changes, "description") ||
       hasChange(changes, "intents")
     )
@@ -765,7 +763,7 @@ function ChangesTab({
   }[] = [];
 
   // Metadata fields as a mini "file"
-  const metaFields = ["name", "category", "description"] as const;
+  const metaFields = ["name", "description"] as const;
   const metaChanged = metaFields.some((k) => hasChange(changes, k));
   if (metaChanged || isNewAgent) {
     const oldLines = isNewAgent
@@ -965,11 +963,6 @@ function OverviewTab({
     pr.target_agent_slug ?? pr.proposed_slug ?? "unknown";
 
   const resolvedName = proposed(changes, "name", agent?.name ?? "") as string;
-  const resolvedCategory = proposed(
-    changes,
-    "category",
-    agent?.category ?? ""
-  ) as string;
   const resolvedDesc = proposed(
     changes,
     "description",
@@ -987,9 +980,6 @@ function OverviewTab({
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h2 className="text-lg font-bold text-ink">{resolvedName || agentSlug}</h2>
-          <span className="text-xs bg-surface text-ink-3 px-2 py-0.5 rounded-full border border-rim">
-            {resolvedCategory || "uncategorized"}
-          </span>
         </div>
         <p className="text-xs text-ink-3 font-mono mb-2">{agentSlug}</p>
         <p className="text-sm text-ink-2 leading-relaxed">{resolvedDesc}</p>
@@ -997,7 +987,6 @@ function OverviewTab({
 
       {/* Inline diffs for changed metadata */}
       {(hasChange(changes, "name") ||
-        hasChange(changes, "category") ||
         hasChange(changes, "description")) &&
         !isNewAgent && (
           <div className="border border-blue-200 dark:border-blue-800 rounded-xl p-4 bg-blue-50/30 dark:bg-blue-950/10 space-y-2">
@@ -1005,7 +994,6 @@ function OverviewTab({
               Proposed changes
             </span>
             <FieldDiff label="Name" oldVal={agent?.name ?? null} newVal={proposed(changes, "name", agent?.name ?? "") as string} />
-            <FieldDiff label="Category" oldVal={agent?.category ?? null} newVal={proposed(changes, "category", agent?.category ?? "") as string} />
             <FieldDiff label="Description" oldVal={agent?.description ?? null} newVal={proposed(changes, "description", agent?.description ?? "") as string} />
           </div>
         )}

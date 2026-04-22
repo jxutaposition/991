@@ -24,7 +24,6 @@ pub const EVALUATOR_SLUG: &str = "evaluator";
 struct AgentToml {
     pub slug: String,
     pub name: String,
-    pub category: String,
     pub description: String,
     pub intents: Vec<String>,
     #[serde(default = "default_max_iterations")]
@@ -93,7 +92,6 @@ pub struct AgentExample {
 pub struct AgentDefinition {
     pub slug: String,
     pub name: String,
-    pub category: String,
     pub description: String,
     pub intents: Vec<String>,
 
@@ -220,7 +218,7 @@ impl AgentCatalog {
     pub async fn reload_all(&self, db: &PgClient) -> anyhow::Result<()> {
         let rows = db
             .execute_unparameterized(
-                "SELECT slug, name, category, description, intents, system_prompt, \
+                "SELECT slug, name, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
                  expert_id, required_integrations, automation_mode, version FROM agent_definitions ORDER BY slug",
@@ -244,7 +242,7 @@ impl AgentCatalog {
     pub async fn reload_agent(&self, db: &PgClient, slug: &str) -> anyhow::Result<()> {
         let rows = db
             .execute_with(
-                "SELECT slug, name, category, description, intents, system_prompt, \
+                "SELECT slug, name, description, intents, system_prompt, \
                  tools, judge_config, input_schema, output_schema, examples, \
                  knowledge_docs, max_iterations, model, skip_judge, flexible_tool_use, \
                  expert_id, required_integrations, automation_mode, version FROM agent_definitions WHERE slug = $1",
@@ -354,10 +352,9 @@ impl AgentCatalog {
         };
         let automation = agent.automation_mode.as_deref().unwrap_or("full");
         format!(
-            "### {} (slug: \"{}\")\n  Category: {}\n  {}\n  Tools: [{}]\n  Required credentials: [{}]\n  Quality: {}\n  Automation: {} (full=agent does all work via API, guided=agent designs but user executes in external UI, hybrid=mix){}\n",
+            "### {} (slug: \"{}\")\n  {}\n  Tools: [{}]\n  Required credentials: [{}]\n  Quality: {}\n  Automation: {} (full=agent does all work via API, guided=agent designs but user executes in external UI, hybrid=mix){}\n",
             agent.name,
             agent.slug,
-            agent.category,
             agent.description,
             tools_str,
             integrations_str,
@@ -374,11 +371,6 @@ impl AgentCatalog {
 fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
     let slug = row.get("slug")?.as_str()?.to_string();
     let name = row.get("name")?.as_str()?.to_string();
-    let category = row
-        .get("category")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let description = row
         .get("description")
         .and_then(Value::as_str)
@@ -441,7 +433,6 @@ fn parse_agent_row(row: &Value, git_sha: &str) -> Option<AgentDefinition> {
     Some(AgentDefinition {
         slug,
         name,
-        category,
         description,
         intents,
         system_prompt,
@@ -557,18 +548,17 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
 
     db.execute_with(
         r#"INSERT INTO agent_definitions
-            (slug, name, category, description, intents, system_prompt, tools,
+            (slug, name, description, intents, system_prompt, tools,
              judge_config, input_schema, output_schema, examples, knowledge_docs,
              max_iterations, model, skip_judge, flexible_tool_use, expert_id,
              required_integrations, automation_mode, version)
            VALUES
-            ($1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10, $11, $12,
-             $13, $14, $15, $16, $17,
-             $18, $19, 1)
+            ($1, $2, $3, $4, $5, $6,
+             $7, $8, $9, $10, $11,
+             $12, $13, $14, $15, $16,
+             $17, $18, 1)
            ON CONFLICT (slug) DO UPDATE SET
              name = EXCLUDED.name,
-             category = EXCLUDED.category,
              description = EXCLUDED.description,
              intents = EXCLUDED.intents,
              system_prompt = EXCLUDED.system_prompt,
@@ -588,7 +578,6 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
         crate::pg_args!(
             agent.slug.clone(),
             agent.name.clone(),
-            agent.category.clone(),
             agent.description.clone(),
             agent.intents.clone(),
             agent.system_prompt.clone(),
@@ -612,7 +601,6 @@ async fn insert_agent_to_db(db: &PgClient, agent: &AgentDefinition) -> anyhow::R
     let snapshot = serde_json::json!({
         "slug": agent.slug,
         "name": agent.name,
-        "category": agent.category,
         "description": agent.description,
         "system_prompt": agent.system_prompt,
         "version": 1,
@@ -675,7 +663,6 @@ fn load_agent_from_disk(dir: &Path, git_sha: &str) -> anyhow::Result<AgentDefini
     Ok(AgentDefinition {
         slug: meta.slug,
         name: meta.name,
-        category: meta.category,
         description: meta.description,
         intents: meta.intents,
         system_prompt: prompt,

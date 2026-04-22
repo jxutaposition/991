@@ -105,7 +105,6 @@ pub async fn create_new_agent_pr(
     let system = r#"You are generating a new AI agent definition based on observed expert behavior.
 Create a complete agent definition with:
 - name: human-readable agent name
-- category: GTM category (e.g., "outreach", "research", "analytics")
 - description: what this agent does
 - system_prompt: detailed instructions for the agent
 - tools: list of tool names the agent needs
@@ -113,7 +112,7 @@ Create a complete agent definition with:
 - intents: list of intent phrases that should trigger this agent
 
 Output JSON only (no other text):
-{"name": "...", "category": "...", "description": "...", "system_prompt": "...", "tools": [...], "judge_config": {"threshold": 7.0, "rubric": [...], "need_to_know": [...]}, "intents": [...]}"#;
+{"name": "...", "description": "...", "system_prompt": "...", "tools": [...], "judge_config": {"threshold": 7.0, "rubric": [...], "need_to_know": [...]}, "intents": [...]}"#;
 
     let prompt = format!(
         "## Proposed Slug: {proposed_slug}\n\n## Expert Evidence:\n{evidence_text}"
@@ -137,7 +136,6 @@ Output JSON only (no other text):
             warn!(error = %e, raw_len = text.len(), "LLM returned invalid JSON for new agent definition, using fallback");
             json!({
                 "name": proposed_slug,
-                "category": "uncategorized",
                 "description": format!("Auto-generated from observations"),
                 "system_prompt": evidence_text,
                 "tools": [],
@@ -152,7 +150,6 @@ Output JSON only (no other text):
     let proposed_changes = json!({
         "slug": proposed_slug,
         "name": agent_def.get("name").and_then(Value::as_str).unwrap_or(proposed_slug),
-        "category": agent_def.get("category").and_then(Value::as_str).unwrap_or("uncategorized"),
         "description": agent_def.get("description").and_then(Value::as_str).unwrap_or(""),
         "system_prompt": agent_prompt,
         "tools": agent_def.get("tools").unwrap_or(&json!([])),
@@ -170,10 +167,9 @@ Output JSON only (no other text):
             "file_path": "agent.toml",
             "old_content": null,
             "new_content": format!(
-                "slug = \"{}\"\nname = \"{}\"\ncategory = \"{}\"\ndescription = \"{}\"\nintents = {:?}\nmax_iterations = 12\nskip_judge = false",
+                "slug = \"{}\"\nname = \"{}\"\ndescription = \"{}\"\nintents = {:?}\nmax_iterations = 12\nskip_judge = false",
                 proposed_slug,
                 agent_def.get("name").and_then(Value::as_str).unwrap_or(proposed_slug),
-                agent_def.get("category").and_then(Value::as_str).unwrap_or("uncategorized"),
                 agent_def.get("description").and_then(Value::as_str).unwrap_or(""),
                 agent_def.get("intents").unwrap_or(&json!([])),
             ),
@@ -339,11 +335,6 @@ async fn apply_new_agent(
         .and_then(Value::as_str)
         .unwrap_or(slug)
         .to_string();
-    let category = changes
-        .get("category")
-        .and_then(Value::as_str)
-        .unwrap_or("uncategorized")
-        .to_string();
     let description = changes
         .get("description")
         .and_then(Value::as_str)
@@ -374,11 +365,11 @@ async fn apply_new_agent(
 
     db.execute_with(
         "INSERT INTO agent_definitions \
-            (slug, name, category, description, system_prompt, tools, judge_config, intents) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) \
+            (slug, name, description, system_prompt, tools, judge_config, intents) \
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) \
          ON CONFLICT (slug) DO NOTHING",
         pg_args!(
-            slug.to_string(), name, category, description, system_prompt,
+            slug.to_string(), name, description, system_prompt,
             tools, judge_config, intents
         ),
     ).await?;

@@ -7,7 +7,7 @@ import { DashboardRenderer, type DashboardSpec } from "@/components/dashboard-re
 
 export default function DashboardPage() {
   const { id } = useParams<{ id: string }>();
-  const { apiFetch, token } = useAuth();
+  const { apiFetch, token, activeClient } = useAuth();
   const [spec, setSpec] = useState<DashboardSpec | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -17,7 +17,10 @@ export default function DashboardPage() {
 
     async function loadDashboard() {
       try {
-        const res = await apiFetch(`/api/execute/nodes/${id}`);
+        const qs = activeClient
+          ? `?client_slug=${encodeURIComponent(activeClient)}`
+          : "";
+        const res = await apiFetch(`/api/execute/nodes/${id}${qs}`);
         if (!res.ok) throw new Error(`Failed to load node: ${res.statusText}`);
         const data = await res.json();
 
@@ -52,7 +55,7 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [id, token, apiFetch]);
+  }, [id, token, apiFetch, activeClient]);
 
   if (loading) {
     return (

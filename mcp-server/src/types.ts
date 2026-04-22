@@ -54,7 +54,6 @@ export interface StreamEntry {
 export interface AgentInfo {
   slug: string;
   name: string;
-  category: string;
   description: string;
   intents: string[];
   automation_mode: string;

@@ -38,14 +38,20 @@ pub async fn google_sign_in(
 ) -> anyhow::Result<(String, AuthenticatedUser)> {
     // Verify Google token via tokeninfo endpoint
     let http = reqwest::Client::new();
-    let res = http
+    let http_resp = http
         .get(&format!(
             "https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
         ))
         .send()
-        .await?
-        .json::<serde_json::Value>()
         .await?;
+    let tokeninfo_status = http_resp.status();
+    let res = http_resp.json::<serde_json::Value>().await?;
+    if !tokeninfo_status.is_success() {
+        warn!(
+            status = %tokeninfo_status,
+            "google_sign_in: tokeninfo returned non-success (no body logged)"
+        );
+    }
 
     let email = res
         .get("email")
@@ -219,4 +225,239 @@ pub async fn check_client_role(
         _ => 0,
     };
     Ok(level(user_role) >= level(required_role))
+}
+
+/// Resolve a workspace (`clients` row) the user may access.
+/// With `client_slug`, returns that workspace when the user has any role on it.
+/// Without a slug, returns the user's oldest membership (by client `created_at`).
+pub async fn resolve_client_id_for_user(
+    db: &PgClient,
+    user_id: Uuid,
+    client_slug: Option<&str>,
+) -> Result<Uuid, StatusCode> {
+    if let Some(slug) = client_slug.map(str::trim).filter(|s| !s.is_empty()) {
+        let rows = db
+            .execute_with(
+                "SELECT c.id FROM clients c \
+                 INNER JOIN user_client_roles ucr ON ucr.client_id = c.id \
+                 WHERE ucr.user_id = $1 AND c.slug = $2 AND c.deleted_at IS NULL",
+                crate::pg_args!(user_id, slug.to_string()),
+            )
+            .await
+            .map_err(|e| {
+                error!(error = %e, "resolve_client_id_for_user slug lookup failed");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        return rows
+            .first()
+            .and_then(|r| r.get("id"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .ok_or(StatusCode::NOT_FOUND);
+    }
+
+    let rows = db
+        .execute_with(
+            "SELECT c.id FROM clients c \
+             INNER JOIN user_client_roles ucr ON ucr.client_id = c.id \
+             WHERE ucr.user_id = $1 AND c.deleted_at IS NULL \
+             ORDER BY c.created_at ASC LIMIT 1",
+            crate::pg_args!(user_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "resolve_client_id_for_user default workspace failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    rows.first()
+        .and_then(|r| r.get("id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .ok_or(StatusCode::BAD_REQUEST)
+}
+
+/// Ensures the user may access this execution session (viewer+ on the session's client).
+/// Returns `NOT_FOUND` when the session is missing, has no `client_id`, or the user lacks access.
+pub async fn assert_session_client_access(
+    db: &PgClient,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<(), StatusCode> {
+    let rows = db
+        .execute_with(
+            "SELECT client_id FROM execution_sessions WHERE id = $1",
+            crate::pg_args!(session_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_session_client_access session lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let client_id: Option<Uuid> = rows
+        .first()
+        .and_then(|r| r.get("client_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+
+    let client_id = client_id.ok_or(StatusCode::NOT_FOUND)?;
+
+    let ok = check_client_role(db, user_id, client_id, "viewer")
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_session_client_access role check failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if ok {
+        Ok(())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Ensures the user may access the execution session that owns this node.
+pub async fn assert_node_client_access(
+    db: &PgClient,
+    user_id: Uuid,
+    node_id: Uuid,
+) -> Result<(), StatusCode> {
+    let rows = db
+        .execute_with(
+            "SELECT es.client_id FROM execution_nodes en \
+             INNER JOIN execution_sessions es ON es.id = en.session_id \
+             WHERE en.id = $1",
+            crate::pg_args!(node_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_node_client_access lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let client_id: Option<Uuid> = rows
+        .first()
+        .and_then(|r| r.get("client_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+
+    let client_id = client_id.ok_or(StatusCode::NOT_FOUND)?;
+
+    let ok = check_client_role(db, user_id, client_id, "viewer")
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_node_client_access role check failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if ok {
+        Ok(())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Like [`assert_session_client_access`], but only allows the session if it belongs to the
+/// given workspace slug (user must be a member of that workspace). Used when the UI passes
+/// `?client_slug=` so users who belong to multiple workspaces cannot open another workspace's
+/// session while a different workspace is selected.
+pub async fn assert_session_in_workspace(
+    db: &PgClient,
+    user_id: Uuid,
+    session_id: Uuid,
+    workspace_slug: &str,
+) -> Result<(), StatusCode> {
+    let expected_cid = resolve_client_id_for_user(db, user_id, Some(workspace_slug.trim()))
+        .await?;
+    let rows = db
+        .execute_with(
+            "SELECT client_id FROM execution_sessions WHERE id = $1",
+            crate::pg_args!(session_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_session_in_workspace lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let session_cid: Option<Uuid> = rows
+        .first()
+        .and_then(|r| r.get("client_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+    match session_cid {
+        Some(cid) if cid == expected_cid => Ok(()),
+        _ => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Workspace-scoped access for a node (via its session's `client_id`).
+pub async fn assert_node_in_workspace(
+    db: &PgClient,
+    user_id: Uuid,
+    node_id: Uuid,
+    workspace_slug: &str,
+) -> Result<(), StatusCode> {
+    let expected_cid = resolve_client_id_for_user(db, user_id, Some(workspace_slug.trim()))
+        .await?;
+    let rows = db
+        .execute_with(
+            "SELECT es.client_id FROM execution_nodes en \
+             INNER JOIN execution_sessions es ON es.id = en.session_id \
+             WHERE en.id = $1",
+            crate::pg_args!(node_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_node_in_workspace lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let session_cid: Option<Uuid> = rows
+        .first()
+        .and_then(|r| r.get("client_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+    match session_cid {
+        Some(cid) if cid == expected_cid => Ok(()),
+        _ => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Ensures the user has at least `member` on the given project (via its client).
+pub async fn assert_project_client_access(
+    db: &PgClient,
+    user_id: Uuid,
+    project_id: Uuid,
+) -> Result<Uuid, StatusCode> {
+    let rows = db
+        .execute_with(
+            "SELECT client_id FROM projects WHERE id = $1",
+            crate::pg_args!(project_id),
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_project_client_access lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let client_id: Option<Uuid> = rows
+        .first()
+        .and_then(|r| r.get("client_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok());
+
+    let client_id = client_id.ok_or(StatusCode::NOT_FOUND)?;
+
+    let ok = check_client_role(db, user_id, client_id, "member")
+        .await
+        .map_err(|e| {
+            error!(error = %e, "assert_project_client_access role check failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if ok {
+        Ok(client_id)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }

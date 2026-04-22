@@ -44,7 +44,6 @@ interface KnowledgeDoc {
 interface AgentDetail {
   slug: string;
   name: string;
-  category: string;
   description: string;
   intents: string[];
   tools: ToolDetail[];
@@ -243,7 +242,6 @@ export default function AgentDetailPage() {
         <div className="min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-ink truncate">{agent.name}</h1>
-            <span className="text-xs bg-surface text-ink-3 px-2 py-0.5 rounded-full border border-rim shrink-0">{agent.category}</span>
           </div>
           <p className="text-ink-3 text-xs font-mono mt-1">{agent.slug}</p>
           {agent.expert && (

@@ -6,6 +6,9 @@ RUN npm ci
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Rewrites in next.config.ts read this at build time; without it, /api proxies to localhost inside the image.
+ARG API_BACKEND_URL=http://localhost:3001
+ENV API_BACKEND_URL=${API_BACKEND_URL}
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 RUN npm run build

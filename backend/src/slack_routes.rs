@@ -152,10 +152,22 @@ async fn handle_run_command(
     let node_count = exec_nodes.len();
     let plan_json = crate::planner::plan_to_json(&exec_nodes);
 
+    let Some(client_id) = state.settings.slack_default_client_id else {
+        error!("SLACK_DEFAULT_CLIENT_ID not set — cannot persist Slack-initiated session");
+        let blocks = slack_messages::error_blocks(
+            "Server not configured: set SLACK_DEFAULT_CLIENT_ID to your workspace (client) UUID.",
+        );
+        let _ = slack
+            .post_message(channel_id, &blocks, "Not configured", None)
+            .await;
+        return;
+    };
+
     // Persist to DB
     if let Err(e) = persist_session_from_slack(
         &state.db,
         session_id,
+        client_id,
         request_text,
         &plan_json,
         &exec_nodes,
@@ -514,14 +526,20 @@ fn get_param(params: &[(String, String)], key: &str) -> String {
 async fn persist_session_from_slack(
     db: &crate::pg::PgClient,
     session_id: uuid::Uuid,
+    client_id: uuid::Uuid,
     request_text: &str,
     plan_json: &Value,
     nodes: &[crate::agent_catalog::ExecutionPlanNode],
 ) -> anyhow::Result<()> {
     db.execute_with(
-        "INSERT INTO execution_sessions (id, request_text, plan, status) \
-         VALUES ($1, $2, $3, 'awaiting_approval')",
-        crate::pg_args!(session_id, request_text.to_string(), plan_json.clone()),
+        "INSERT INTO execution_sessions (id, client_id, request_text, plan, status) \
+         VALUES ($1, $2, $3, $4, 'awaiting_approval')",
+        crate::pg_args!(
+            session_id,
+            client_id,
+            request_text.to_string(),
+            plan_json.clone()
+        ),
     ).await?;
 
     for node in nodes {
@@ -531,8 +549,8 @@ async fn persist_session_from_slack(
         db.execute_with(
             "INSERT INTO execution_nodes \
               (id, session_id, agent_slug, agent_git_sha, task_description, status, \
-               requires, attempt_count, judge_config, max_iterations, model, skip_judge) \
-             VALUES ($1, $2, $3, $4, $5, 'pending', $6, 0, $7, $8, $9, $10)",
+               requires, attempt_count, judge_config, max_iterations, model, skip_judge, client_id) \
+             VALUES ($1, $2, $3, $4, $5, 'pending', $6, 0, $7, $8, $9, $10, $11)",
             crate::pg_args!(
                 node.uid,
                 session_id,
@@ -543,7 +561,8 @@ async fn persist_session_from_slack(
                 judge_config,
                 node.max_iterations as i32,
                 node.model.clone(),
-                node.skip_judge
+                node.skip_judge,
+                client_id
             ),
         ).await?;
     }

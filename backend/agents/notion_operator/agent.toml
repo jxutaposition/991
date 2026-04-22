@@ -1,6 +1,5 @@
 slug = "notion_operator"
 name = "Notion Operator"
-category = "tool_operator"
 description = "Operates the Notion API: creates pages, queries databases, updates properties, manages blocks, and searches content. Follows community-facing formatting standards for program documentation."
 intents = ["notion", "notion page", "notion database", "add to notion", "create notion page", "update notion", "notion api", "meeting notes", "project plan"]
 max_iterations = 100

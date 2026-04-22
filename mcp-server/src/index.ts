@@ -18,7 +18,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "clay_operator",
     name: "Clay Operator",
-    category: "tool_operator",
     description:
       "Designs, builds, and manages Clay workbooks end-to-end: creates tables, columns, formulas, enrichment configs, webhook sources, and action columns via the v3 API. Full CRUD on tables, rows, columns, sources, and enrichments.",
     intents: [
@@ -32,7 +31,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "n8n_operator",
     name: "Automation Builder",
-    category: "tool_operator",
     description:
       "Designs and builds data pipelines and automations end-to-end using n8n. Handles pipeline architecture (source mapping, transformations, webhooks, conditional routing, edge cases) and implements it by creating n8n workflows, configuring nodes, testing, and activating.",
     intents: [
@@ -47,7 +45,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "notion_operator",
     name: "Notion Operator",
-    category: "tool_operator",
     description:
       "Operates the Notion API: creates pages, queries databases, updates properties, manages blocks, and searches content. Follows community-facing formatting standards for program documentation.",
     intents: [
@@ -61,7 +58,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "dashboard_builder",
     name: "Dashboard Builder",
-    category: "program_operations",
     description:
       "DEFAULT dashboard agent. Builds React dashboards rendered natively in the platform. Reads data from upstream sources (Clay tables, Supabase, APIs) and outputs a dashboard_spec JSON displayed as interactive charts, tables, funnels, and metrics. Use for any 'dashboard', 'React dashboard', 'analytics', 'leaderboard', or 'data visualization' request.",
     intents: [
@@ -77,7 +73,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "tolt_operator",
     name: "Tolt Operator",
-    category: "tool_operator",
     description:
       "Operates Tolt affiliate/referral platform: manages partner groups, tracks referral revenue, handles commission data, processes CSV group reassignments, and integrates with scoring systems.",
     intents: [
@@ -90,7 +85,6 @@ const AGENT_CATALOG: AgentInfo[] = [
   {
     slug: "lovable_operator",
     name: "Lovable Operator",
-    category: "tool_operator",
     description:
       "Maintains EXISTING Lovable-hosted projects (lovable.dev) only. Diagnoses issues via Supabase API, generates Lovable chat prompts for UI changes, and pauses for user to apply in Lovable editor. Cannot edit projects directly. Do NOT use for building new dashboards — use dashboard_builder instead.",
     intents: [

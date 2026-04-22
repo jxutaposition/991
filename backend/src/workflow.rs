@@ -143,6 +143,12 @@ pub async fn instantiate_workflow(
         .await?
         .ok_or_else(|| anyhow::anyhow!("workflow not found: {workflow_slug}"))?;
 
+    let Some(client_id) = workflow.client_id else {
+        return Err(anyhow::anyhow!(
+            "workflow has no workspace (client_id); attach a workspace to this workflow template"
+        ));
+    };
+
     let steps = get_workflow_steps(db, workflow.id).await?;
     if steps.is_empty() {
         return Err(anyhow::anyhow!("workflow has no steps: {workflow_slug}"));
@@ -153,7 +159,7 @@ pub async fn instantiate_workflow(
     db.execute_with(
         "INSERT INTO execution_sessions (id, request_text, status, workflow_id, client_id) \
          VALUES ($1, $2, 'awaiting_approval', $3, $4)",
-        pg_args!(session_id, request_text.to_string(), workflow.id, workflow.client_id),
+        pg_args!(session_id, request_text.to_string(), workflow.id, client_id),
     ).await?;
 
     let mut step_to_node: std::collections::HashMap<Uuid, Uuid> = std::collections::HashMap::new();
@@ -207,7 +213,7 @@ pub async fn instantiate_workflow(
                 node_id, session_id, step.agent_slug.clone(), version_str,
                 task_desc, status.to_string(), requires, model, max_iterations,
                 skip_judge, judge_config, computed_tier, tier_override_owned,
-                step.breakpoint, workflow.id, step.id, workflow.client_id
+                step.breakpoint, workflow.id, step.id, client_id
             ),
         ).await?;
     }

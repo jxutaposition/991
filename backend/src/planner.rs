@@ -59,8 +59,8 @@ Plan:
 ]
 
 ## dashboard_builder vs lovable_operator — When to Use Which
-- **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, leaderboard, funnel chart, or metrics display. It outputs a spec that the platform renders natively — no external service needed.
-- **lovable_operator** is ONLY for tasks that explicitly reference an existing Lovable project (lovable.dev) — diagnosing issues, generating chat prompts for UI changes, or maintaining a Lovable-hosted app. Do NOT use lovable_operator to build new dashboards or React UIs.
+- **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, leaderboard, funnel chart, or metrics display. It builds via Lovable + Supabase (UI + data backend).
+- **lovable_operator** is ONLY for tasks that explicitly reference an existing Lovable project (lovable.dev) — diagnosing issues, generating targeted change prompts, or maintenance. Do NOT use lovable_operator for net-new dashboard builds.
 - When the request says "dashboard", "React dashboard", "analytics", "leaderboard", "charts", or "data visualization" → use **dashboard_builder**.
 - When the request says "Lovable project", "fix my Lovable app", "Lovable dashboard" (referring to an existing lovable.dev project) → use **lovable_operator**.
 - NEVER use both together for the same dashboard. They are separate paths, not sequential steps.
@@ -70,7 +70,7 @@ When building the DAG, follow this execution order strictly:
 1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
 2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
 3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
-4. **UI / dashboard / app last**: dashboard_builder OR lovable_operator (not both) — these reference data from Clay tables and upstream pipelines. Use dashboard_builder for platform-rendered dashboards; use lovable_operator only for existing Lovable-hosted projects.
+4. **UI / dashboard / app last**: dashboard_builder OR lovable_operator (not both) — these reference data from Clay tables and upstream pipelines. Use dashboard_builder for Lovable + Supabase dashboard builds; use lovable_operator only for existing Lovable-hosted projects.
 
 Infer depends_on automatically: if agent B reads from or references a system that agent A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), agent B MUST depend on agent A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
 
@@ -608,13 +608,13 @@ When building the component list, follow this execution order strictly:
 1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
 2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
 3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
-4. **UI / dashboard / app last**: dashboard_builder OR lovable_operator (not both) — these reference data from Clay tables and upstream pipelines. Use dashboard_builder for platform-rendered dashboards; use lovable_operator only for existing Lovable-hosted projects.
+4. **UI / dashboard / app last**: dashboard_builder OR lovable_operator (not both) — these reference data from Clay tables and upstream pipelines. Use dashboard_builder for Lovable + Supabase dashboard builds; use lovable_operator only for existing Lovable-hosted projects.
 
 Infer depends_on automatically: if component B reads from or references a system that component A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), component B MUST depend on component A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
 
 ## dashboard_builder vs lovable_operator — When to Use Which
-- **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, leaderboard, funnel chart, or metrics display. It outputs a dashboard_spec JSON that the platform renders natively — no external service needed.
-- **lovable_operator** is ONLY for tasks that explicitly reference an existing Lovable project (lovable.dev) — diagnosing issues, generating chat prompts for UI changes, or maintaining a Lovable-hosted app. Do NOT use lovable_operator to build new dashboards or React UIs.
+- **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, leaderboard, funnel chart, or metrics display. It builds via Lovable + Supabase and outputs implementation-ready dashboard specs/prompts.
+- **lovable_operator** is ONLY for tasks that explicitly reference an existing Lovable project (lovable.dev) — diagnosing issues, generating targeted change prompts, or maintenance. Do NOT use lovable_operator for net-new dashboard builds.
 - When the request says "dashboard", "React dashboard", "analytics", "leaderboard", "charts", or "data visualization" → use **dashboard_builder**.
 - When the request says "Lovable project", "fix my Lovable app", "Lovable dashboard" (referring to an existing lovable.dev project) → use **lovable_operator**.
 - NEVER use both together for the same dashboard. They are separate paths, not sequential steps.

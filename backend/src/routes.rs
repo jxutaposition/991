@@ -64,7 +64,6 @@ pub async fn models_list(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 #[derive(Deserialize)]
 pub struct CatalogQuery {
-    pub category: Option<String>,
     pub expert_id: Option<String>,
 }
 
@@ -80,11 +79,6 @@ pub async fn catalog_list(
         .all()
         .into_iter()
         .filter(|a| {
-            if let Some(ref cat) = query.category {
-                if &a.category != cat {
-                    return false;
-                }
-            }
             if let Some(eid) = expert_uuid {
                 match a.expert_id {
                     None => {}
@@ -104,7 +98,6 @@ pub async fn catalog_list(
             json!({
                 "slug": a.slug,
                 "name": a.name,
-                "category": a.category,
                 "description": a.description,
                 "intents": a.intents,
                 "tools": tool_details,
@@ -116,20 +109,10 @@ pub async fn catalog_list(
         })
         .collect();
 
-    let categories: Vec<String> = {
-        let mut cats: Vec<String> = state.catalog.all().iter()
-            .map(|a| a.category.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        cats.sort();
-        cats
-    };
-
     let integration_alternatives = crate::agent_catalog::AgentCatalog::integration_alternatives();
 
     let count = agents.len();
-    Json(json!({"agents": agents, "count": count, "categories": categories, "integration_alternatives": integration_alternatives}))
+    Json(json!({"agents": agents, "count": count, "integration_alternatives": integration_alternatives}))
 }
 
 pub async fn catalog_get(
@@ -175,7 +158,6 @@ pub async fn catalog_get(
     Ok(Json(json!({
         "slug": agent.slug,
         "name": agent.name,
-        "category": agent.category,
         "description": agent.description,
         "intents": agent.intents,
         "tools": tool_details,
@@ -1909,7 +1891,6 @@ pub async fn agent_pr_get(
             json!({
                 "slug": agent.slug,
                 "name": agent.name,
-                "category": agent.category,
                 "description": agent.description,
                 "intents": agent.intents,
                 "tools": tool_details,
@@ -2607,7 +2588,7 @@ pub async fn expert_get(
     let expert_id: Uuid = expert.get("id").and_then(Value::as_str)
         .and_then(|s| s.parse().ok()).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let agents = state.db.execute_with(
-        "SELECT slug, name, category, description FROM agent_definitions WHERE expert_id = $1 ORDER BY slug",
+        "SELECT slug, name, description FROM agent_definitions WHERE expert_id = $1 ORDER BY slug",
         crate::pg_args!(expert_id),
     ).await.unwrap_or_default();
 
@@ -3838,9 +3819,9 @@ After including the block, confirm to the user that the plan has been updated. D
 modify the plan or that it's \"just a suggestion\" — the replan block IS the modification mechanism.\n\n\
 ## Agent Selection Rules\n\
 - **dashboard_builder** is the DEFAULT for any dashboard, analytics view, React dashboard, data visualization, \
-leaderboard, funnel chart, or metrics display. It renders natively in the platform.\n\
+leaderboard, funnel chart, or metrics display. It builds dashboards via Lovable + Supabase.\n\
 - **lovable_operator** is ONLY for maintaining existing Lovable-hosted projects (lovable.dev). Do NOT use it \
-to build new dashboards or React UIs.\n\
+for net-new dashboard builds.\n\
 - NEVER use both together for the same dashboard. They are separate paths.\n\n\
 ## Guidelines\n\
 - Answer questions about the plan, agents, and what each step does.\n\
@@ -4481,11 +4462,28 @@ pub async fn auth_google(
     State(state): State<Arc<AppState>>,
     Json(body): Json<GoogleAuthRequest>,
 ) -> Result<Json<Value>, InternalError> {
+    info!(
+        target: "agent_debug",
+        id_token_len = body.id_token.len(),
+        "auth_google: request received"
+    );
     let jwt_secret = state.settings.jwt_secret.as_deref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "JWT_SECRET not configured"}))))?;
 
-    let (token, user) = crate::auth::google_sign_in(&state.db, jwt_secret, &body.id_token)
-        .await.map_err(|e| (StatusCode::UNAUTHORIZED, Json(json!({"error": format!("{e}")}))))?;
+    let (token, user) = match crate::auth::google_sign_in(&state.db, jwt_secret, &body.id_token).await {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                target: "agent_debug",
+                error = %e,
+                "auth_google: google_sign_in failed (401 to client)"
+            );
+            return Err(Into::into((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": format!("{e}")})),
+            )));
+        }
+    };
 
     Ok(Json(json!({
         "token": token,
@@ -4823,6 +4821,9 @@ fn integration_metadata() -> Vec<Value> {
                "key_url": "https://app.tolt.io/settings?tab=integrations", "key_help": "Copy your API key from Settings → Integrations"}),
         json!({"slug": "supabase",   "name": "Supabase",    "auth_type": "api_key", "icon": "supabase",   "description": "Database and storage",                "extra_fields": ["project_url"],
                "key_url": "https://supabase.com/dashboard/projects", "key_help": "Select your project → Settings → API Keys"}),
+        json!({"slug": "lovable",    "name": "Lovable",     "auth_type": "api_key", "icon": "lovable",
+               "description": "No public API for the hosted app—UI work is in Lovable. Linked Supabase handles webhooks, DB triggers, and server logic.",
+               "key_help": "There is no Lovable API key. Add the Supabase card for the project wired in Lovable settings; webhooks and Edge Functions are configured there."}),
         json!({"slug": "notion",     "name": "Notion",      "auth_type": "oauth2",  "icon": "notion",     "description": "Knowledge base and documentation",
                "key_url": "https://www.notion.so/profile/integrations", "key_help": "Create an internal integration to get a token",
                "setup_steps": [

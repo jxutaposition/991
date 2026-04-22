@@ -71,7 +71,12 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!token) { setSessionsLoading(false); return; }
-    apiFetch("/api/execute/sessions")
+    if (!activeClient) {
+      setSessions([]);
+      setSessionsLoading(false);
+      return;
+    }
+    apiFetch(`/api/execute/sessions?client_slug=${encodeURIComponent(activeClient)}`)
       .then((r) => {
         if (!r.ok) throw new Error(r.statusText);
         return r.json();
@@ -81,7 +86,7 @@ export default function HomePage() {
         setSessionsLoading(false);
       })
       .catch(() => setSessionsLoading(false));
-  }, [token, apiFetch]);
+  }, [token, activeClient, apiFetch]);
 
   const handleSubmit = async () => {
     if (!request.trim()) return;

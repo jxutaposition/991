@@ -90,7 +90,6 @@ interface CredentialStatus {
 interface CatalogAgent {
   slug: string;
   name: string;
-  category: string;
   description: string;
   tools: Array<{ name: string; credential: string | null }>;
   required_integrations: string[];
@@ -349,7 +348,7 @@ function NodeDetailContent({
 
   return (
     <div className="p-4 space-y-5">
-      {/* Header: name + status + category */}
+      {/* Header: name + status */}
       <div>
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-ink truncate">
@@ -368,11 +367,6 @@ function NodeDetailContent({
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <CopyableId id={selectedNode.id} />
-          {catalogAgent && (
-            <span className="text-xs text-ink-3 bg-gray-100 px-1.5 py-0.5 rounded">
-              {catalogAgent.category.replace(/_/g, " ")}
-            </span>
-          )}
         </div>
       </div>
 
@@ -1897,44 +1891,21 @@ function ConfigRow({ label, value }: { label: string; value: string }) {
 function AgentSwapSelector({
   currentSlug,
   catalogMap,
-  currentCategory,
   onSelect,
 }: {
   currentSlug: string;
   catalogMap: Record<string, CatalogAgent>;
-  currentCategory?: string;
   onSelect: (slug: string) => void;
 }) {
-  const [filter, setFilter] = useState<"same_category" | "all">("same_category");
-
   const agents = Object.values(catalogMap)
     .filter((a) => {
       if (a.slug === currentSlug) return false;
-      if (filter === "same_category" && currentCategory && a.category !== currentCategory) return false;
       return true;
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setFilter("same_category")}
-          className={`text-xs px-2 py-0.5 rounded-full ${
-            filter === "same_category" ? "bg-brand text-white" : "bg-surface text-ink-3 border border-rim"
-          }`}
-        >
-          Same category
-        </button>
-        <button
-          onClick={() => setFilter("all")}
-          className={`text-xs px-2 py-0.5 rounded-full ${
-            filter === "all" ? "bg-brand text-white" : "bg-surface text-ink-3 border border-rim"
-          }`}
-        >
-          All agents
-        </button>
-      </div>
       <div className="max-h-40 overflow-y-auto space-y-1">
         {agents.map((agent) => (
           <button
@@ -1958,7 +1929,7 @@ function AgentSwapSelector({
           </button>
         ))}
         {agents.length === 0 && (
-          <p className="text-xs text-ink-3 text-center py-2">No other agents in this category</p>
+          <p className="text-xs text-ink-3 text-center py-2">No other agents available</p>
         )}
       </div>
     </div>

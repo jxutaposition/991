@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Trash2, Square, X, FileText, Columns, LayoutGrid, MessageSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -107,7 +107,6 @@ export interface CredentialStatus {
 export interface CatalogAgent {
   slug: string;
   name: string;
-  category: string;
   description: string;
   tools: Array<{ name: string; credential: string | null }>;
   required_integrations: string[];
@@ -120,7 +119,23 @@ export default function SessionPage() {
   const { session_id } = useParams();
   const sessionIdParam = Array.isArray(session_id) ? session_id[0] : session_id;
   const router = useRouter();
-  const { activeClient, apiFetch, token, loading: _authLoading } = useAuth();
+  const { activeClient, clients, apiFetch, token, loading: authLoading } = useAuth();
+  /** Slug sent as `client_slug` on execute APIs — must match selected workspace for multi-client users. */
+  const workspaceSlug = useMemo(() => {
+    if (activeClient) return activeClient;
+    if (clients.length === 1) return clients[0]?.slug ?? null;
+    return null;
+  }, [activeClient, clients]);
+  const executeClientQs = useMemo(
+    () =>
+      workspaceSlug ? `?client_slug=${encodeURIComponent(workspaceSlug)}` : "",
+    [workspaceSlug]
+  );
+  const execApi = useCallback(
+    (pathAfterSession: string) =>
+      `/api/execute/${sessionIdParam ?? ""}${pathAfterSession}${executeClientQs}`,
+    [sessionIdParam, executeClientQs]
+  );
   const [session, setSession] = useState<ExecutionSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -232,45 +247,65 @@ export default function SessionPage() {
 
   const fetchSession = useCallback(async () => {
     try {
-      const r = await apiFetch(`/api/execute/${session_id}`);
-      if (!r.ok) { setLoading(false); return; }
+      const r = await apiFetch(execApi(""));
+      if (!r.ok) {
+        setSession(null);
+        return;
+      }
       const data = await r.json();
       setSession({
         ...data.session,
         nodes: data.nodes ?? data.session?.nodes ?? [],
       });
-    } catch { /* transient network error */ } finally {
+    } catch {
+      setSession(null);
+    } finally {
       setLoading(false);
     }
-  }, [session_id, apiFetch]);
+  }, [execApi, apiFetch]);
 
   const fetchFailures = useCallback(async () => {
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/failures`);
-      if (!r.ok) return;
+      const r = await apiFetch(execApi("/failures"));
+      if (!r.ok) {
+        setFailures([]);
+        return;
+      }
       const data = await r.json();
       setFailures(data.failures ?? []);
-    } catch { /* transient */ }
-  }, [session_id, apiFetch]);
+    } catch {
+      setFailures([]);
+    }
+  }, [execApi, apiFetch]);
 
   // Fetch session issues
   const fetchIssues = useCallback(async () => {
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/issues`);
-      if (!r.ok) return;
+      const r = await apiFetch(execApi("/issues"));
+      if (!r.ok) {
+        setSessionIssues([]);
+        return;
+      }
       const data = await r.json();
       setSessionIssues(data.issues ?? []);
-    } catch { /* transient */ }
-  }, [session_id, apiFetch]);
+    } catch {
+      setSessionIssues([]);
+    }
+  }, [execApi, apiFetch]);
 
   const fetchThreads = useCallback(async () => {
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/threads`);
-      if (!r.ok) return;
+      const r = await apiFetch(execApi("/threads"));
+      if (!r.ok) {
+        setCommentThreads([]);
+        return;
+      }
       const data = await r.json();
       setCommentThreads(data.threads ?? []);
-    } catch { /* transient */ }
-  }, [session_id, apiFetch]);
+    } catch {
+      setCommentThreads([]);
+    }
+  }, [execApi, apiFetch]);
 
   // Fetch project description if session has one
   const hasAutoSwitchedView = useRef(false);
@@ -294,12 +329,59 @@ export default function SessionPage() {
   }, [session, apiFetch]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      if (!authLoading) {
+        setSession(null);
+        setLoading(false);
+      }
+      return;
+    }
+    if (authLoading) return;
+    // Never use legacy unscoped session access when the user has multiple workspaces.
+    if (clients.length > 1 && !activeClient) {
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+    setSession(null);
+    setFailures([]);
+    setSessionIssues([]);
+    setCommentThreads([]);
+    setProjectDescription(null);
+    setDescriptionVersions([]);
+    setProjectResources([]);
+    setCredentialStatus(null);
+    setSelectedNodeId(null);
+    setNodeEvents([]);
+    setPlanningMessages([]);
+    setPlanningError(null);
+    setStreamEntries([]);
+    setMasterStreamEntries([]);
+    setLiveThinkingChunks({});
+    setLiveTextChunks({});
+    setLivePreviewMap({});
+    pendingPreviewMap.current = {};
+    pendingText.current = {};
+    pendingThinking.current = {};
+    pendingMasterText.current = {};
+    pendingMasterThinking.current = {};
+    hasAutoSwitchedView.current = false;
+    setLoading(true);
     fetchSession();
     fetchFailures();
     fetchIssues();
     fetchThreads();
-  }, [token, fetchSession, fetchFailures, fetchIssues, fetchThreads]);
+  }, [
+    token,
+    authLoading,
+    activeClient,
+    clients.length,
+    sessionIdParam,
+    fetchSession,
+    fetchFailures,
+    fetchIssues,
+    fetchThreads,
+  ]);
 
   useEffect(() => {
     fetchProjectDescription();
@@ -331,21 +413,24 @@ export default function SessionPage() {
 
   // Fetch credential status for agents in this session (verify=true matches server preflight on approve).
   useEffect(() => {
-    if (!session || !activeClient) return;
+    if (!session) return;
     const slugs = [...new Set(session.nodes.map((n) => n.agent_slug))].join(",");
     if (!slugs) return;
     const params = new URLSearchParams({ agents: slugs, verify: "true" });
     const path = session.project_id
       ? `/api/projects/${session.project_id}/credential-check?${params}`
-      : `/api/clients/${activeClient}/credential-check?${params}`;
+      : workspaceSlug
+        ? `/api/clients/${workspaceSlug}/credential-check?${params}`
+        : null;
+    if (!path) return;
     apiFetch(path)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setCredentialStatus(data); })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.nodes, session?.project_id, activeClient, apiFetch]);
+  }, [session?.nodes, session?.project_id, workspaceSlug, apiFetch]);
 
-  // Fetch catalog for agent metadata (tools, category, description)
+  // Fetch catalog for agent metadata (tools, description)
   useEffect(() => {
     if (!token) return;
     apiFetch("/api/catalog")
@@ -372,7 +457,7 @@ export default function SessionPage() {
       markNodeChanged(nodeId);
 
       try {
-        const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}`, {
+        const resp = await apiFetch(execApi(`/nodes/${nodeId}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
@@ -384,13 +469,13 @@ export default function SessionPage() {
         fetchSession();
       }
     },
-    [session_id, apiFetch, fetchSession, markNodeChanged]
+    [execApi, apiFetch, fetchSession, markNodeChanged]
   );
 
   // SD-008: Delete a node from the plan
   const handleNodeDelete = useCallback(async (nodeId: string) => {
     try {
-      const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}`, { method: "DELETE" });
+      const resp = await apiFetch(execApi(`/nodes/${nodeId}`), { method: "DELETE" });
       if (resp.ok) {
         setSession(prev => {
           if (!prev) return prev;
@@ -399,7 +484,7 @@ export default function SessionPage() {
         if (selectedNodeId === nodeId) setSelectedNodeId(null);
       }
     } catch { /* transient */ }
-  }, [session_id, apiFetch, selectedNodeId]);
+  }, [execApi, apiFetch, selectedNodeId]);
 
   // SD-008: Add a new node to the plan
   const handleAddNode = useCallback(async (req: {
@@ -410,7 +495,7 @@ export default function SessionPage() {
     description?: Record<string, unknown>;
   }) => {
     try {
-      const resp = await apiFetch(`/api/execute/${session_id}/nodes`, {
+      const resp = await apiFetch(execApi("/nodes"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
@@ -420,7 +505,7 @@ export default function SessionPage() {
         setShowAddNodeDialog(false);
       }
     } catch { /* transient */ }
-  }, [session_id, apiFetch, fetchSession]);
+  }, [execApi, apiFetch, fetchSession]);
 
   const fetchNodeEvents = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
@@ -429,7 +514,7 @@ export default function SessionPage() {
       return;
     }
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/events`);
+      const r = await apiFetch(execApi(`/nodes/${selectedNodeId}/events`));
       if (!r.ok) { setNodeEvents([]); setNodeEventsLoading(false); return; }
       const data = await r.json();
       setNodeEvents(data.events ?? []);
@@ -438,7 +523,7 @@ export default function SessionPage() {
     } finally {
       setNodeEventsLoading(false);
     }
-  }, [selectedNodeId, session_id, apiFetch]);
+  }, [selectedNodeId, session_id, execApi, apiFetch]);
 
   const fetchNodeStream = useCallback(async () => {
     if (!selectedNodeId || !session_id) {
@@ -448,7 +533,7 @@ export default function SessionPage() {
     }
     setStreamLoading(true);
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/nodes/${selectedNodeId}/stream`);
+      const r = await apiFetch(execApi(`/nodes/${selectedNodeId}/stream`));
       if (!r.ok) { setStreamEntries([]); setStreamLoading(false); return; }
       const data = await r.json();
       setStreamEntries(data.stream ?? []);
@@ -457,7 +542,7 @@ export default function SessionPage() {
     } finally {
       setStreamLoading(false);
     }
-  }, [selectedNodeId, session_id, apiFetch]);
+  }, [selectedNodeId, session_id, execApi, apiFetch]);
 
   // Derive master orchestrator node (the one without parent_uid)
   const masterNode = session?.nodes.find(n => !n.parent_uid) ?? null;
@@ -473,7 +558,7 @@ export default function SessionPage() {
     const seq = ++masterFetchSeq.current;
     setMasterStreamLoading(true);
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/nodes/${masterNodeId}/stream`);
+      const r = await apiFetch(execApi(`/nodes/${masterNodeId}/stream`));
       if (seq !== masterFetchSeq.current) return;
       if (!r.ok) { setMasterStreamEntries([]); setMasterStreamLoading(false); return; }
       const data = await r.json();
@@ -484,7 +569,7 @@ export default function SessionPage() {
     } finally {
       if (seq === masterFetchSeq.current) setMasterStreamLoading(false);
     }
-  }, [masterNodeId, session_id, apiFetch]);
+  }, [masterNodeId, session_id, execApi, apiFetch]);
 
   // Fetch master stream when master node becomes available
   useEffect(() => {
@@ -508,7 +593,9 @@ export default function SessionPage() {
   useEffect(() => {
     if (!session || !token) return;
     let isMounted = true;
-    const sseUrl = `/api/execute/${session_id}/events?token=${encodeURIComponent(token)}`;
+    const sseParams = new URLSearchParams({ token });
+    if (workspaceSlug) sseParams.set("client_slug", workspaceSlug);
+    const sseUrl = `/api/execute/${sessionIdParam}/events?${sseParams.toString()}`;
     const es = new EventSource(sseUrl);
     es.onmessage = (msg) => {
       if (!isMounted) return;
@@ -722,7 +809,7 @@ export default function SessionPage() {
       if (pollTimer) clearInterval(pollTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session_id, token, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
+  }, [sessionIdParam, token, workspaceSlug, session?.status, fetchSession, fetchFailures, fetchNodeEvents, fetchNodeStream, fetchMasterStream, scheduleRaf]);
 
   // Background reconciliation: 30s when SSE connected, 5s when disconnected
   useEffect(() => {
@@ -741,7 +828,7 @@ export default function SessionPage() {
 
   const handleReply = useCallback(
     async (nodeId: string, message: string) => {
-      const resp = await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/reply`, {
+      const resp = await apiFetch(execApi(`/nodes/${nodeId}/reply`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -764,7 +851,7 @@ export default function SessionPage() {
           try {
             // Check the target node's stream for an assistant response
             const r = await apiFetch(
-              `/api/execute/${session_id}/nodes/${targetNodeId}/stream`
+              execApi(`/nodes/${targetNodeId}/stream`)
             );
             if (!r.ok) continue;
             const streamData = await r.json();
@@ -782,7 +869,7 @@ export default function SessionPage() {
               break;
             }
             // Also break if the node is no longer running
-            const sessResp = await apiFetch(`/api/execute/${session_id}`);
+            const sessResp = await apiFetch(execApi(""));
             if (sessResp.ok) {
               const sessData = await sessResp.json();
               const nodes = sessData.nodes ?? sessData.session?.nodes ?? [];
@@ -801,7 +888,7 @@ export default function SessionPage() {
       };
       poll();
     },
-    [session_id, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream]
+    [execApi, apiFetch, fetchNodeStream, fetchSession, fetchMasterStream]
   );
 
   const handleSessionChat = useCallback(
@@ -811,7 +898,7 @@ export default function SessionPage() {
       if (masterNode && nodeId !== masterNode.id) {
         body.target_node_id = nodeId;
       }
-      await apiFetch(`/api/execute/${session_id}/chat`, {
+      await apiFetch(execApi("/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -835,7 +922,7 @@ export default function SessionPage() {
           delay = Math.min(delay * 1.5, maxDelay);
           try {
             const r = await apiFetch(
-              `/api/execute/${session_id}/nodes/${pollNid}/stream`
+              execApi(`/nodes/${pollNid}/stream`)
             );
             if (!r.ok) continue;
             const data = await r.json();
@@ -859,7 +946,7 @@ export default function SessionPage() {
       };
       poll();
     },
-    [session_id, apiFetch, fetchMasterStream, fetchNodeStream, masterNode]
+    [execApi, apiFetch, fetchMasterStream, fetchNodeStream, masterNode]
   );
 
   const activeReplyHandler = session?.status === "awaiting_approval" || session?.status === "planning"
@@ -870,7 +957,7 @@ export default function SessionPage() {
   const handleDeleteSession = async () => {
     if (!confirm("Delete this session? This cannot be undone.")) return;
     try {
-      const res = await apiFetch(`/api/execute/${session_id}`, { method: "DELETE" });
+      const res = await apiFetch(execApi(""), { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       router.push("/execute");
     } catch (err) {
@@ -880,7 +967,7 @@ export default function SessionPage() {
 
   // ── Living Description Handlers ─────────────────────────────────────────
   const handleIssueResolve = async (issueId: string) => {
-    await apiFetch(`/api/execute/${session_id}/issues/${issueId}`, {
+    await apiFetch(execApi(`/issues/${issueId}`), {
       method: "PATCH",
       body: JSON.stringify({ action: "resolve" }),
     });
@@ -888,7 +975,7 @@ export default function SessionPage() {
   };
 
   const handleIssueDismiss = async (issueId: string) => {
-    await apiFetch(`/api/execute/${session_id}/issues/${issueId}`, {
+    await apiFetch(execApi(`/issues/${issueId}`), {
       method: "PATCH",
       body: JSON.stringify({ action: "dismiss" }),
     });
@@ -906,7 +993,7 @@ export default function SessionPage() {
   };
 
   const handleNodeDescriptionUpdate = async (nodeId: string, description: Record<string, unknown>) => {
-    await apiFetch(`/api/execute/${session_id}/nodes/${nodeId}/description`, {
+    await apiFetch(execApi(`/nodes/${nodeId}/description`), {
       method: "PATCH",
       body: JSON.stringify({ description }),
     });
@@ -915,7 +1002,7 @@ export default function SessionPage() {
 
   const handleCommentCreate = useCallback(async (nodeId: string, sectionPath: string) => {
     try {
-      const r = await apiFetch(`/api/execute/${session_id}/threads`, {
+      const r = await apiFetch(execApi("/threads"), {
         method: "POST",
         body: JSON.stringify({ node_id: nodeId, section_path: sectionPath, message: "New discussion" }),
       });
@@ -924,13 +1011,13 @@ export default function SessionPage() {
         setShowCommentSidebar(true);
       }
     } catch { /* transient */ }
-  }, [session_id, apiFetch, fetchThreads]);
+  }, [execApi, apiFetch, fetchThreads]);
 
   const handleApprove = async () => {
     setApproving(true);
     setApprovalError(null);
     try {
-      const res = await apiFetch(`/api/execute/${session_id}/approve`, { method: "POST" });
+      const res = await apiFetch(execApi("/approve"), { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         if (body.preflight_failures) {
@@ -961,7 +1048,7 @@ export default function SessionPage() {
           " If Clay is involved, mention saving Clay credits.";
       }
       try {
-        await apiFetch(`/api/execute/${session_id}/chat`, {
+        await apiFetch(execApi("/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: onboardingMsg }),
@@ -985,7 +1072,7 @@ export default function SessionPage() {
     if (!confirm("Stop this orchestration? Running agents will finish but no new ones will start.")) return;
     setStopping(true);
     try {
-      await apiFetch(`/api/execute/${session_id}/stop`, { method: "POST" });
+      await apiFetch(execApi("/stop"), { method: "POST" });
       fetchSession();
     } finally {
       setStopping(false);
@@ -1202,6 +1289,7 @@ export default function SessionPage() {
                 <CommentSidebar
                   threads={commentThreads}
                   sessionId={session_id as string}
+                  clientSlug={workspaceSlug ?? undefined}
                   apiFetch={apiFetch}
                   onThreadCreated={fetchThreads}
                 />
@@ -1269,6 +1357,7 @@ export default function SessionPage() {
                 <CommentSidebar
                   threads={commentThreads}
                   sessionId={session_id as string}
+                  clientSlug={workspaceSlug ?? undefined}
                   apiFetch={apiFetch}
                   onThreadCreated={fetchThreads}
                 />
@@ -1338,7 +1427,7 @@ export default function SessionPage() {
                     chatPending={chatPending}
                     projectResources={projectResources}
                     onNodeDescriptionUpdate={handleNodeDescriptionUpdate}
-                    clientSlug={activeClient ?? undefined}
+                    clientSlug={workspaceSlug ?? undefined}
                   />
                 }
                 right={
@@ -1466,7 +1555,7 @@ function AddNodeDialog({
             >
               <option value="">Select agent...</option>
               {agents.map(a => (
-                <option key={a.slug} value={a.slug}>{a.name} ({a.category})</option>
+                <option key={a.slug} value={a.slug}>{a.name}</option>
               ))}
             </select>
           </div>

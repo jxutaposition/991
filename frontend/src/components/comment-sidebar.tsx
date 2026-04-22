@@ -26,6 +26,8 @@ export interface ThreadMessage {
 interface CommentSidebarProps {
   threads: CommentThread[];
   sessionId: string;
+  /** When set, session/thread routes require this workspace (matches other execute API calls). */
+  clientSlug?: string | null;
   apiFetch: (url: string, init?: RequestInit) => Promise<Response>;
   onThreadCreated?: () => void;
 }
@@ -33,9 +35,13 @@ interface CommentSidebarProps {
 export function CommentSidebar({
   threads,
   sessionId,
+  clientSlug,
   apiFetch,
   onThreadCreated,
 }: CommentSidebarProps) {
+  const clientQs = clientSlug
+    ? `?client_slug=${encodeURIComponent(clientSlug)}`
+    : "";
   const [expandedThread, setExpandedThread] = useState<string | null>(null);
   const [threadMessages, setThreadMessages] = useState<Record<string, ThreadMessage[]>>({});
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
@@ -44,7 +50,7 @@ export function CommentSidebar({
   const fetchThreadMessages = useCallback(async (threadId: string) => {
     setLoadingThreads((prev) => ({ ...prev, [threadId]: true }));
     try {
-      const r = await apiFetch(`/api/execute/${sessionId}/threads/${threadId}`);
+      const r = await apiFetch(`/api/execute/${sessionId}/threads/${threadId}${clientQs}`);
       if (r.ok) {
         const data = await r.json();
         setThreadMessages((prev) => ({ ...prev, [threadId]: data.messages ?? [] }));
@@ -52,7 +58,7 @@ export function CommentSidebar({
     } catch { /* transient */ } finally {
       setLoadingThreads((prev) => ({ ...prev, [threadId]: false }));
     }
-  }, [sessionId, apiFetch]);
+  }, [sessionId, apiFetch, clientQs]);
 
   const toggleThread = (threadId: string) => {
     const willExpand = expandedThread !== threadId;
@@ -68,7 +74,7 @@ export function CommentSidebar({
 
     setLoadingThreads((prev) => ({ ...prev, [threadId]: true }));
     try {
-      const r = await apiFetch(`/api/execute/${sessionId}/threads/${threadId}/messages`, {
+      const r = await apiFetch(`/api/execute/${sessionId}/threads/${threadId}/messages${clientQs}`, {
         method: "POST",
         body: JSON.stringify({ message: text }),
       });
@@ -79,15 +85,15 @@ export function CommentSidebar({
     } catch { /* transient */ } finally {
       setLoadingThreads((prev) => ({ ...prev, [threadId]: false }));
     }
-  }, [sessionId, apiFetch, replyInputs, fetchThreadMessages]);
+  }, [sessionId, apiFetch, clientQs, replyInputs, fetchThreadMessages]);
 
   const resolveThread = useCallback(async (threadId: string) => {
-    await apiFetch(`/api/execute/${sessionId}/threads/${threadId}`, {
+    await apiFetch(`/api/execute/${sessionId}/threads/${threadId}${clientQs}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "resolved" }),
     });
     onThreadCreated?.();
-  }, [sessionId, apiFetch, onThreadCreated]);
+  }, [sessionId, apiFetch, clientQs, onThreadCreated]);
 
   const openThreads = threads.filter((t) => t.status === "open");
   const resolvedThreads = threads.filter((t) => t.status !== "open");

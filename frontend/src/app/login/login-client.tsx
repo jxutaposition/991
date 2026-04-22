@@ -2,31 +2,7 @@
 
 import { useAuth } from "@/lib/auth-context";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-
-const DEBUG_ENDPOINT = "http://127.0.0.1:7924/ingest/2f5fe76c-0c9d-4511-bb6b-6e08dd27dd37";
-
-function debugLog(runId: string, hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  // #region agent log
-  fetch(DEBUG_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "9c95a4",
-    },
-    body: JSON.stringify({
-      sessionId: "9c95a4",
-      runId,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
 
 type LoginClientProps = {
   googleClientId: string;
@@ -36,31 +12,14 @@ type LoginClientProps = {
 
 export default function LoginClient({ googleClientId, showGoogleDebug, googleClientIdSource }: LoginClientProps) {
   const { user, loading, signIn } = useAuth();
-  const router = useRouter();
   const [signInError, setSignInError] = useState<string | null>(null);
 
   useEffect(() => {
-    debugLog("pre-fix", "H1", "frontend/src/app/login/login-client.tsx:39", "Login page effect state", {
-      loading,
-      hasUser: Boolean(user),
-      host: typeof window !== "undefined" ? window.location.host : "unknown",
-      hasGoogleClientId: Boolean(googleClientId),
-      googleClientIdLength: googleClientId.length,
-    });
-
-    if (!loading && user) router.push("/");
-  }, [loading, user, router, googleClientId]);
+    if (!loading && user) window.location.assign("/");
+  }, [loading, user, googleClientId]);
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh] text-ink-3">Loading...</div>;
   if (user) return null;
-
-  debugLog("pre-fix", "H2", "frontend/src/app/login/login-client.tsx:55", "Login page render branch", {
-    branch: googleClientId ? "google-enabled" : "google-disabled",
-    hasGoogleClientId: Boolean(googleClientId),
-    googleClientIdLength: googleClientId.length,
-    isLikelyPlaceholder:
-      googleClientId.toLowerCase().includes("your_") || googleClientId.toLowerCase().includes("example"),
-  });
 
   const googleClientIdPreview = googleClientId
     ? `${googleClientId.slice(0, 12)}...${googleClientId.slice(-18)}`
@@ -82,7 +41,7 @@ export default function LoginClient({ googleClientId, showGoogleDebug, googleCli
                 try {
                   setSignInError(null);
                   await signIn(response.credential);
-                  router.push("/");
+                  window.location.assign("/");
                 } catch (e) {
                   setSignInError(e instanceof Error ? e.message : "Authentication failed");
                   console.error("Sign-in failed:", e);

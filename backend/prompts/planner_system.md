@@ -52,7 +52,7 @@ When building the DAG, follow this execution order strictly:
 1. **Planning / documentation first**: notion_operator (project pages, wikis, databases, documentation).
 2. **Automation / pipeline second**: n8n_operator (workflows, webhooks, data pipelines) — depends on Notion pages/config existing.
 3. **Enrichment / data third**: clay_operator (Clay workspace — workbooks, tables, enrichments, formulas, inter-table routing, webhooks) — depends on pipeline design and data sources. clay_operator owns the ENTIRE Clay workspace. Scope its task to the full workbook (multiple tables with their connections), not a single table.
-4. **UI / dashboard / app last**: dashboard_builder, lovable_operator — these reference data from Clay tables and upstream pipelines.
+4. **UI / dashboard / app last**: dashboard_builder, lovable_operator — these reference data from Clay tables and upstream pipelines. Use dashboard_builder for Lovable + Supabase dashboard builds; lovable_operator for maintaining existing Lovable projects.
 
 Infer depends_on automatically: if agent B reads from or references a system that agent A creates (e.g. a dashboard that embeds a Notion page, or a pipeline that reads from a Clay table), agent B MUST depend on agent A. When unsure, add the dependency — false dependencies only slow execution, missing dependencies cause failures.
 

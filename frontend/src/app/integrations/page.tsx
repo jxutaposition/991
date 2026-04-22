@@ -228,6 +228,33 @@ export default function IntegrationsPage() {
     return () => window.removeEventListener("message", handler);
   }, [refreshCredentials, runProbes]);
 
+  // Full-window OAuth (popup blocked): /integrations?integration=&status=&error=
+  useEffect(() => {
+    if (authLoading || !token || !activeClient) return;
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const integration = sp.get("integration") ?? "";
+    const status = sp.get("status") ?? "";
+    const oauthError = sp.get("error");
+    if (!integration && !status && !oauthError) return;
+
+    setConnectingOAuth(null);
+    if (status === "connected") {
+      refreshCredentials();
+      setTimeout(runProbes, 500);
+    } else if (oauthError) {
+      setError(`OAuth failed for ${integration || "integration"}: ${oauthError}`);
+    }
+
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete("integration");
+    clean.searchParams.delete("status");
+    clean.searchParams.delete("error");
+    const nextSearch = clean.searchParams.toString();
+    const next = `${clean.pathname}${nextSearch ? `?${nextSearch}` : ""}${clean.hash}`;
+    window.history.replaceState({}, "", next);
+  }, [authLoading, token, activeClient, refreshCredentials, runProbes]);
+
   const saveApiKey = async (slug: string) => {
     const rawKey = inputValues[slug];
     if (!rawKey || !activeClient) return;
@@ -302,7 +329,8 @@ export default function IntegrationsPage() {
     setError(null);
     setConnectingOAuth(slug);
     try {
-      const callbackUrl = `${window.location.origin}/oauth/callback`;
+      // Backend requires a same-origin path (not a full URL) for oauth_state.redirect_uri.
+      const callbackUrl = "/oauth/callback";
       const res = await apiFetch(
         `/api/oauth/${slug}/authorize?client_slug=${activeClient}&redirect=${encodeURIComponent(callbackUrl)}`,
       );
@@ -928,7 +956,7 @@ function IntegrationCard({
                   : "bg-gray-50 text-ink-3 border border-gray-100"
               }`}
             >
-              {isOAuth ? "OAuth" : "API Key"}
+              {isOAuth ? "OAuth" : integration.slug === "lovable" ? "No API" : "API Key"}
             </span>
             {credScope && (
               <span
@@ -1048,9 +1076,11 @@ function IntegrationCard({
                 value={inputValue}
                 onChange={(e) => onInputChange(e.target.value)}
                 placeholder={
-                  integration.credential_placeholder
-                    ? `Paste Bot User OAuth Token (${integration.credential_placeholder}…)`
-                    : `Paste ${integration.name} ${isOAuth ? "token" : "API key"}`
+                  integration.slug === "lovable"
+                    ? "Optional note (not a Lovable API key)"
+                    : integration.credential_placeholder
+                      ? `Paste Bot User OAuth Token (${integration.credential_placeholder}…)`
+                      : `Paste ${integration.name} ${isOAuth ? "token" : "API key"}`
                 }
                 className="flex-1 bg-surface border border-rim rounded-lg px-3 py-1.5 text-xs font-mono text-ink focus:outline-none focus:border-brand"
               />
@@ -1093,9 +1123,11 @@ function IntegrationCard({
                 value={inputValue}
                 onChange={(e) => onInputChange(e.target.value)}
                 placeholder={
-                  integration.credential_placeholder
-                    ? `New Bot User OAuth Token (${integration.credential_placeholder}…)`
-                    : `Paste new ${integration.name} ${isOAuth ? "token" : "API key"}`
+                  integration.slug === "lovable"
+                    ? "Optional note (not a Lovable API key)"
+                    : integration.credential_placeholder
+                      ? `New Bot User OAuth Token (${integration.credential_placeholder}…)`
+                      : `Paste new ${integration.name} ${isOAuth ? "token" : "API key"}`
                 }
                 className="flex-1 bg-surface border border-rim rounded-lg px-3 py-1.5 text-xs font-mono text-ink focus:outline-none focus:border-brand"
               />

@@ -136,7 +136,6 @@ export interface CredentialStatus {
 interface CatalogAgent {
   slug: string;
   name: string;
-  category: string;
   description: string;
   tools: Array<{ name: string; credential: string | null }>;
   required_integrations: string[];
@@ -210,6 +209,9 @@ function NodeBox({
   const score =
     node.judge_score != null ? Number(node.judge_score).toFixed(1) : null;
   const isVariantAlt = node.variant_group != null && node.variant_selected === false;
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
+  const longPromptThreshold = 180;
+  const isLongPrompt = (desc?.length ?? 0) > longPromptThreshold;
 
   // Credential status badge — use probe results when available
   const hasIntegrations = credInfo && credInfo.required_integrations.length > 0;
@@ -225,21 +227,37 @@ function NodeBox({
   const _toolsWithCred = userTools.filter((t) => t.credential);
   const _toolsWithoutCred = userTools.filter((t) => !t.credential);
 
+  const showRemoveNode =
+    !!onNodeDelete &&
+    isChild &&
+    sessionStatus === "awaiting_approval" &&
+    ["preview", "pending", "waiting", "ready"].includes(rawStatus);
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClick();
+        }
+      }}
       className={`relative rounded-xl border-2 px-5 py-4
-        ${isChild ? "min-w-[180px] max-w-[260px]" : "min-w-[240px] max-w-[380px]"}
+        ${isChild ? "min-w-[220px] max-w-[340px]" : "min-w-[280px] max-w-[460px]"}
         ${isVariantAlt ? "opacity-40 border-dashed border-gray-300 bg-gray-50 text-gray-400" : NODE_STATUS_BOX[status] ?? NODE_STATUS_BOX.pending}
         ${isSelected ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-white" : ""}
         ${recentlyChanged && !isSelected ? "ring-2 ring-amber-400 shadow-lg shadow-amber-200/50 animate-node-changed" : ""}
         ${isBlocked && !isVariantAlt ? (agentProbeIssue ? "border-l-red-400 border-l-4" : "border-l-amber-400 border-l-4")
           : !isVariantAlt && node.execution_mode === "manual" ? "border-l-amber-400 border-l-4"
           : ""}
-        flex flex-col items-start gap-1.5 transition-all hover:scale-[1.03] cursor-pointer hover:shadow-lg`}
+        flex flex-col items-start gap-1.5 transition-all hover:scale-[1.03] cursor-pointer hover:shadow-lg
+        outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2`}
     >
       {/* Step index badge */}
       {node.step_index != null && (
@@ -249,9 +267,9 @@ function NodeBox({
       )}
 
       {/* Delete node button — plan children only; never the orchestrator (root). */}
-      {onNodeDelete && isChild && sessionStatus === "awaiting_approval" &&
-        ["preview", "pending", "waiting", "ready"].includes(rawStatus) && (
+      {showRemoveNode && (
         <button
+          type="button"
           className="absolute -top-2 -right-2 z-20 w-5 h-5 rounded-full bg-red-100 text-red-600 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm transition-colors"
           title="Remove node"
           onClick={(e) => {
@@ -323,9 +341,25 @@ function NodeBox({
         <GitBranch className="absolute top-2.5 left-2.5 w-3 h-3 text-purple-400" />
       )}
 
-      {/* Integration / tool row at top (no agent slug title) */}
+      {/* Node type (top section) */}
+      <div className="w-full flex items-start justify-between gap-2 pt-0.5 pl-4 pr-4">
+        <div className="min-w-0">
+          <div className={`text-[10px] font-semibold uppercase tracking-wider ${isVariantAlt ? "text-gray-400" : "text-ink-3"}`}>
+            Type
+          </div>
+          <div className={`text-sm font-semibold break-all ${isVariantAlt ? "text-gray-400" : "text-ink"}`}>
+            {name.replace(/_/g, " ")}
+          </div>
+        </div>
+      </div>
+
+      {/* API calls section */}
       {hasIntegrations && !isVariantAlt && (
-        <div className="flex items-center gap-2 flex-wrap w-full pl-4 pr-4 pt-0.5">
+        <div className="w-full pl-4 pr-4 pt-0.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3 mb-1">
+            API Calls
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
           {(credInfo.integration_details ?? credInfo.required_integrations.map((slug) => ({
             slug,
             display_name: slug,
@@ -381,11 +415,17 @@ function NodeBox({
               </span>
             );
           })}
+          </div>
         </div>
       )}
+      {/* Tools section */}
       {userTools.length > 0 && !isVariantAlt && (
-        <div className="flex items-center gap-2 flex-wrap w-full pl-4 pr-4 pt-0.5">
-          {userTools.slice(0, 4).map((tool) => (
+        <div className="w-full pl-4 pr-4 pt-0.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-3 mb-1">
+            Tools
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+          {userTools.map((tool) => (
             <span
               key={tool.name}
               className="inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-lg bg-gray-100 text-ink font-mono"
@@ -395,16 +435,7 @@ function NodeBox({
               {tool.name.replace(/_/g, " ")}
             </span>
           ))}
-          {userTools.length > 4 && (
-            <span className="text-sm text-ink-3">+{userTools.length - 4}</span>
-          )}
-        </div>
-      )}
-
-      {/* Category badge */}
-      {catalogAgent && !isVariantAlt && (
-        <div className="text-xs font-medium text-ink-3 uppercase tracking-wider pl-4">
-          {catalogAgent.category.replace(/_/g, " ")}
+          </div>
         </div>
       )}
 
@@ -415,8 +446,29 @@ function NodeBox({
       )}
 
       {desc && (
-        <div className={`text-[11px] leading-snug line-clamp-2 w-full text-left ${isVariantAlt ? "text-gray-400" : "text-ink-2"}`}>
-          {truncate(desc, 100)}
+        <div className="w-full pl-4 pr-4 pt-0.5">
+          <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${isVariantAlt ? "text-gray-400" : "text-ink-3"}`}>
+            Prompt
+          </div>
+          <div
+            className={`text-[11px] leading-snug whitespace-pre-wrap break-words w-full text-left ${
+              isVariantAlt ? "text-gray-400" : "text-ink-2"
+            } ${isLongPrompt && !isPromptExpanded ? "max-h-[64px] overflow-hidden" : ""}`}
+          >
+            {desc}
+          </div>
+          {isLongPrompt && (
+            <button
+              type="button"
+              className="mt-1 text-[10px] font-medium text-blue-600 hover:text-blue-700"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPromptExpanded((v) => !v);
+              }}
+            >
+              {isPromptExpanded ? "Show less" : "Show full prompt"}
+            </button>
+          )}
         </div>
       )}
 
@@ -517,7 +569,7 @@ function NodeBox({
           </span>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 

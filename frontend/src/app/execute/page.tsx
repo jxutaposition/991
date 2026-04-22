@@ -18,7 +18,7 @@ interface SessionSummary {
 const STATUS_BADGE = SESSION_STATUS_BADGE;
 
 export default function ExecutePage() {
-  const { apiFetch, token, loading: authLoading } = useAuth();
+  const { apiFetch, token, activeClient, loading: authLoading } = useAuth();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
 
@@ -28,9 +28,14 @@ export default function ExecutePage() {
       setSessionsLoading(false);
       return;
     }
+    if (!activeClient) {
+      setSessions([]);
+      setSessionsLoading(false);
+      return;
+    }
     let cancelled = false;
     setSessionsLoading(true);
-    apiFetch("/api/execute/sessions")
+    apiFetch(`/api/execute/sessions?client_slug=${encodeURIComponent(activeClient)}`)
       .then(async (r) => {
         if (!r.ok) {
           const detail = await r.text();
@@ -53,7 +58,7 @@ export default function ExecutePage() {
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, token, authLoading]);
+  }, [apiFetch, token, activeClient, authLoading]);
 
   const handleDeleteSession = async (
     e: React.MouseEvent,
@@ -63,7 +68,10 @@ export default function ExecutePage() {
     e.stopPropagation();
     if (!confirm("Delete this session? This cannot be undone.")) return;
     try {
-      const res = await apiFetch(`/api/execute/${sessionId}`, {
+      const qs = activeClient
+        ? `?client_slug=${encodeURIComponent(activeClient)}`
+        : "";
+      const res = await apiFetch(`/api/execute/${sessionId}${qs}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error(await res.text());
