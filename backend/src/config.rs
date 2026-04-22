@@ -132,12 +132,12 @@ impl Settings {
         let bind = env::var("BIND_ADDR").unwrap_or_else(|_| {
             match env::var("PORT") {
                 Ok(port) if !port.trim().is_empty() => format!("0.0.0.0:{}", port.trim()),
-                _ => "0.0.0.0:3000".to_string(),
+                _ => "0.0.0.0:3001".to_string(),
             }
         });
         let bind_addr = bind
             .parse::<SocketAddr>()
-            .unwrap_or_else(|_| "0.0.0.0:3000".parse().expect("valid default bind addr"));
+            .unwrap_or_else(|_| "0.0.0.0:3001".parse().expect("valid default bind addr"));
 
         let agents_dir = PathBuf::from(
             env::var("AGENTS_DIR").unwrap_or_else(|_| "./agents".to_string()),
