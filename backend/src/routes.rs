@@ -4403,6 +4403,263 @@ pub async fn client_credential_delete(
     Ok(Json(json!({"ok": true})))
 }
 
+// ── Integration discovery & preset CRUD ─────────────────────────────────────
+
+/// Look up a stored Clay credential for a client. Returns the plaintext
+/// `(api_key, session_cookie, metadata)` so a discovery handler can call
+/// Clay on behalf of the user. Returns an error tuple suitable for
+/// propagation if anything's missing.
+async fn load_clay_credential(
+    state: &AppState,
+    client_slug: &str,
+) -> Result<crate::credentials::DecryptedCredential, (StatusCode, Json<Value>)> {
+    let client = client_mod::get_client(&state.db, client_slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+    let client_id: uuid::Uuid = client
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
+    let master_key = state
+        .settings
+        .credential_master_key
+        .as_deref()
+        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "Credential encryption not configured"}))))?;
+    let creds = crate::credentials::load_credentials_for_client(&state.db, master_key, client_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    creds
+        .get("clay")
+        .cloned()
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Clay credential not connected for this client"}))))
+}
+
+/// GET /api/clients/:slug/integrations/clay/workspaces
+///
+/// Discovery endpoint used by the integrations page after the user has saved
+/// a Clay session cookie. Calls Clay's `/v3/workspaces` and returns
+/// `[{id, name, value:{workspace_id}}]` shaped as preset candidates the UI
+/// can let the user save.
+pub async fn integration_clay_workspaces(
+    State(state): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Result<Json<Value>, InternalError> {
+    let cred = load_clay_credential(&state, &slug).await?;
+    let parsed: Value = serde_json::from_str(&cred.value).unwrap_or(json!({}));
+    let session_cookie = parsed
+        .get("session_cookie")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(|s| if s.starts_with("claysession=") { s.to_string() } else { format!("claysession={}", s) })
+        .ok_or_else(|| (StatusCode::PRECONDITION_FAILED, Json(json!({"error": "Clay session cookie is required. Edit the Clay credential and paste your claysession cookie first."}))))?;
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("http client: {e}")}))))?;
+    let resp = http
+        .get("https://api.clay.com/v3/workspaces")
+        .header("Cookie", &session_cookie)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("Clay request failed: {e}")}))))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(InternalError::from((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("Clay /v3/workspaces returned {}", status.as_u16()), "body": body})),
+        )));
+    }
+    let parsed_body: Value = serde_json::from_str(&body).unwrap_or(json!({}));
+    // Clay's /v3/workspaces is typically `{data: [{id, name, ...}]}` but be
+    // defensive about top-level arrays too.
+    let items = parsed_body
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .or_else(|| parsed_body.as_array().cloned())
+        .unwrap_or_default();
+
+    let workspaces: Vec<Value> = items
+        .iter()
+        .filter_map(|ws| {
+            let id = ws.get("id")?;
+            let name = ws
+                .get("name")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .or_else(|| ws.get("slug").and_then(Value::as_str).map(String::from))
+                .unwrap_or_else(|| format!("Workspace {}", id));
+            let id_str = id
+                .as_str()
+                .map(String::from)
+                .or_else(|| id.as_u64().map(|n| n.to_string()))?;
+            Some(json!({
+                "id": id_str,
+                "name": name,
+                "value": { "workspace_id": id_str },
+            }))
+        })
+        .collect();
+
+    Ok(Json(json!({"workspaces": workspaces})))
+}
+
+#[derive(Deserialize)]
+pub struct UpsertPresetRequest {
+    /// Optional stable id. When absent, the server generates a UUID.
+    pub id: Option<String>,
+    pub name: String,
+    pub value: Value,
+}
+
+fn ensure_valid_preset_kind(kind: &str) -> Result<(), (StatusCode, Json<Value>)> {
+    match kind {
+        "clay_workspace" | "n8n_project" | "notion_database" | "slack_channel" | "supabase_project" => Ok(()),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Unsupported preset kind '{}'", kind)})),
+        )),
+    }
+}
+
+/// GET /api/clients/:slug/credentials/:integration_slug/presets/:kind
+pub async fn credential_presets_list(
+    State(state): State<Arc<AppState>>,
+    Path((slug, integration_slug, kind)): Path<(String, String, String)>,
+) -> Result<Json<Value>, InternalError> {
+    ensure_valid_preset_kind(&kind)?;
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+    let client_id: uuid::Uuid = client
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
+
+    let rows = state
+        .db
+        .execute_with(
+            "SELECT metadata FROM client_credentials WHERE client_id = $1 AND integration_slug = $2",
+            crate::pg_args!(client_id, integration_slug.clone()),
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let metadata = rows
+        .first()
+        .and_then(|r| r.get("metadata").cloned())
+        .unwrap_or(Value::Object(Default::default()));
+    let presets = crate::credentials::presets_for(&metadata, &kind);
+    Ok(Json(json!({"presets": presets.into_iter().map(|p| json!({"id": p.id, "name": p.name, "value": p.value})).collect::<Vec<_>>()})))
+}
+
+/// POST /api/clients/:slug/credentials/:integration_slug/presets/:kind
+///
+/// Upserts a preset by id. When `id` is absent the server allocates a new UUID.
+/// Writes the merged metadata back to the credential row without re-encrypting
+/// the secret value.
+pub async fn credential_presets_upsert(
+    State(state): State<Arc<AppState>>,
+    Path((slug, integration_slug, kind)): Path<(String, String, String)>,
+    Json(body): Json<UpsertPresetRequest>,
+) -> Result<Json<Value>, InternalError> {
+    ensure_valid_preset_kind(&kind)?;
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+    let client_id: uuid::Uuid = client
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
+
+    let rows = state
+        .db
+        .execute_with(
+            "SELECT metadata FROM client_credentials WHERE client_id = $1 AND integration_slug = $2",
+            crate::pg_args!(client_id, integration_slug.clone()),
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    if rows.is_empty() {
+        return Err(InternalError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("No {} credential saved for this client yet; connect it first.", integration_slug)})),
+        )));
+    }
+    let metadata = rows
+        .first()
+        .and_then(|r| r.get("metadata").cloned())
+        .unwrap_or(Value::Object(Default::default()));
+
+    let preset = crate::credentials::ParamPreset {
+        id: body.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: body.name,
+        value: body.value,
+    };
+    let new_meta = crate::credentials::metadata_with_preset_upserted(&metadata, &kind, preset.clone());
+
+    state
+        .db
+        .execute_with(
+            "UPDATE client_credentials SET metadata = $1, updated_at = NOW() WHERE client_id = $2 AND integration_slug = $3",
+            crate::pg_args!(new_meta, client_id, integration_slug.clone()),
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"ok": true, "preset": {"id": preset.id, "name": preset.name, "value": preset.value}})))
+}
+
+/// DELETE /api/clients/:slug/credentials/:integration_slug/presets/:kind/:preset_id
+pub async fn credential_presets_delete(
+    State(state): State<Arc<AppState>>,
+    Path((slug, integration_slug, kind, preset_id)): Path<(String, String, String, String)>,
+) -> Result<Json<Value>, InternalError> {
+    ensure_valid_preset_kind(&kind)?;
+    let client = client_mod::get_client(&state.db, &slug)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Client not found"}))))?;
+    let client_id: uuid::Uuid = client
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Bad client id"}))))?;
+
+    let rows = state
+        .db
+        .execute_with(
+            "SELECT metadata FROM client_credentials WHERE client_id = $1 AND integration_slug = $2",
+            crate::pg_args!(client_id, integration_slug.clone()),
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+    let metadata = rows
+        .first()
+        .and_then(|r| r.get("metadata").cloned())
+        .unwrap_or(Value::Object(Default::default()));
+
+    let new_meta = crate::credentials::metadata_with_preset_removed(&metadata, &kind, &preset_id);
+    state
+        .db
+        .execute_with(
+            "UPDATE client_credentials SET metadata = $1, updated_at = NOW() WHERE client_id = $2 AND integration_slug = $3",
+            crate::pg_args!(new_meta, client_id, integration_slug.clone()),
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{e}")}))))?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
 // ── OAuth ───────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

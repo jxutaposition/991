@@ -1230,28 +1230,61 @@ pub fn action_credential(tool_name: &str) -> Option<String> {
     cred.map(String::from)
 }
 
+/// Which scoping-parameter kinds a tool requires to be resolved before it
+/// runs. Each kind maps to an array of user-saved presets stored under
+/// `credential.metadata.presets.<kind>`. Agent launch is blocked if any
+/// required kind has zero presets saved. Empty slice = no scoping params
+/// needed (account-scoped tools).
+pub fn action_required_presets(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        // All Clay v3 tools are workspace-scoped.
+        "clay_read_rows" | "clay_write_rows" | "clay_trigger_enrichment"
+        | "clay_get_table_schema" | "clay_create_field" | "clay_create_source"
+        | "clay_create_table" | "clay_delete_table" | "clay_list_tables"
+        | "clay_update_field" | "clay_delete_field"
+        | "clay_update_rows" | "clay_delete_rows" | "clay_list_app_accounts"
+        | "clay_list_actions" | "clay_list_sources" | "clay_get_workspace"
+        | "clay_list_workbooks" | "clay_create_workbook"
+        | "clay_duplicate_table"
+        | "clay_create_view" | "clay_update_view" | "clay_delete_view"
+        | "clay_export_table" | "clay_get_export"
+        | "clay_get_source" | "clay_update_source" | "clay_delete_source"
+        | "clay_list_workflows" | "clay_get_workflow" | "clay_run_workflow"
+        | "clay_get_workflow_run" | "clay_list_workflow_runs"
+        | "clay_pause_workflow_run" | "clay_unpause_workflow_run"
+        | "clay_continue_workflow_step" | "clay_list_waiting_steps"
+        | "clay_create_workflow" | "clay_create_workflow_node"
+        | "clay_create_workflow_edge" | "clay_get_workflow_snapshot"
+        | "clay_list_users" | "clay_list_tags"
+        | "clay_upload_document" | "clay_delete_document" => &["clay_workspace"],
+        _ => &[],
+    }
+}
+
 // ── Clay credential helper ─────────────────────────────────────────────────────
 
-/// Parse a merged Clay credential (JSON with api_key + optional session_cookie + workspace_id).
-/// Falls back to treating the raw value as a bare API key for backwards compatibility.
-fn parse_clay_cred(cred: &crate::credentials::DecryptedCredential) -> (String, Option<String>, Option<String>) {
+/// Parse a merged Clay credential for its secrets only.
+///
+/// Scoping parameters (workspace_id, etc.) are NOT resolved here anymore.
+/// The resolver stage runs before execution and the runner injects resolved
+/// ids into `tool_input` at each tool-call site; this function now only
+/// unpacks the API key and the v3 session cookie.
+fn parse_clay_cred(
+    cred: &crate::credentials::DecryptedCredential,
+) -> (String, Option<String>) {
     let parsed: serde_json::Value = serde_json::from_str(&cred.value).unwrap_or(serde_json::json!({}));
     let api_key = parsed.get("api_key").and_then(serde_json::Value::as_str)
         .unwrap_or(&cred.value).to_string();
     let session_cookie = parsed.get("session_cookie").and_then(serde_json::Value::as_str)
         .filter(|s| !s.is_empty())
         .map(|s| {
-            // Ensure the cookie header value has the claysession= prefix
             if s.starts_with("claysession=") {
                 s.to_string()
             } else {
                 format!("claysession={}", s)
             }
         });
-    let workspace_id = parsed.get("workspace_id").and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-    (api_key, session_cookie, workspace_id)
+    (api_key, session_cookie)
 }
 
 // ── Clay HTTP helper ─────────────────────────────────────────────────────────
@@ -1756,18 +1789,30 @@ async fn execute_action_inner(
             let cred = match credentials.get("clay") {
                 Some(c) => c,
                 None => return json!({
-                    "error": "No Clay credential configured. Add your Clay API key (and optionally session cookie) in Settings → Integrations."
+                    "error": "No Clay credential configured. Add your Clay session cookie in Settings → Integrations."
                 }).to_string(),
             };
-            let (_api_key, session_cookie, stored_workspace_id) = parse_clay_cred(cred);
+            let (_api_key, session_cookie) = parse_clay_cred(cred);
 
-            // Stored credential workspace_id always wins over LLM-provided value
-            // to prevent hallucinated IDs from overriding the user's setting.
-            let resolved_ws_id: u64 = stored_workspace_id
-                .as_deref()
-                .and_then(|s| s.parse().ok())
-                .or_else(|| input.get("workspace_id").and_then(Value::as_u64))
-                .unwrap_or(0);
+            // workspace_id is injected into tool_input by the runner from the
+            // plan's resolved entities (see agent_runner.rs + resolver.rs).
+            // If it's missing here, something upstream in the pipeline failed
+            // — either the resolver didn't run, or the plan is being executed
+            // without resolution gating. Fail loudly rather than guess.
+            let resolved_ws_id: u64 = match input
+                .get("workspace_id")
+                .and_then(Value::as_u64)
+                .or_else(|| input.get("workspace_id").and_then(Value::as_str).and_then(|s| s.parse().ok()))
+            {
+                Some(id) => id,
+                None => {
+                    return json!({
+                        "error": "workspace_id not resolved for this node. The resolver stage should have populated it before execute; check plan.description.resolved_entities and agent_runner injection.",
+                        "unresolved_entity": "clay_workspace",
+                    })
+                    .to_string();
+                }
+            };
 
             let clay_result = match name {
         "clay_get_table_schema" => {

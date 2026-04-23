@@ -534,6 +534,11 @@ export default function IntegrationsPage() {
                           activeProject={activeProject}
                           apiFetch={apiFetch}
                         />
+                      ) : integration.slug === "clay" ? (
+                        <ClayWorkspacePresetsPanel
+                          activeClient={activeClient}
+                          apiFetch={apiFetch}
+                        />
                       ) : undefined
                     }
                   />
@@ -1261,5 +1266,222 @@ function StatusBadge({ credential, probeResult, probing }: {
     <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
       <Check className="w-3 h-3" /> Connected
     </span>
+  );
+}
+
+interface ClayWorkspacePreset {
+  id: string;
+  name: string;
+  value: { workspace_id?: string | number };
+}
+
+interface ClayWorkspaceOption {
+  id: string;
+  name: string;
+  value: { workspace_id: string };
+}
+
+function ClayWorkspacePresetsPanel({
+  activeClient,
+  apiFetch,
+}: {
+  activeClient: string;
+  apiFetch: (url: string, init?: RequestInit) => Promise<Response>;
+}) {
+  const [presets, setPresets] = useState<ClayWorkspacePreset[]>([]);
+  const [options, setOptions] = useState<ClayWorkspaceOption[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState<Record<string, string>>({});
+
+  const loadPresets = useCallback(async () => {
+    try {
+      const res = await apiFetch(
+        `/api/clients/${activeClient}/credentials/clay/presets/clay_workspace`,
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Failed to load presets (${res.status})`);
+      }
+      const data = await res.json();
+      setPresets((data.presets ?? []) as ClayWorkspacePreset[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load presets");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeClient, apiFetch]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadPresets();
+  }, [loadPresets]);
+
+  const discover = useCallback(async () => {
+    setDiscovering(true);
+    setError(null);
+    try {
+      const res = await apiFetch(
+        `/api/clients/${activeClient}/integrations/clay/workspaces`,
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Clay discovery failed (${res.status})`);
+      }
+      const data = await res.json();
+      setOptions((data.workspaces ?? []) as ClayWorkspaceOption[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Clay discovery failed");
+    } finally {
+      setDiscovering(false);
+    }
+  }, [activeClient, apiFetch]);
+
+  const saveOption = useCallback(
+    async (opt: ClayWorkspaceOption) => {
+      const name = (draftName[opt.id]?.trim() || opt.name).slice(0, 120);
+      try {
+        const res = await apiFetch(
+          `/api/clients/${activeClient}/credentials/clay/presets/clay_workspace`,
+          {
+            method: "POST",
+            body: JSON.stringify({ id: opt.id, name, value: opt.value }),
+          },
+        );
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `Failed to save preset (${res.status})`);
+        }
+        await loadPresets();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to save preset");
+      }
+    },
+    [activeClient, apiFetch, draftName, loadPresets],
+  );
+
+  const removePreset = useCallback(
+    async (presetId: string) => {
+      try {
+        const res = await apiFetch(
+          `/api/clients/${activeClient}/credentials/clay/presets/clay_workspace/${encodeURIComponent(presetId)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `Failed to remove preset (${res.status})`);
+        }
+        await loadPresets();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to remove preset");
+      }
+    },
+    [activeClient, apiFetch, loadPresets],
+  );
+
+  const savedIds = new Set(presets.map((p) => p.id));
+
+  return (
+    <div className="mt-3 pt-3 border-t border-rim/80 mx-4 mb-4 space-y-2">
+      <p className="text-[11px] font-semibold text-ink-2 uppercase tracking-wider">
+        Workspaces
+      </p>
+      <p className="text-[11px] leading-snug text-ink-3">
+        Save one preset per Clay workspace you want agents to use. Preflight
+        will block an agent run unless it can resolve a workspace preset. You
+        pick which preset the agent uses on the canvas.
+      </p>
+
+      {loading ? (
+        <p className="text-[11px] text-ink-3">Loading presets…</p>
+      ) : presets.length > 0 ? (
+        <ul className="space-y-1">
+          {presets.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center justify-between gap-2 text-xs bg-surface border border-rim rounded-md px-2 py-1"
+            >
+              <span className="text-ink">
+                <span className="font-medium">{p.name}</span>
+                <span className="text-ink-3 ml-2 font-mono">
+                  id {String(p.value.workspace_id ?? p.id)}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removePreset(p.id)}
+                className="text-ink-3 hover:text-red-600"
+                aria-label="Remove preset"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          No workspace presets saved yet. Fetch workspaces below to add some.
+        </p>
+      )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={discover}
+          disabled={discovering}
+          className="text-xs px-2.5 py-1 border border-rim rounded-md hover:border-brand disabled:opacity-50"
+        >
+          {discovering
+            ? "Fetching…"
+            : options
+              ? "Refetch workspaces"
+              : "Fetch workspaces from Clay"}
+        </button>
+        {error && <span className="text-[11px] text-red-600">{error}</span>}
+      </div>
+
+      {options && options.length > 0 && (
+        <ul className="space-y-1 pt-1">
+          {options.map((opt) => {
+            const already = savedIds.has(opt.id);
+            return (
+              <li
+                key={opt.id}
+                className="flex items-center gap-2 text-xs bg-surface border border-rim rounded-md px-2 py-1"
+              >
+                <input
+                  type="text"
+                  value={draftName[opt.id] ?? opt.name}
+                  onChange={(e) =>
+                    setDraftName((prev) => ({
+                      ...prev,
+                      [opt.id]: e.target.value,
+                    }))
+                  }
+                  placeholder={opt.name}
+                  className="flex-1 min-w-0 bg-transparent text-ink placeholder:text-ink-3 focus:outline-none"
+                />
+                <span className="text-ink-3 font-mono text-[10px]">
+                  id {opt.value.workspace_id}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => saveOption(opt)}
+                  className="text-[11px] px-2 py-0.5 rounded border border-brand/40 text-brand hover:bg-brand/5"
+                >
+                  {already ? "Update" : "Save"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {options && options.length === 0 && (
+        <p className="text-[11px] text-ink-3">
+          Clay returned no workspaces for this session cookie.
+        </p>
+      )}
+    </div>
   );
 }

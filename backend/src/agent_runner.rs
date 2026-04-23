@@ -525,6 +525,45 @@ impl AgentRunner {
                     probes = probes.len(),
                     "preflight credential checks passed"
                 );
+
+                // Preset coverage: fail fast when the agent's tools require
+                // scoping presets (workspace, database, channel, etc.) and
+                // the user hasn't saved any. The task canvas is expected to
+                // render pills for these so the fix is UI-local.
+                let resources = crate::preflight::required_resources_for_agent(
+                    &agent.required_integrations,
+                    &agent.tools,
+                );
+                let preset_probes = crate::preflight::probe_preset_coverage(&resources, &needed);
+                let preset_issues: Vec<String> = preset_probes
+                    .iter()
+                    .filter(|p| !p.success())
+                    .map(|p| {
+                        let detail = if p.error.is_empty() {
+                            "no preset saved".to_string()
+                        } else {
+                            p.error.clone()
+                        };
+                        format!("{} [{}]: {}", p.integration_slug, p.status.as_str(), detail)
+                    })
+                    .collect();
+                if !preset_issues.is_empty() {
+                    let msg = format!(
+                        "BLOCKED: Required scoping presets not configured — {}. Add them in Settings > Integrations, then pick one on the agent node.",
+                        preset_issues.join("; ")
+                    );
+                    tracing::error!(agent = %plan_node.agent_slug, issues = ?preset_issues, "preflight: preset coverage failed");
+                    return AgentResult {
+                        node_uid: uid_str,
+                        status: NodeStatus::Failed,
+                        judge_score: None,
+                        judge_feedback: None,
+                        final_summary: Some(msg.clone()),
+                        output: Some(json!({"status": "blocked", "reason": msg})),
+                        error: Some(msg),
+                        duration_ms: 0,
+                    };
+                }
             }
         }
 

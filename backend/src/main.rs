@@ -214,6 +214,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/clients/:slug/integrations/slack/channels", get(routes::integration_slack_channels))
         .route("/api/clients/:slug/integrations/notion/databases", get(routes::integration_notion_databases))
         .route("/api/clients/:slug/integrations/notion/pages", get(routes::integration_notion_pages))
+        .route("/api/clients/:slug/integrations/clay/workspaces", get(routes::integration_clay_workspaces))
+        // Credential preset CRUD (named scoping params: workspace, database, channel, ...)
+        .route("/api/clients/:slug/credentials/:integration_slug/presets/:kind", get(routes::credential_presets_list))
+        .route("/api/clients/:slug/credentials/:integration_slug/presets/:kind", post(routes::credential_presets_upsert))
+        .route("/api/clients/:slug/credentials/:integration_slug/presets/:kind/:preset_id", axum::routing::delete(routes::credential_presets_delete))
         // OAuth
         .route("/api/oauth/:provider/authorize", get(routes::oauth_authorize))
         // Auth

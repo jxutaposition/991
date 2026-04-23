@@ -51,6 +51,85 @@ pub struct DecryptedCredential {
 
 pub type CredentialMap = HashMap<String, DecryptedCredential>;
 
+/// A named scoping parameter the user has saved for an integration —
+/// e.g. a Clay workspace, a Notion database, a Slack channel. Stored as
+/// `metadata.presets.<kind>: [ParamPreset, ...]` on the credential row.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ParamPreset {
+    pub id: String,
+    pub name: String,
+    pub value: Value,
+}
+
+/// Read presets of a given kind from a credential's `metadata` JSON.
+/// Returns an empty Vec when the path is absent or malformed.
+pub fn presets_for(metadata: &Value, kind: &str) -> Vec<ParamPreset> {
+    let Some(arr) = metadata
+        .get("presets")
+        .and_then(|p| p.get(kind))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|v| serde_json::from_value::<ParamPreset>(v.clone()).ok())
+        .collect()
+}
+
+/// Return a mutable clone of `metadata` with `preset` upserted (by id) into
+/// `presets.<kind>`. Does not write to the DB — the caller wraps it in a
+/// credential upsert.
+pub fn metadata_with_preset_upserted(metadata: &Value, kind: &str, preset: ParamPreset) -> Value {
+    let mut meta = match metadata {
+        Value::Object(_) => metadata.clone(),
+        _ => serde_json::json!({}),
+    };
+    let obj = meta.as_object_mut().unwrap();
+    let presets = obj
+        .entry("presets".to_string())
+        .or_insert_with(|| Value::Object(Default::default()));
+    let presets_obj = match presets {
+        Value::Object(m) => m,
+        other => {
+            *other = Value::Object(Default::default());
+            other.as_object_mut().unwrap()
+        }
+    };
+    let list = presets_obj
+        .entry(kind.to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let arr = match list {
+        Value::Array(a) => a,
+        other => {
+            *other = Value::Array(Vec::new());
+            other.as_array_mut().unwrap()
+        }
+    };
+    let new_entry = serde_json::to_value(&preset).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(existing) = arr.iter_mut().find(|v| {
+        v.get("id").and_then(Value::as_str) == Some(preset.id.as_str())
+    }) {
+        *existing = new_entry;
+    } else {
+        arr.push(new_entry);
+    }
+    meta
+}
+
+/// Return a mutable clone of `metadata` with the preset with `preset_id`
+/// removed from `presets.<kind>`. No-op if absent.
+pub fn metadata_with_preset_removed(metadata: &Value, kind: &str, preset_id: &str) -> Value {
+    let mut meta = metadata.clone();
+    let Some(list) = meta
+        .pointer_mut(&format!("/presets/{kind}"))
+        .and_then(Value::as_array_mut)
+    else {
+        return meta;
+    };
+    list.retain(|v| v.get("id").and_then(Value::as_str) != Some(preset_id));
+    meta
+}
+
 // Encryption: master_key_hex is 64 hex chars (32 bytes)
 pub fn encrypt(master_key_hex: &str, plaintext: &str) -> anyhow::Result<Vec<u8>> {
     let mk = normalize_master_key_hex(master_key_hex)?;

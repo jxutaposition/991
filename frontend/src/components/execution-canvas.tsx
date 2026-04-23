@@ -436,6 +436,50 @@ function NodeBox({
             </span>
           ))}
           </div>
+          {/* Scoping preset pills — one per integration:kind that the agent's
+              tools require (e.g. Clay workspace). Status reflects preflight's
+              preset-coverage probe (clay:clay_workspace). Display-only for now;
+              the picker lives in Settings > Integrations. */}
+          {(() => {
+            const presetPills = userTools
+              .flatMap((t) => {
+                if (!t.credential) return [];
+                // Minimal mapping: Clay tools require a workspace preset.
+                if (t.credential === "clay") return [{ cred: "clay", kind: "clay_workspace", label: "workspace" }];
+                return [];
+              })
+              .filter((v, i, arr) => arr.findIndex((x) => x.cred === v.cred && x.kind === v.kind) === i);
+            if (presetPills.length === 0) return null;
+            return (
+              <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                {presetPills.map((p) => {
+                  const probeKey = `${p.cred}:${p.kind}`;
+                  const probe = probeResults?.[probeKey];
+                  const ok = probe?.ok ?? true;
+                  return (
+                    <span
+                      key={probeKey}
+                      className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${
+                        ok
+                          ? "border-green-200 bg-green-50 text-green-700"
+                          : "border-red-300 bg-red-50 text-red-700"
+                      }`}
+                      title={
+                        ok
+                          ? `${p.label} preset available`
+                          : probe?.hint ??
+                            `No ${p.label} preset saved. Open Settings → Integrations → ${p.cred} to add one.`
+                      }
+                    >
+                      <IntegrationIcon slug={p.cred} size={11} />
+                      <span className="font-medium">{p.label}</span>
+                      {!ok && <span>⚠</span>}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 

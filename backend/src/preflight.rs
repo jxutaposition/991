@@ -237,16 +237,12 @@ pub async fn probe_one(
             }
         }
 
-        // Clay: merged credential — JSON with api_key + optional session_cookie.
-        // Clay v1 has no reliable health endpoint, so we only validate the v3
-        // session cookie via GET /v3/me. If only an API key is present we
-        // optimistically mark it as verified (the key will fail at tool-call
-        // time if it's actually invalid).
+        // Clay: v3 API requires a session cookie. Verify via GET /v3/me.
+        // An API key alone is not sufficient — Clay's tool calls hit v3 endpoints
+        // that the v1 API key cannot authenticate, so we must fail ConfigMissing
+        // rather than optimistically pass.
         "clay" => {
             let parsed: Value = serde_json::from_str(value).unwrap_or(serde_json::json!({}));
-            let has_api_key = parsed.get("api_key").and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .is_some();
             let session_cookie = parsed
                 .get("session_cookie")
                 .and_then(Value::as_str)
@@ -266,17 +262,12 @@ pub async fn probe_one(
                         .send()
                         .await,
                 )
-            } else if has_api_key {
-                return Some(ProbeResult {
-                    integration_slug: "clay".to_string(),
-                    status: ProbeStatus::Verified,
-                    http_status: Some(200),
-                    error: String::new(),
-                    hint: String::new(),
-                    latency_ms: start.elapsed().as_millis() as u64,
-                });
             } else {
-                None
+                return Some(config_missing_result(
+                    slug,
+                    "Clay session cookie is not configured".into(),
+                    "Open Settings > Integrations, edit Clay, and paste the `claysession=...` cookie from a logged-in Clay browser tab (DevTools > Application > Cookies).".into(),
+                ));
             }
         }
 
@@ -467,6 +458,109 @@ pub fn required_slugs_for_agent(
         }
     }
     all
+}
+
+/// A credential the agent will use, plus the list of scoping-parameter kinds
+/// the user must have at least one preset saved for before the agent can run.
+/// Returned by `required_resources_for_agent`.
+#[derive(Debug, Clone)]
+pub struct RequiredResource {
+    pub integration_slug: String,
+    pub required_preset_kinds: Vec<&'static str>,
+}
+
+/// Return the full set of required resources for an agent: each credential
+/// slug the agent's tools will touch, plus the scoping-parameter kinds each
+/// slug needs the user to have saved presets for (e.g. Clay → ["clay_workspace"]).
+pub fn required_resources_for_agent(
+    required_integrations: &[String],
+    tools: &[String],
+) -> Vec<RequiredResource> {
+    let slugs = required_slugs_for_agent(required_integrations, tools);
+    let mut out: Vec<RequiredResource> = slugs
+        .into_iter()
+        .map(|s| RequiredResource {
+            integration_slug: s,
+            required_preset_kinds: Vec::new(),
+        })
+        .collect();
+    for tool_name in tools {
+        let kinds = crate::actions::action_required_presets(tool_name);
+        if kinds.is_empty() {
+            continue;
+        }
+        let Some(cred_slug) = crate::actions::action_credential(tool_name) else {
+            continue;
+        };
+        let Some(entry) = out.iter_mut().find(|r| r.integration_slug == cred_slug) else {
+            continue;
+        };
+        for k in kinds {
+            if !entry.required_preset_kinds.contains(k) {
+                entry.required_preset_kinds.push(*k);
+            }
+        }
+    }
+    out
+}
+
+/// For each required resource, emit a `ProbeResult` per preset kind indicating
+/// whether the user has ≥1 preset saved for that kind on the given credential.
+/// Agent launch should treat any `ConfigMissing` here as a hard block — the
+/// user is expected to open the integrations page and add a preset.
+pub fn probe_preset_coverage(
+    resources: &[RequiredResource],
+    credentials: &HashMap<String, DecryptedCredential>,
+) -> Vec<ProbeResult> {
+    let mut results = Vec::new();
+    for res in resources {
+        for kind in &res.required_preset_kinds {
+            let presets = credentials
+                .get(&res.integration_slug)
+                .map(|c| crate::credentials::presets_for(&c.metadata, kind))
+                .unwrap_or_default();
+            let display_kind = preset_kind_display(kind);
+            if presets.is_empty() {
+                results.push(ProbeResult {
+                    integration_slug: format!("{}:{}", res.integration_slug, kind),
+                    status: ProbeStatus::ConfigMissing,
+                    http_status: None,
+                    error: format!(
+                        "No {} preset saved for {}",
+                        display_kind,
+                        integration_display(&res.integration_slug)
+                    ),
+                    hint: format!(
+                        "Open Settings > Integrations, expand {}, and add at least one {} preset.",
+                        integration_display(&res.integration_slug),
+                        display_kind
+                    ),
+                    latency_ms: 0,
+                });
+            } else {
+                results.push(ProbeResult {
+                    integration_slug: format!("{}:{}", res.integration_slug, kind),
+                    status: ProbeStatus::Verified,
+                    http_status: Some(200),
+                    error: String::new(),
+                    hint: String::new(),
+                    latency_ms: 0,
+                });
+            }
+        }
+    }
+    results
+}
+
+fn preset_kind_display(kind: &str) -> &'static str {
+    match kind {
+        "clay_workspace" => "workspace",
+        "n8n_project" => "project",
+        "notion_database" => "database",
+        "slack_channel" => "channel",
+        "supabase_project" => "project",
+        _ => "scoping parameter",
+    }
 }
 
 /// Filter a full credential map to only the required integrations, respecting

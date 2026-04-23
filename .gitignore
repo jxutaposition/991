@@ -50,3 +50,6 @@ closedclaw-knowledge*.zip
 # Local one-off git helpers
 _do_commit.bat
 _git_result.txt
+
+# Client work — never commit (contains secrets)
+lele/

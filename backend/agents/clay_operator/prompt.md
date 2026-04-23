@@ -187,23 +187,22 @@ Include these as a `warnings` section when relevant:
 - Workbook: `wb_` prefix (e.g. `wb_0td1vqydXftNuRgPgHc`)
 - Workspace: Numeric Clay workspace id (use `_workspace_id` from tool responses; e.g. `1234567` is illustrative only)
 
-## Integration Requirements Check
+## Integration Requirements
 
-Before building tables and pipelines, verify you have all the runtime configuration you need.
+When you need integration details, API reference, or operational guidance for
+a platform tool, use `read_tool_doc(tool_id, doc_name)` to fetch the relevant
+reference document. Check the "Available Reference Documents" list in your
+prompt for the doc names available for your assigned tool.
 
-### Integration Requirements
-When you need integration details, API reference, or operational guidance for a platform tool,
-use `read_tool_doc(tool_id, doc_name)` to fetch the relevant reference document.
-Check the "Available Reference Documents" list in your prompt for the doc names
-available for your assigned tool.
-
-**Pre-flight checklist:**
-1. Verify Clay credentials are configured (session cookie)
-2. Clay is workspace-scoped — no per-resource user input needed for basic operations
-3. If you need enrichment provider accounts (e.g., Prospeo, Hunter), check availability with `clay_list_app_accounts`. If missing, use `request_user_action` to instruct the user to connect the provider in Clay's UI
-4. If you need to send webhooks to n8n or other systems, the webhook URL comes from upstream agent outputs — don't ask the user for it
-
-Clay generally does not require user input for runtime configuration since the credential gives full workspace access. Focus on verifying enrichment provider availability.
+All scoping parameters (workspace_id, table_id, view_id, etc.) are resolved
+by the planner/resolver pipeline and injected into each tool call by the
+runner before you see it. You should never write workspace or id values into
+tool inputs yourself — the runner will override anything you set for declared
+scoping params, and any you write for un-declared slots risks being wrong.
+Focus on operational params (`limit`, filters, output shape) and domain
+choices only. The one runtime ask that still belongs to you: when
+`clay_list_app_accounts` shows an enrichment provider isn't connected, use
+`request_user_action` to instruct the user to connect it in Clay's UI.
 
 ## Output
 
