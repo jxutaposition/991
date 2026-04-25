@@ -101,5 +101,150 @@
     "check_size": "$500K-$2M (firm) / personal angel",
     "thesis_blurb": "Backs 'pattern-breaker' founders pursuing inflection-point opportunities most people don't yet like.",
     "confidence": "high"
+  },
+  {
+    "name": "Edwin Wee",
+    "title": "ex-Stripe Partnerships; Anthropic GTM (now Cursor)",
+    "portfolio": [],
+    "writings": [
+      {"type": "twitter", "title": "@edwinwee on X", "url": "https://x.com/edwinwee"},
+      {"type": "essay", "title": "Seven years at Stripe (LinkedIn)", "url": "https://www.linkedin.com/pulse/seven-years-stripe-edwin-wee"}
+    ],
+    "network_signals": ["Stripe Mafia", "Anthropic alum", "Cursor team", "GTM operator"],
+    "testimonials": [],
+    "sector_focus": ["AI infra", "Dev tools", "B2B SaaS"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "unknown",
+    "thesis_blurb": "",
+    "confidence": "low"
+  },
+  {
+    "name": "Scott Banister",
+    "title": "Co-founder IronPort; Angel Investor",
+    "portfolio": ["Uber", "SpaceX", "Facebook", "Postmates", "DeepMind", "Zappos", "LiveOps", "Topsy Labs"],
+    "writings": [
+      {"type": "twitter", "title": "@SBanister on X", "url": "https://twitter.com/SBanister"}
+    ],
+    "network_signals": ["PayPal early advisor", "IronPort co-founder (Cisco $830M exit)", "199 investments", "TechCrunch Angel of the Year 2016", "Half Moon Bay base"],
+    "testimonials": [],
+    "sector_focus": ["Consumer internet", "Frontier tech", "AI", "Marketplaces"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "$25K-$50K",
+    "thesis_blurb": "Prolific Bay Area consumer-internet angel known for prescient bets on SpaceX, Uber, and DeepMind.",
+    "confidence": "high"
+  },
+  {
+    "name": "Greg Brockman",
+    "title": "President, Chairman & Co-founder, OpenAI; ex-CTO Stripe",
+    "portfolio": ["Replit", "Hugging Face", "Lambda", "Sandbar", "Uplimit", "Lumos", "Baseten"],
+    "writings": [
+      {"type": "blog", "title": "gregbrockman.com", "url": "https://gregbrockman.com/"},
+      {"type": "twitter", "title": "@gdb on X", "url": "https://twitter.com/gdb"}
+    ],
+    "network_signals": ["OpenAI co-founder", "Stripe Mafia (ex-CTO)", "MIT dropout", "51 investments / 7 unicorns"],
+    "testimonials": [],
+    "sector_focus": ["AI infra", "Dev tools", "SMB software", "AI applications"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "$100K-$5M (sweet spot ~$1.5M)",
+    "thesis_blurb": "Concentrates on AI, developer tools, and SMB software at pre-seed and seed.",
+    "confidence": "high"
+  },
+  {
+    "name": "Ali Partovi",
+    "title": "Co-founder & CEO, Neo; co-founder Code.org",
+    "portfolio": ["Dropbox", "Facebook", "Airbnb", "Uber", "Postmates", "Cursor", "Bluesky", "Kalshi", "Opower"],
+    "writings": [
+      {"type": "blog", "title": "partovi.org", "url": "https://www.partovi.org/"},
+      {"type": "twitter", "title": "@apartovi", "url": "https://twitter.com/apartovi"}
+    ],
+    "network_signals": ["Code.org co-founder", "Neo founder ($200M AUM)", "Identical twin (Hadi Partovi)", "iLike co-founder", "57 Neo portfolio cos"],
+    "testimonials": [],
+    "sector_focus": ["AI", "Consumer", "Enterprise SaaS", "Crypto"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "$250K-$3M (Neo); personal angel",
+    "thesis_blurb": "Backs young technical founders via Neo mentorship community; led Bluesky seed and was first into Cursor.",
+    "confidence": "high"
+  },
+  {
+    "name": "Auren Hoffman",
+    "title": "GP, Flex Capital; founder SafeGraph & LiveRamp",
+    "portfolio": ["LiveRamp (founded)", "SafeGraph (founded)", "Dialog (co-founded)"],
+    "writings": [
+      {"type": "podcast", "title": "World of DaaS (host)", "url": "https://www.worldofdaas.com/"},
+      {"type": "twitter", "title": "@auren on X", "url": "https://twitter.com/auren"},
+      {"type": "blog", "title": "Summation (Substack)", "url": "https://summation.net/"}
+    ],
+    "network_signals": ["LiveRamp founder ($1.85B Acxiom acq)", "100+ angel deals", "Data/DaaS thesis", "Flex Capital GP"],
+    "testimonials": [],
+    "sector_focus": ["Data / DaaS", "B2B SaaS", "Fintech", "Vertical SaaS"],
+    "stage_focus": ["seed", "Series A"],
+    "check_size": "unknown",
+    "thesis_blurb": "Data-as-a-Service evangelist; backs companies turning unique datasets into recurring revenue.",
+    "confidence": "high"
+  },
+  {
+    "name": "Avi Itskovich",
+    "title": "Co-founder & CTO, Watershed; ex-Stripe engineer",
+    "portfolio": [],
+    "writings": [
+      {"type": "twitter", "title": "@aitskovi on X", "url": "https://x.com/aitskovi"}
+    ],
+    "network_signals": ["Stripe Mafia", "Watershed co-founder", "Climate tech founder", "Sequoia-backed"],
+    "testimonials": [],
+    "sector_focus": ["Climate", "Dev tools", "Fintech infra"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "unknown",
+    "thesis_blurb": "",
+    "confidence": "low"
+  },
+  {
+    "name": "Ben Rattray",
+    "title": "Founder & former CEO, Change.org",
+    "portfolio": ["Smashing"],
+    "writings": [],
+    "network_signals": ["Change.org founder", "Time 100 (2012)", "Stanford alum", "Social impact"],
+    "testimonials": [],
+    "sector_focus": ["Social impact", "Consumer"],
+    "stage_focus": ["seed"],
+    "check_size": "unknown",
+    "thesis_blurb": "",
+    "confidence": "low"
+  },
+  {
+    "name": "Bret Taylor",
+    "title": "Co-founder & CEO, Sierra; Chair, OpenAI; ex-Co-CEO Salesforce",
+    "portfolio": ["The Browser Company", "Socket", "Terraton"],
+    "writings": [
+      {"type": "twitter", "title": "@btaylor on X", "url": "https://x.com/btaylor"},
+      {"type": "blog", "title": "Sierra blog", "url": "https://sierra.ai/author/bret-taylor"},
+      {"type": "interview", "title": "Who Got Me There: Bret Taylor", "url": "https://www.whogotmehere.com/stories/bret-taylor"}
+    ],
+    "network_signals": ["OpenAI Chair", "ex-Co-CEO Salesforce", "ex-CTO Facebook", "Google Maps co-creator", "Quip founder", "Shopify board"],
+    "testimonials": [],
+    "sector_focus": ["AI agents", "Enterprise SaaS", "Productivity", "Dev tools"],
+    "stage_focus": ["seed", "Series A"],
+    "check_size": "unknown",
+    "thesis_blurb": "Building Sierra (AI agents for customer service) while backing AI-native applied/agent companies.",
+    "confidence": "medium"
+  },
+  {
+    "name": "Brie Wolfson",
+    "title": "CMO, Positive Sum & Colossus; ex-Stripe (Stripe Press)",
+    "portfolio": [],
+    "writings": [
+      {"type": "blog", "title": "briewolfson.com", "url": "https://www.briewolfson.com/"},
+      {"type": "essay", "title": "What I Miss About Working at Stripe (Every)", "url": "https://every.to/p/what-i-miss-about-working-at-stripe"},
+      {"type": "essay", "title": "Notes on Taste", "url": "https://www.kwokchain.com/p/notes-on-taste-by-brie-wolfson"},
+      {"type": "essay", "title": "How to Flounder Mode (Not Boring)", "url": "https://www.notboring.co/p/how-to-flounder-mode-with-brie-wolfson"},
+      {"type": "podcast", "title": "Hyperlegible 013 with Brie Wolfson", "url": "https://podcasts.apple.com/us/podcast/brie-wolfson-learning-to-love-flounder-mode-from-kevin/id1804641503?i=1000717690310"},
+      {"type": "podcast", "title": "First Round Review: Stripe documentation best practices", "url": "https://review.firstround.com/podcast/from-kickoffs-to-retros-and-slack-channels-stripes-documentation-best-practices-with-brie-wolfson/"}
+    ],
+    "network_signals": ["Stripe Mafia", "Stripe Press founder", "Positive Sum (Matt Ocko)", "Craft / taste-driven culture"],
+    "testimonials": [],
+    "sector_focus": ["Brand/marketing-driven companies", "Consumer", "B2B SaaS"],
+    "stage_focus": ["seed"],
+    "check_size": "unknown",
+    "thesis_blurb": "Champions craft, taste, and 'Flounder Mode' — backs companies obsessed with quality and culture.",
+    "confidence": "medium"
   }
 ]

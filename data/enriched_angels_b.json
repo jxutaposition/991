@@ -95,5 +95,152 @@
     "check_size": "$25K-$1M",
     "thesis_blurb": "Backs 'magically weird' founders other investors dismiss; track record across Uber, SpaceX, DeepMind, Affirm.",
     "confidence": "high"
+  },
+  {
+    "name": "David Schmaier",
+    "role": "President & CSO Salesforce; ex-Founder/CEO Vlocity",
+    "portfolio": ["Linkd", "AppMesh", "Punchh (board)", "Vlocity (founder)"],
+    "writings": [
+      {"type": "bio", "title": "Salesforce executive bio", "url": "https://www.salesforce.com/company/david-schmaier-bio/"},
+      {"type": "linkedin", "title": "David Schmaier", "url": "https://www.linkedin.com/in/david-schmaier-70476b43/"}
+    ],
+    "network_signals": ["Salesforce alum", "Vlocity founder", "Industry cloud", "Enterprise SaaS network"],
+    "testimonials": [],
+    "sector_focus": ["Enterprise SaaS", "Vertical/industry cloud", "AI for enterprise", "Productivity software"],
+    "stage_focus": ["Seed", "Series A", "Series B"],
+    "check_size": "undisclosed",
+    "thesis_blurb": "Senior Salesforce exec selectively angel-investing in B2B software with vertical or strategic Salesforce-adjacent angles.",
+    "confidence": "med"
+  },
+  {
+    "name": "David Singleton",
+    "role": "ex-CTO Stripe; CEO /dev/agents (now Dreamer/Meta)",
+    "portfolio": ["CloudCruise", "/dev/agents (founder)"],
+    "writings": [
+      {"type": "twitter", "title": "@dps", "url": "https://x.com/dps"},
+      {"type": "linkedin", "title": "David Singleton", "url": "https://www.linkedin.com/in/davidpsingleton/"}
+    ],
+    "network_signals": ["Stripe Mafia", "Google/Android alum", "AI agents", "Meta (post-acquihire)"],
+    "testimonials": [],
+    "sector_focus": ["AI agents", "Dev tools", "Infra"],
+    "stage_focus": ["Seed"],
+    "check_size": "undisclosed",
+    "thesis_blurb": "Recently focused on /dev/agents as founder/CEO; angel scope narrow with concentrated bets in AI agent infrastructure.",
+    "confidence": "low"
+  },
+  {
+    "name": "Dylan Field",
+    "role": "Co-founder & CEO Figma",
+    "portfolio": ["OpenSea", "Loom", "Sunday Robotics", "Warp", "Netlify", "Mercury", "Census", "CodeSandbox", "Golden"],
+    "writings": [
+      {"type": "twitter", "title": "@zoink", "url": "https://twitter.com/zoink"},
+      {"type": "profile", "title": "Sequoia founder profile", "url": "https://sequoiacap.com/founder/dylan-field/"}
+    ],
+    "network_signals": ["Thiel Fellow", "Figma founder", "Sequoia-backed", "Design/dev-tool ecosystem"],
+    "testimonials": [],
+    "sector_focus": ["Dev tools", "Design", "AI", "Web3", "FinTech", "Enterprise"],
+    "stage_focus": ["Seed", "Series A", "Series B"],
+    "check_size": "$10K-$500K",
+    "thesis_blurb": "Active angel (118 investments) skewing toward design/dev-tool ecosystem and product-led B2B.",
+    "confidence": "high"
+  },
+  {
+    "name": "Eric Ries",
+    "role": "Author Lean Startup; founder LTSE",
+    "portfolio": ["Asana", "Pelago", "IMVU (founder)", "LTSE (founder)"],
+    "writings": [
+      {"type": "book", "title": "The Lean Startup", "url": "http://theleanstartup.com/"},
+      {"type": "book", "title": "Incorruptible (May 2025)", "url": "https://www.linkedin.com/in/eries/"},
+      {"type": "podcast", "title": "First Funders Pod Ep 07", "url": "https://firstfunderspod.com/episodes/07-eric-ries-angel-lean-startup-creator-and-founder-of-ltse-on-how-he-invests-in-and-advises-a-new-wave-of-mission-first-startups/transcript"}
+    ],
+    "network_signals": ["Lean Startup author", "LTSE founder", "Mission-first investor", "100+ investments"],
+    "testimonials": [],
+    "sector_focus": ["Mission-driven startups", "Enterprise applications", "Consumer", "Public-benefit cos"],
+    "stage_focus": ["Pre-seed", "Seed"],
+    "check_size": "$10K or less",
+    "thesis_blurb": "Writes small checks (<$10K) into 100+ mission-first startups for learning and catalysis; not a fund.",
+    "confidence": "high"
+  },
+  {
+    "name": "Frank van Veenendaal",
+    "role": "Former Vice Chairman Salesforce",
+    "portfolio": ["Coupa (board)", "Vlocity (board)", "NewVoiceMedia (board)", "Onfido (board)", "ServiceMax (board)", "Marin Software (board)"],
+    "writings": [
+      {"type": "linkedin", "title": "Frank van Veenendaal", "url": "https://www.linkedin.com/in/frank-van-veenendaal-412477/"}
+    ],
+    "network_signals": ["Salesforce alum", "Salesforce Ventures", "Enterprise sales leadership", "SaaS board director"],
+    "testimonials": [],
+    "sector_focus": ["Enterprise SaaS", "FinTech apps", "Procurement/expense", "Sales tech"],
+    "stage_focus": ["Series B", "Growth"],
+    "check_size": "undisclosed",
+    "thesis_blurb": "Board-director-style investor in late-stage SaaS, transforming emerging companies into market leaders via enterprise sales playbook.",
+    "confidence": "med"
+  },
+  {
+    "name": "Gokul Rajaram",
+    "role": "former DoorDash exec; prolific angel; Marathon",
+    "portfolio": ["Airtable", "Coda", "Faire", "Figma", "Groq", "Cohesity", "Cockroach Labs", "Deel", "Pigment", "Postman", "Rubrik", "Runway", "Supabase", "Vercel", "Ironclad", "BetterUp", "CRED"],
+    "writings": [
+      {"type": "blog", "title": "gokulrajaram.com", "url": "https://www.gokulrajaram.com/"},
+      {"type": "podcast", "title": "Outliers #102 with Daniel Scrivner", "url": "https://www.danielscrivner.com/102/"},
+      {"type": "school", "title": "Angel Investor School", "url": "https://angelinvestorschool.com/speakers/gokul-rajaram/"}
+    ],
+    "network_signals": ["DoorDash alum", "Square alum", "Google alum", "Pinterest/Coinbase/Trade Desk board", "328 investments"],
+    "testimonials": [],
+    "sector_focus": ["Software", "AI", "Marketplaces", "Fintech", "Dev tools"],
+    "stage_focus": ["Pre-seed", "Seed", "Series A"],
+    "check_size": "$50K-$250K",
+    "thesis_blurb": "One of Silicon Valley's most prolific angels; backs early-stage tech globally with operator-led product feedback.",
+    "confidence": "high"
+  },
+  {
+    "name": "Immad Akhund",
+    "role": "Founder & CEO Mercury; solo GP fund",
+    "portfolio": ["Airtable", "Substack", "Rappi", "Applied Intuition", "Decagon", "Gecko Robotics", "Linear"],
+    "writings": [
+      {"type": "podcast", "title": "20VC: Why Angel Investing Makes Founders Better Operators", "url": "https://www.thetwentyminutevc.com/immadakhund"},
+      {"type": "podcast", "title": "20VC: Immad Akhund's first $26M fund", "url": "https://www.thetwentyminutevc.com/immad-akhund-2"},
+      {"type": "twitter", "title": "@immad", "url": "https://twitter.com/immad"}
+    ],
+    "network_signals": ["YC alum/partner", "Mercury founder", "350+ angel investments", "Solo GP $26M fund"],
+    "testimonials": [],
+    "sector_focus": ["B2B SaaS", "AI", "FinTech", "Dev tools", "Robotics"],
+    "stage_focus": ["Pre-seed", "Seed"],
+    "check_size": "$25K-$250K",
+    "thesis_blurb": "Backs ambitious founders in $10B+ markets; 350+ checks across most industries except biotech/hard tech.",
+    "confidence": "high"
+  },
+  {
+    "name": "Jack Altman",
+    "role": "Founder Lattice; Managing Partner Alt Capital",
+    "portfolio": ["Antares Industries", "David AI", "Legora", "Owner.com", "Avoca", "Fillout", "Parahelp", "Retell AI", "Rogo", "SF Compute", "Figma", "Rippling", "Flexport", "Opendoor", "Finch", "Durable"],
+    "writings": [
+      {"type": "podcast", "title": "Venture Unlocked: Lattice to VC firm", "url": "https://ventureunlocked.substack.com/p/coherence-in-venture-capital-strategies"},
+      {"type": "podcast", "title": "Investor Operator: Building Lattice & Alt Capital", "url": "https://www.investoroperator.io/building-lattice-alt-capital-jack-altman-on-investing-operating/"},
+      {"type": "twitter", "title": "@jaltma", "url": "https://x.com/jaltma"}
+    ],
+    "network_signals": ["Lattice founder", "Altman family", "$425M AUM Alt Capital", "Founder-led B2B network"],
+    "testimonials": [],
+    "sector_focus": ["B2B software", "AI", "Hard tech", "Vertical SaaS"],
+    "stage_focus": ["Seed", "Series A"],
+    "check_size": "$1M-$5M (fund); angel checks separate",
+    "thesis_blurb": "Founder-turned-VC backing innovators in B2B software and hard tech via Alt Capital ($150M Fund I, $275M Fund II).",
+    "confidence": "high"
+  },
+  {
+    "name": "Jed McCaleb",
+    "role": "Stellar / Vast founder",
+    "portfolio": ["AstroForge", "Embrace Software", "Socket", "Arcadia Science (board)", "Syllable (board)", "Stellar (founder)", "Vast (founder)"],
+    "writings": [
+      {"type": "podcast", "title": "Core Memory: Building a Space Station for $1B", "url": "https://www.corememory.com/p/hes-building-a-space-station-jed-mccaleb-vast"},
+      {"type": "linkedin", "title": "Jed McCaleb", "url": "https://www.linkedin.com/in/jed-mccaleb-4052a4/"}
+    ],
+    "network_signals": ["Stellar/Ripple co-founder", "Mt. Gox creator", "Vast founder", "Pantera Capital venture partner", "Crypto OG"],
+    "testimonials": [],
+    "sector_focus": ["Space/aerospace", "Crypto/blockchain", "Deep tech", "Bio/science tools"],
+    "stage_focus": ["Seed", "Series A"],
+    "check_size": "undisclosed",
+    "thesis_blurb": "Self-funded crypto billionaire deploying capital into deep-tech, space, and frontier-science bets aligned with Vast/Stellar themes.",
+    "confidence": "med"
   }
 ]
