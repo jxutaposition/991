@@ -1,0 +1,105 @@
+[
+  {
+    "name": "Naval Ravikant",
+    "title": "Co-founder & Chairman, AngelList",
+    "portfolio": ["Twitter", "Uber", "Postmates", "Yammer", "Stack Overflow", "OpenDoor", "Notion", "Clubhouse"],
+    "writings": [
+      {"type": "podcast", "title": "20VC: Naval Ravikant on Why Seed Is Not About Picking Winners", "url": "https://www.thetwentyminutevc.com/navalravikant"},
+      {"type": "book", "title": "The Almanack of Naval Ravikant", "url": "https://www.navalmanack.com/"},
+      {"type": "twitter", "title": "@naval Twitter threads", "url": "https://twitter.com/naval"},
+      {"type": "podcast", "title": "Naval Podcast", "url": "https://nav.al/podcast"}
+    ],
+    "network_signals": ["AngelList founder", "150+ angel deals", "37 exits / 16 unicorns", "Hit Forge fund", "Tim Ferriss inner circle"],
+    "testimonials": [],
+    "sector_focus": ["Consumer", "Marketplaces", "Crypto/Web3", "AI", "Biotech"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "$25K-$500K via syndicate; larger via funds",
+    "thesis_blurb": "Founders, not ideas, determine startup success. Seed is about eliminating losers, not picking winners.",
+    "confidence": "high"
+  },
+  {
+    "name": "Lachy Groom",
+    "title": "Co-founder & Co-CEO, Physical Intelligence; ex-Stripe employee #30",
+    "portfolio": ["Figma", "Notion", "Ramp", "Lattice", "Retool", "Linear", "Vercel", "Replicate"],
+    "writings": [
+      {"type": "twitter", "title": "@lachygroom", "url": "https://twitter.com/lachygroom"},
+      {"type": "article", "title": "Physical Intelligence profile (TechCrunch)", "url": "https://techcrunch.com/2026/01/30/physical-intelligence-stripe-veteran-lachy-grooms-latest-bet-is-building-silicon-valleys-buzziest-robot-brains/"}
+    ],
+    "network_signals": ["Stripe Mafia", "Solo capitalist", "$100K-$500K checks", "Robotics/AI founder", "Aussie tech diaspora"],
+    "testimonials": [],
+    "sector_focus": ["Dev tools", "B2B SaaS", "Workflow software", "AI infra", "Robotics"],
+    "stage_focus": ["seed", "Series A"],
+    "check_size": "$100K-$500K",
+    "thesis_blurb": "Concentrated bets on B2B companies solving workflow problems for knowledge workers.",
+    "confidence": "high"
+  },
+  {
+    "name": "Cristina Cordova",
+    "title": "COO, Linear; ex-Stripe Partnerships, ex-Notion, ex-First Round",
+    "portfolio": ["Notion", "WorkOS", "Metronome", "Baseten", "Ashby", "Canva"],
+    "writings": [
+      {"type": "blog", "title": "cristina.com personal site", "url": "https://www.cristina.com/"},
+      {"type": "twitter", "title": "@cjc on X", "url": "https://x.com/cjc"}
+    ],
+    "network_signals": ["Stripe Mafia", "Notion alum", "First Round alum", "60+ angel deals", "B2B SaaS operator-investor"],
+    "testimonials": [],
+    "sector_focus": ["B2B SaaS", "Fintech", "Dev tools", "Productivity"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "unknown",
+    "thesis_blurb": "Backs B2B SaaS and fintech founders building infrastructure and partnerships-driven products.",
+    "confidence": "high"
+  },
+  {
+    "name": "Aaron Levie",
+    "title": "Co-founder & CEO, Box",
+    "portfolio": ["Remote", "Forward", "SingleStore", "Zenefits", "Turvo", "Vicarious", "Rippling", "Ramp"],
+    "writings": [
+      {"type": "twitter", "title": "@levie on X", "url": "https://twitter.com/levie"},
+      {"type": "podcast", "title": "The Founder Hour: Aaron Levie", "url": "https://www.thefounderhour.com/episodes/aaron-levie-box"},
+      {"type": "podcast", "title": "a16z with Martin Casado", "url": "https://www.youtube.com/watch?v=uqc_vt95GJg"}
+    ],
+    "network_signals": ["Public-company CEO", "58-company portfolio / 23 exits / 8 unicorns", "Mark Cuban early backer", "Enterprise SaaS OG"],
+    "testimonials": [],
+    "sector_focus": ["Enterprise SaaS", "Dev tools", "AI infra", "Fintech"],
+    "stage_focus": ["seed", "Series A"],
+    "check_size": "unknown",
+    "thesis_blurb": "Invests in infrastructure with bottom-up adoption and enterprise monetization, valuing technical depth.",
+    "confidence": "high"
+  },
+  {
+    "name": "Daniel Gross",
+    "title": "Co-founder Safe Superintelligence; ex-NFDG / Pioneer",
+    "portfolio": ["Perplexity", "CoreWeave", "Figma", "Rippling", "Airtable", "GitHub", "Uber", "Instacart"],
+    "writings": [
+      {"type": "blog", "title": "danielgross.com", "url": "https://danielgross.com/"},
+      {"type": "twitter", "title": "@danielgross", "url": "https://x.com/danielgross"},
+      {"type": "program", "title": "AI Grant (with Nat Friedman)", "url": "https://aigrant.com/"}
+    ],
+    "network_signals": ["YC alum (Cue founder)", "Apple ex-director ML", "Pioneer founder", "NFDG (Nat Friedman + Daniel Gross)", "AI Grant"],
+    "testimonials": [],
+    "sector_focus": ["AI infra", "AI applications", "Dev tools", "Frontier compute"],
+    "stage_focus": ["pre-seed", "seed", "Series A"],
+    "check_size": "$250K-$5M+",
+    "thesis_blurb": "Backs ambitious AI-native technical founders early; AI Grant offers $250K to AI-native companies.",
+    "confidence": "high"
+  },
+  {
+    "name": "Mike Maples Jr.",
+    "title": "Co-founding Partner, Floodgate",
+    "portfolio": ["Twitter", "Twitch", "Okta", "Lyft", "Cruise", "Outreach", "Applied Intuition", "Chegg"],
+    "writings": [
+      {"type": "book", "title": "Pattern Breakers", "url": "https://www.patternbreakers.com/"},
+      {"type": "podcast", "title": "Pattern Breakers Podcast", "url": "https://podcasts.apple.com/us/podcast/pattern-breakers/id1690638172"},
+      {"type": "podcast", "title": "Tim Ferriss Show #397", "url": "https://tim.blog/2019/12/07/mike-maples-andy-rachleff-transcript/"},
+      {"type": "podcast", "title": "Venture Unlocked Ep 19", "url": "https://ventureunlocked.substack.com/p/mikemaples019"},
+      {"type": "essay", "title": "Letters to a Young Investor (Generalist)", "url": "https://www.generalist.com/p/mike-maples-jr-1"}
+    ],
+    "network_signals": ["Forbes Midas List 8x", "Floodgate co-founder", "Stanford GSB lecturer", "First-check seed OG"],
+    "testimonials": [],
+    "sector_focus": ["Consumer", "AV/Robotics", "Enterprise SaaS", "Marketplaces"],
+    "stage_focus": ["pre-seed", "seed"],
+    "check_size": "$500K-$2M (firm) / personal angel",
+    "thesis_blurb": "Backs 'pattern-breaker' founders pursuing inflection-point opportunities most people don't yet like.",
+    "confidence": "high"
+  }
+]

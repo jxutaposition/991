@@ -1,0 +1,99 @@
+[
+  {
+    "name": "Calvin French-Owen",
+    "role": "ex-Co-founder Segment; Thrive Capital",
+    "portfolio": ["Statsig", "Metomic", "Tesseral", "Insight Health", "Segment (founder)"],
+    "writings": [
+      {"type": "blog", "title": "Lessons for early stage founders", "url": "https://calv.info/early-stage-lessons"},
+      {"type": "blog", "title": "calv.info personal blog", "url": "https://calv.info"}
+    ],
+    "network_signals": ["Segment Mafia", "Twilio alum", "MIT", "Thrive Capital", "YC-adjacent"],
+    "testimonials": [],
+    "sector_focus": ["Enterprise infra", "Dev tools", "Data/analytics", "Enterprise SaaS"],
+    "stage_focus": ["Seed", "Series A"],
+    "check_size": "$25K-$250K",
+    "thesis_blurb": "Backs technical founders building developer-facing infra and data tooling, drawing on Segment operator playbook.",
+    "confidence": "med"
+  },
+  {
+    "name": "Charlie Cheever",
+    "role": "Co-founder Quora; co-creator Expo",
+    "portfolio": ["Harmonic", "Etched", "Rork", "ShareWell", "Logseq", "Mem Protocol", "Destiny", "Socket"],
+    "writings": [
+      {"type": "twitter", "title": "@ccheever", "url": "https://twitter.com/ccheever"},
+      {"type": "profile", "title": "Signal NFX profile", "url": "https://signal.nfx.com/investors/charlie-cheever"}
+    ],
+    "network_signals": ["Quora founder", "Facebook alum", "Expo / React Native", "YC", "Amazon alum"],
+    "testimonials": [],
+    "sector_focus": ["Consumer", "AI", "Dev tools", "Mobile", "SMB software"],
+    "stage_focus": ["Pre-seed", "Seed", "Series A"],
+    "check_size": "up to $1M",
+    "thesis_blurb": "Prolific angel (40+ investments) backing developer tools, AI hardware, and consumer apps led by technical founders.",
+    "confidence": "high"
+  },
+  {
+    "name": "Christian Anderson",
+    "role": "Co-founder Watershed; ex-Stripe",
+    "portfolio": [],
+    "writings": [
+      {"type": "twitter", "title": "@chranderson", "url": "https://x.com/chranderson"}
+    ],
+    "network_signals": ["Stripe Mafia", "Watershed", "Climate tech"],
+    "testimonials": [],
+    "sector_focus": ["Climate", "Enterprise SaaS"],
+    "stage_focus": [],
+    "check_size": "",
+    "thesis_blurb": "Operator-founder, primarily focused on Watershed; angel activity limited / not publicly indexed.",
+    "confidence": "low"
+  },
+  {
+    "name": "Cindy Bi",
+    "role": "Founder/GP CapitalX",
+    "portfolio": ["Zapier", "Cruise", "Rippling", "Branch", "Octolane AI", "Versori", "The Network"],
+    "writings": [
+      {"type": "blog", "title": "CapitalX GP Cindy's open playbook (Medium)", "url": "https://cindybisv.medium.com/capitalx-gp-cindys-journey-to-vc-and-her-open-playbook-4975c259bcc"},
+      {"type": "interview", "title": "TCT Exclusive: Cindy Bi, GP @ CapitalX (Sacra)", "url": "https://sacra.com/p/tct-exclusive-cindy-bi-general-partner/"},
+      {"type": "linkedin", "title": "@cindyxbi", "url": "https://www.linkedin.com/in/cindyxbi/"}
+    ],
+    "network_signals": ["Solo GP", "Rolling Fund", "100+ angel investments", "Founder LP base", "Online-first investor"],
+    "testimonials": [],
+    "sector_focus": ["B2B SaaS", "Productivity", "Social platforms", "AI"],
+    "stage_focus": ["Pre-seed", "Seed"],
+    "check_size": "$100K-$250K",
+    "thesis_blurb": "Online-first solo GP backing fast-moving founders pre-seed/seed; 19 unicorns claimed including Rippling, Zapier, Cruise.",
+    "confidence": "high"
+  },
+  {
+    "name": "Claire Hughes Johnson",
+    "role": "ex-COO Stripe; advisor/author",
+    "portfolio": ["Workstream", "CoinTracker", "Quanta", "Stripe (operator)"],
+    "writings": [
+      {"type": "book", "title": "Scaling People (2023)", "url": "https://www.scalingpeople.com/"},
+      {"type": "linkedin", "title": "Claire Hughes Johnson", "url": "https://www.linkedin.com/in/claire-hughes-johnson-7058"}
+    ],
+    "network_signals": ["Stripe Mafia", "Google alum", "Yale SOM", "Operator-advisor"],
+    "testimonials": [],
+    "sector_focus": ["Enterprise SaaS", "FinTech", "Ops/HR tech"],
+    "stage_focus": ["Seed", "Series A"],
+    "check_size": "$10K-$100K",
+    "thesis_blurb": "Operator-angel leveraging Stripe scaling experience; selectively backs B2B/fintech founders she advises on org-building.",
+    "confidence": "high"
+  },
+  {
+    "name": "Cyan Banister",
+    "role": "Partner Long Journey Ventures (ex-Founders Fund)",
+    "portfolio": ["Uber", "SpaceX", "Niantic", "Postmates", "DeepMind", "Carta", "Thumbtack", "Flexport", "Affirm"],
+    "writings": [
+      {"type": "podcast", "title": "Tim Ferriss Show #780: From Homeless to Top Angel", "url": "https://tim.blog/2024/11/28/cyan-banister/"},
+      {"type": "podcast", "title": "The Pitch (investor)", "url": "https://www.thepitch.show/investors/cyan-banister-long-journey-ventures"},
+      {"type": "twitter", "title": "@cyanbanister", "url": "https://twitter.com/cyanbanister"}
+    ],
+    "network_signals": ["Founders Fund alum", "PayPal-mafia adjacent", "100+ angel investments", "Long Journey Ventures"],
+    "testimonials": [],
+    "sector_focus": ["Frontier tech", "Consumer", "Marketplaces", "Deep tech"],
+    "stage_focus": ["Pre-seed", "Seed"],
+    "check_size": "$25K-$1M",
+    "thesis_blurb": "Backs 'magically weird' founders other investors dismiss; track record across Uber, SpaceX, DeepMind, Affirm.",
+    "confidence": "high"
+  }
+]
