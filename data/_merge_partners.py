@@ -2,7 +2,7 @@ import csv, re
 from pathlib import Path
 
 DATA = Path(__file__).parent
-parts = ["sf_partners_part1.csv", "sf_partners_part2.csv", "sf_partners_part3.csv", "sf_partners_part4.csv"]
+parts = ["sf_partners_part1.csv", "sf_partners_part2.csv", "sf_partners_part3.csv", "sf_partners_part4.csv", "sf_partners_part5.csv"]
 
 rows, seen = [], {}
 for p in parts:
