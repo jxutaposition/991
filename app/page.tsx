@@ -13,6 +13,29 @@ const TARGET_KEEPS_50PCT = Math.ceil(ALL_INVESTORS.length / 2);
 
 type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed" | "skipped";
 
+function splitName(full: string): { firstname: string; lastname: string } {
+  const trimmed = full.trim();
+  if (!trimmed) return { firstname: "", lastname: "" };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { firstname: parts[0], lastname: "" };
+  return { firstname: parts[0], lastname: parts.slice(1).join(" ") };
+}
+
+function pushToLGM(investor: Investor) {
+  if (!investor.linkedin) return;
+  const { firstname, lastname } = splitName(investor.name);
+  fetch("/api/lgm/add", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firstname, lastname, linkedinUrl: investor.linkedin }),
+  })
+    .then(r => r.json().then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      if (!ok) console.warn("LGM add failed", j);
+    })
+    .catch(err => console.warn("LGM add error", err));
+}
+
 function formatAUM(usd: number): string {
   if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(usd >= 10_000_000_000 ? 0 : 1)}B AUM`;
   if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(0)}M AUM`;
@@ -64,8 +87,12 @@ export default function Page() {
     saveDecision(current.id, d);
     setDecisions(prev => ({ ...prev, [current.id]: d }));
     // Auto-queue Keeps to LGM "investors" campaign sync queue
-    if (d === "keep") queueForLGM(current.id);
-    else dequeueFromLGM(current.id);
+    if (d === "keep") {
+      queueForLGM(current.id);
+      pushToLGM(current);
+    } else {
+      dequeueFromLGM(current.id);
+    }
     if (filter === "unreviewed") {
       // index stays; the filtered list will shrink and the next item slides in
     } else {
