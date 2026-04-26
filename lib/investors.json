@@ -43,7 +43,8 @@
     "enriched": true,
     "check_size": "up to $50K (angel); Operator Collective Seed+A",
     "thesis_blurb": "Backs operator-led startups across enterprise, fintech, and AI; emphasizes AI transformation at Seed+A.",
-    "confidence": "high"
+    "confidence": "high",
+    "connection_degree": "1st"
   },
   {
     "id": "heston-berkman",
@@ -86,7 +87,14 @@
     "enriched": true,
     "check_size": "$100K-$2M",
     "thesis_blurb": "Token and equity investments across DeFi, blockchain gaming, and crypto infrastructure.",
-    "confidence": "medium"
+    "confidence": "medium",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Matthew Lewis",
+        "occupation": "Banter Capital"
+      }
+    ]
   },
   {
     "id": "saanya-ojha",
@@ -362,7 +370,8 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "connection_degree": "1st"
   },
   {
     "id": "scott-khanna",
@@ -539,7 +548,8 @@
     "enriched": false,
     "aum_usd": 325000000,
     "firm_stages": "seed",
-    "firm_website": "audacious.co"
+    "firm_website": "audacious.co",
+    "connection_degree": "1st"
   },
   {
     "id": "peter-xia",
@@ -3833,7 +3843,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "alex-rampell",
@@ -3896,7 +3913,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "ali-yahya",
@@ -3954,7 +3978,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "andrew-chen",
@@ -4009,7 +4040,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "anish-acharya",
@@ -4064,7 +4102,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "anjney-midha",
@@ -4122,7 +4167,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "arianna-simpson",
@@ -4177,7 +4229,14 @@
     "confidence": "medium",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "astasia-myers",
@@ -4290,7 +4349,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "beth-seidenberg",
@@ -4346,7 +4412,18 @@
     "confidence": "high",
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "chetan-puttagunta",
@@ -4427,7 +4504,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "connie-chan",
@@ -4480,7 +4564,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "david-george",
@@ -4541,7 +4632,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "david-sze",
@@ -4623,7 +4721,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "eric-vishria",
@@ -4701,7 +4806,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "ev-randle",
@@ -4832,7 +4944,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "jerry-chen",
@@ -4916,7 +5035,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "julie-yoo",
@@ -4974,7 +5100,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "marc-andreessen",
@@ -5033,7 +5166,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "martin-casado",
@@ -5095,7 +5235,14 @@
     "confidence": "high",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "mike-duboe",
@@ -5343,7 +5490,14 @@
     "confidence": "medium",
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "saam-motamedi",
@@ -5415,7 +5569,14 @@
     "enriched": false,
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "sriram-krishnan",
@@ -5439,7 +5600,14 @@
     "enriched": false,
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "trae-stephens",
@@ -5487,7 +5655,14 @@
     "enriched": false,
     "aum_usd": 7600000000,
     "firm_stages": "both",
-    "firm_website": "a16z.com"
+    "firm_website": "a16z.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Kim Fong",
+        "occupation": "Partner, Executive Talent at Andreessen Horowitz"
+      }
+    ]
   },
   {
     "id": "viviana-faga",
@@ -5803,7 +5978,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "andrew-braccia",
@@ -5827,7 +6009,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "andrew-reed",
@@ -5872,7 +6061,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "arif-janmohamed",
@@ -5944,7 +6144,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "asheem-chandna",
@@ -6061,7 +6268,14 @@
     "enriched": false,
     "aum_usd": 1520000000,
     "firm_stages": "seed",
-    "firm_website": "firstround.com"
+    "firm_website": "firstround.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Julianna Marchant",
+        "occupation": "Writer at First Round Capital"
+      }
+    ]
   },
   {
     "id": "bogomil-balkansky",
@@ -6106,7 +6320,14 @@
     "enriched": false,
     "aum_usd": 1520000000,
     "firm_stages": "seed",
-    "firm_website": "firstround.com"
+    "firm_website": "firstround.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Julianna Marchant",
+        "occupation": "Writer at First Round Capital"
+      }
+    ]
   },
   {
     "id": "brian-singerman",
@@ -6175,7 +6396,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "casey-aylward",
@@ -6199,7 +6431,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "cat-wu",
@@ -6310,7 +6549,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "danny-rimer",
@@ -6445,7 +6691,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "ethan-choi",
@@ -6469,7 +6726,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "evan-moore",
@@ -6580,7 +6844,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "hemant-taneja",
@@ -6628,7 +6903,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "jahanvi-sardana",
@@ -6760,7 +7046,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "john-locke",
@@ -6784,7 +7081,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "jon-chu",
@@ -6853,7 +7157,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "kanu-gulati",
@@ -7015,7 +7330,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "liz-wessel",
@@ -7039,7 +7365,14 @@
     "enriched": false,
     "aum_usd": 1520000000,
     "firm_stages": "seed",
-    "firm_website": "firstround.com"
+    "firm_website": "firstround.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Julianna Marchant",
+        "occupation": "Writer at First Round Capital"
+      }
+    ]
   },
   {
     "id": "mamoon-hamid",
@@ -7063,7 +7396,18 @@
     "enriched": false,
     "aum_usd": 5460000000,
     "firm_stages": "seed/seed+",
-    "firm_website": "kleinerperkins.com"
+    "firm_website": "kleinerperkins.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Haris Ioannou",
+        "occupation": "AI Product Lead at Google Cloud, Gemini Audio | Kleiner Perkins Product Fellow"
+      },
+      {
+        "name": "Wenhan (Han) Zhang",
+        "occupation": "Product @ Meta | Kleiner Perkins Fellow"
+      }
+    ]
   },
   {
     "id": "marc-bhargava",
@@ -7174,7 +7518,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "moritz-baier-lentz",
@@ -7399,7 +7750,14 @@
     "enriched": false,
     "aum_usd": 1520000000,
     "firm_stages": "seed",
-    "firm_website": "firstround.com"
+    "firm_website": "firstround.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Julianna Marchant",
+        "occupation": "Writer at First Round Capital"
+      }
+    ]
   },
   {
     "id": "ping-li",
@@ -7423,7 +7781,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "pranav-singhvi",
@@ -7567,7 +7932,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "roelof-botha",
@@ -7636,7 +8008,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "sachin-patel",
@@ -7681,7 +8060,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "sarah-cannon",
@@ -7858,7 +8244,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "sven-strohband",
@@ -7927,7 +8320,14 @@
     "enriched": false,
     "aum_usd": 1520000000,
     "firm_stages": "seed",
-    "firm_website": "firstround.com"
+    "firm_website": "firstround.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Julianna Marchant",
+        "occupation": "Writer at First Round Capital"
+      }
+    ]
   },
   {
     "id": "tony-conrad",
@@ -7999,7 +8399,14 @@
     "enriched": false,
     "aum_usd": 10500000000,
     "firm_stages": "both",
-    "firm_website": "accel.com"
+    "firm_website": "accel.com",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Sara Du",
+        "occupation": "Building Ando ✶ Thiel Fellow, Accel-backed, etc"
+      }
+    ]
   },
   {
     "id": "vinod-khosla",
@@ -8464,7 +8871,14 @@
     "enriched": false,
     "aum_usd": 425000000,
     "firm_stages": "pre-seed/seed",
-    "firm_website": "pear.vc"
+    "firm_website": "pear.vc",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Rishi Sadanandan",
+        "occupation": "Stanford CS (AI) & Math | M.S. MS&E | McKinsey | Pear VC Fellow"
+      }
+    ]
   },
   {
     "id": "matthew-ocko",
@@ -8512,7 +8926,14 @@
     "enriched": false,
     "aum_usd": 425000000,
     "firm_stages": "pre-seed/seed",
-    "firm_website": "pear.vc"
+    "firm_website": "pear.vc",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Rishi Sadanandan",
+        "occupation": "Stanford CS (AI) & Math | M.S. MS&E | McKinsey | Pear VC Fellow"
+      }
+    ]
   },
   {
     "id": "satish-dharmaraj",
@@ -9703,7 +10124,14 @@
     "enriched": false,
     "aum_usd": 425000000,
     "firm_stages": "pre-seed/seed",
-    "firm_website": "pear.vc"
+    "firm_website": "pear.vc",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Rishi Sadanandan",
+        "occupation": "Stanford CS (AI) & Math | M.S. MS&E | McKinsey | Pear VC Fellow"
+      }
+    ]
   },
   {
     "id": "alex-moore",
@@ -10312,7 +10740,14 @@
     "enriched": false,
     "aum_usd": 425000000,
     "firm_stages": "pre-seed/seed",
-    "firm_website": "pear.vc"
+    "firm_website": "pear.vc",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Rishi Sadanandan",
+        "occupation": "Stanford CS (AI) & Math | M.S. MS&E | McKinsey | Pear VC Fellow"
+      }
+    ]
   },
   {
     "id": "kelly-chen",
@@ -10981,7 +11416,14 @@
     "enriched": false,
     "aum_usd": 425000000,
     "firm_stages": "pre-seed/seed",
-    "firm_website": "pear.vc"
+    "firm_website": "pear.vc",
+    "connection_degree": "2nd",
+    "connection_via": [
+      {
+        "name": "Rishi Sadanandan",
+        "occupation": "Stanford CS (AI) & Math | M.S. MS&E | McKinsey | Pear VC Fellow"
+      }
+    ]
   },
   {
     "id": "zoe-perret",

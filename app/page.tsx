@@ -257,6 +257,18 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
           {i.firm_stages && (
             <span style={{ fontSize: 11, color: "#9a9aa3" }}>· stages: {i.firm_stages}</span>
           )}
+          {i.connection_degree === "1st" && (
+            <span style={{
+              padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+              background: "#22c55e", color: "#0b0b0d",
+            }}>1ST DEGREE</span>
+          )}
+          {i.connection_degree === "2nd" && (
+            <span style={{
+              padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+              background: "#facc15", color: "#0b0b0d",
+            }}>2ND DEGREE</span>
+          )}
         </div>
         <h2 style={{ fontSize: 24, fontWeight: 600 }}>{i.name}</h2>
         <div style={{ color: "#c5c5cc", fontSize: 14 }}>{i.role}{i.firm && i.firm !== i.role ? ` · ${i.firm}` : ""}</div>
@@ -264,6 +276,27 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
           <div style={{ color: "#9a9aa3", fontSize: 12, marginTop: 2 }}>Also: {i.firm_partner_role}</div>
         )}
       </div>
+
+      {i.connection_degree === "2nd" && i.connection_via && i.connection_via.length > 0 && (
+        <Section label="Warm intro paths (your connections at this firm)">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {i.connection_via.slice(0, 5).map((c, idx) => (
+              <div key={idx} style={{ fontSize: 13 }}>
+                <span style={{ color: "#fde68a", fontWeight: 600 }}>{c.name}</span>
+                <span style={{ color: "#9a9aa3" }}> — {c.occupation}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {i.connection_degree === "1st" && (
+        <Section label="Connection status">
+          <div style={{ fontSize: 13, color: "#86efac" }}>
+            ✓ You're already 1st-degree connected on LinkedIn — message directly.
+          </div>
+        </Section>
+      )}
 
       {i.thesis_blurb && (
         <Section label="Thesis">

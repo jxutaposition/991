@@ -25,15 +25,17 @@ export type Investor = {
   notes?: string;
   score: number;
 
-  // Enriched fields
+  // Enriched fields — INDIVIDUAL to this person
   portfolio: string[];
   writings: Writing[];
   network_signals: string[];
-  testimonials: Testimonial[];
+  testimonials: Testimonial[]; // deprecated
   sector_focus: string[];
   stage_focus: string[];
   check_size?: string;
   thesis_blurb?: string;
+  co_investors?: string[];
+  leads_rounds?: "lead" | "follow" | "both" | "unknown";
   enriched: boolean;
   confidence?: "high" | "medium" | "low";
 
@@ -42,8 +44,17 @@ export type Investor = {
   warm_priority?: number;
   sub_bucket?: string;
   firm_partner_role?: string;
+
+  // Firm AUM and metadata (from vc_top_targets.csv)
+  aum_usd?: number;
+  firm_stages?: string;
+  firm_website?: string;
+
+  // LinkedIn connection signal (from your 1st-degree network)
+  connection_degree?: "1st" | "2nd";
+  connection_via?: { name: string; occupation: string }[];
 };
 
-export type Decision = "keep" | "cut";
+export type Decision = "keep" | "cut" | "skip";
 
 export type DecisionMap = Record<string, Decision>;
