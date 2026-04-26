@@ -1190,7 +1190,8 @@
     "enriched": true,
     "check_size": "$250K-$5M+",
     "thesis_blurb": "Backs ambitious AI-native technical founders early; AI Grant offers $250K to AI-native companies.",
-    "confidence": "high"
+    "confidence": "high",
+    "israeli": true
   },
   {
     "id": "edwin-wee",
@@ -3232,7 +3233,8 @@
     "check_size": "$100K-$300K",
     "thesis_blurb": "Backs founders so culturally resonant you'd describe them enthusiastically to a non-tech friend over an hour.",
     "leads_rounds": "follow",
-    "confidence": "high"
+    "confidence": "high",
+    "israeli": true
   },
   {
     "id": "olivia-moore",
@@ -10275,7 +10277,8 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "israeli": true
   },
   {
     "id": "todd-jackson",

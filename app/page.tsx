@@ -5,7 +5,7 @@ import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, loadLGMQueue, exportLGMQueue } from "../lib/storage";
 
-const ALL_INVESTORS = investorsData as Investor[];
+const ALL_INVESTORS = (investorsData as Investor[]).filter(i => !i.israeli);
 
 const TARGET_MEETINGS = 52;
 const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260

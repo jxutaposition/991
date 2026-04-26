@@ -53,6 +53,8 @@ export type Investor = {
   // LinkedIn connection signal (from your 1st-degree network)
   connection_degree?: "1st" | "2nd";
   connection_via?: { name: string; occupation: string }[];
+
+  israeli?: boolean;
 };
 
 export type Decision = "keep" | "cut" | "skip";
