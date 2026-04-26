@@ -12,13 +12,38 @@
     "sf_based": true,
     "notes": "Operator Collective GP; ex-Uber. SF-based.",
     "score": 95,
-    "portfolio": [],
+    "portfolio": [
+      "Esusu",
+      "Hex",
+      "AirGarage",
+      "Mercury",
+      "Tofu",
+      "Paramark",
+      "Replo"
+    ],
     "writings": [],
-    "network_signals": [],
+    "network_signals": [
+      "ex-Uber Money exec",
+      "Co-founder Fast (payments)",
+      "Founder Trail Run Capital angel fund",
+      "30+ angel investments"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise Software",
+      "SMB Software",
+      "AI",
+      "FinTech",
+      "Health IT"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "up to $50K (angel); Operator Collective Seed+A",
+    "thesis_blurb": "Backs operator-led startups across enterprise, fintech, and AI; emphasizes AI transformation at Seed+A.",
+    "confidence": "high"
   },
   {
     "id": "heston-berkman",
@@ -33,13 +58,35 @@
     "sf_based": true,
     "notes": "Partner-level — schedule post-5/6.",
     "score": 95,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "ZeroLend"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "Ep 023 - Heston Berkman, Founder and Partner at Banter Capital",
+        "url": "https://podcasts.apple.com/us/podcast/ep-023-heston-berkman-founder-and-partner-at-banter-capital/id1711344638?i=1000671564990"
+      }
+    ],
+    "network_signals": [
+      "Founder/Partner Banter Capital",
+      "Tied to Crypto Banter media network (Ran Neuner)",
+      "Crypto/DeFi specialist"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Crypto",
+      "DeFi",
+      "Blockchain Gaming",
+      "Crypto Infrastructure"
+    ],
+    "stage_focus": [
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "$100K-$2M",
+    "thesis_blurb": "Token and equity investments across DeFi, blockchain gaming, and crypto infrastructure.",
+    "confidence": "medium"
   },
   {
     "id": "saanya-ojha",
@@ -54,13 +101,42 @@
     "sf_based": true,
     "notes": "Partner-level — schedule post-5/6. BCV writes seed + Series A; SF presence.",
     "score": 95,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Cloudwalk",
+      "Melio",
+      "Mercury",
+      "BharatPe",
+      "Cred"
+    ],
+    "writings": [
+      {
+        "type": "substack",
+        "title": "Saanya Ojha on Substack",
+        "url": "https://substack.com/@saanyaojha"
+      }
+    ],
+    "network_signals": [
+      "ex-Coatue (fintech practice)",
+      "ex-Goldman Sachs hedge fund analyst",
+      "Wharton finance",
+      "Joined BCV 2023"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Fintech",
+      "Cloud Infrastructure",
+      "Cybersecurity",
+      "Developer Tools",
+      "AI"
+    ],
+    "stage_focus": [
+      "growth",
+      "Series B+"
+    ],
+    "enriched": true,
+    "check_size": "$25M-$100M (sweet spot $50M)",
+    "thesis_blurb": "Growth-stage software investor focused on cloud infra, cybersecurity, and the developer ecosystem; metrics-driven approach.",
+    "confidence": "high"
   },
   {
     "id": "allison-kiang",
@@ -75,13 +151,31 @@
     "sf_based": true,
     "notes": "Twelve Below = NYC seed fund. Useful for intro.",
     "score": 90,
-    "portfolio": [],
+    "portfolio": [
+      "Ellipsis Health",
+      "Charta Health"
+    ],
     "writings": [],
-    "network_signals": [],
+    "network_signals": [
+      "ex-Komodo Health (data products & analytics)",
+      "Columbia BA Neuroscience"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Healthtech",
+      "Fintech",
+      "Climate",
+      "Consumer",
+      "AI-enabled healthcare"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Backs exceptional founders building data-moat systems at pre-seed/seed across healthtech, fintech, climate, and consumer.",
+    "confidence": "medium"
   },
   {
     "id": "anna-chen",
@@ -98,11 +192,28 @@
     "score": 90,
     "portfolio": [],
     "writings": [],
-    "network_signals": [],
+    "network_signals": [
+      "ex-General Atlantic tech group associate",
+      "ex-J.P. Morgan tech M&A analyst",
+      "Joined Madrona 2024",
+      "Based in Palo Alto office"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Intelligent Applications",
+      "Enterprise Software",
+      "Consumer Tech",
+      "AI/ML"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "acceleration stage"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Sources and evaluates acceleration-stage opportunities across Madrona's intelligent apps, enterprise, and consumer themes.",
+    "confidence": "medium"
   },
   {
     "id": "chelcie-taylor",
@@ -117,13 +228,51 @@
     "sf_based": true,
     "notes": "Notable Capital (formerly GGV US). Verify if Partner or junior.",
     "score": 90,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Arteria.ai",
+      "Electric",
+      "Heard",
+      "Homebase",
+      "Plenful",
+      "Realm",
+      "Slice",
+      "Stream",
+      "Vic.ai",
+      "Wispr",
+      "Pinwheel",
+      "Mindee"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "Chelcie Taylor at TechCrunch",
+        "url": "https://techcrunch.com/author/chelcie-taylor/"
+      }
+    ],
+    "network_signals": [
+      "NVCA Rising Star 2024",
+      "Princeton Political Science",
+      "Harvard MBA",
+      "Leads Notable's SMBTech 50 list",
+      "Leads Notable's AI applications initiative"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Application Software",
+      "Enterprise SaaS",
+      "Vertical SaaS",
+      "SMBTech",
+      "AI"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "multi-stage"
+    ],
+    "enriched": true,
+    "check_size": "$250K-$25M (sweet spot $10M)",
+    "thesis_blurb": "Multi-stage application software investor focused on enterprise, vertical SaaS, SMBTech, and AI apps; six board observer seats.",
+    "confidence": "high"
   },
   {
     "id": "ernest-addison",
@@ -495,13 +644,61 @@
     "notes": "Iconic SF angel; runs syndicate; ~$50K typical",
     "angel_signal": "271 investments; Twitter Uber Notion; latest Quill Feb 2026",
     "score": 250,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Twitter",
+      "Uber",
+      "Postmates",
+      "Yammer",
+      "Stack Overflow",
+      "OpenDoor",
+      "Notion",
+      "Clubhouse"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "20VC: Naval Ravikant on Why Seed Is Not About Picking Winners",
+        "url": "https://www.thetwentyminutevc.com/navalravikant"
+      },
+      {
+        "type": "book",
+        "title": "The Almanack of Naval Ravikant",
+        "url": "https://www.navalmanack.com/"
+      },
+      {
+        "type": "twitter",
+        "title": "@naval Twitter threads",
+        "url": "https://twitter.com/naval"
+      },
+      {
+        "type": "podcast",
+        "title": "Naval Podcast",
+        "url": "https://nav.al/podcast"
+      }
+    ],
+    "network_signals": [
+      "AngelList founder",
+      "150+ angel deals",
+      "37 exits / 16 unicorns",
+      "Hit Forge fund",
+      "Tim Ferriss inner circle"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Consumer",
+      "Marketplaces",
+      "Crypto/Web3",
+      "AI",
+      "Biotech"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "$25K-$500K via syndicate; larger via funds",
+    "thesis_blurb": "Founders, not ideas, determine startup success. Seed is about eliminating losers, not picking winners.",
+    "confidence": "high"
   },
   {
     "id": "lachy-groom",
@@ -516,13 +713,51 @@
     "notes": "Top-tier solo GP-style angel; writes large checks; very active",
     "angel_signal": "213 Crunchbase angel deals; Figma/Notion/Ramp/Lattice/Deel angel",
     "score": 213,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Figma",
+      "Notion",
+      "Ramp",
+      "Lattice",
+      "Retool",
+      "Linear",
+      "Vercel",
+      "Replicate"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@lachygroom",
+        "url": "https://twitter.com/lachygroom"
+      },
+      {
+        "type": "article",
+        "title": "Physical Intelligence profile (TechCrunch)",
+        "url": "https://techcrunch.com/2026/01/30/physical-intelligence-stripe-veteran-lachy-grooms-latest-bet-is-building-silicon-valleys-buzziest-robot-brains/"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Solo capitalist",
+      "$100K-$500K checks",
+      "Robotics/AI founder",
+      "Aussie tech diaspora"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Dev tools",
+      "B2B SaaS",
+      "Workflow software",
+      "AI infra",
+      "Robotics"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "$100K-$500K",
+    "thesis_blurb": "Concentrated bets on B2B companies solving workflow problems for knowledge workers.",
+    "confidence": "high"
   },
   {
     "id": "cristina-cordova",
@@ -537,13 +772,48 @@
     "notes": "Highly responsive on Twitter; partnerships/GTM angel",
     "angel_signal": "~80 angel investments incl Notion/WorkOS/Metronome/Baseten/Ashby",
     "score": 80,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Notion",
+      "WorkOS",
+      "Metronome",
+      "Baseten",
+      "Ashby",
+      "Canva"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "cristina.com personal site",
+        "url": "https://www.cristina.com/"
+      },
+      {
+        "type": "twitter",
+        "title": "@cjc on X",
+        "url": "https://x.com/cjc"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Notion alum",
+      "First Round alum",
+      "60+ angel deals",
+      "B2B SaaS operator-investor"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "B2B SaaS",
+      "Fintech",
+      "Dev tools",
+      "Productivity"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Backs B2B SaaS and fintech founders building infrastructure and partnerships-driven products.",
+    "confidence": "high"
   },
   {
     "id": "aaron-levie",
@@ -558,13 +828,54 @@
     "notes": "SF Bay Area; enterprise/SaaS specialist; not Salesforce alum but in core network",
     "angel_signal": "65 angel investments; checks $5K-$50K; 8 unicorns incl. Remote, Forward; Salesforce-adjacent",
     "score": 65,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Remote",
+      "Forward",
+      "SingleStore",
+      "Zenefits",
+      "Turvo",
+      "Vicarious",
+      "Rippling",
+      "Ramp"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@levie on X",
+        "url": "https://twitter.com/levie"
+      },
+      {
+        "type": "podcast",
+        "title": "The Founder Hour: Aaron Levie",
+        "url": "https://www.thefounderhour.com/episodes/aaron-levie-box"
+      },
+      {
+        "type": "podcast",
+        "title": "a16z with Martin Casado",
+        "url": "https://www.youtube.com/watch?v=uqc_vt95GJg"
+      }
+    ],
+    "network_signals": [
+      "Public-company CEO",
+      "58-company portfolio / 23 exits / 8 unicorns",
+      "Mark Cuban early backer",
+      "Enterprise SaaS OG"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise SaaS",
+      "Dev tools",
+      "AI infra",
+      "Fintech"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Invests in infrastructure with bottom-up adoption and enterprise monetization, valuing technical depth.",
+    "confidence": "high"
   },
   {
     "id": "daniel-gross",
@@ -579,13 +890,56 @@
     "notes": "SF; AI/dev tools focus; co-invests w/ Nat Friedman",
     "angel_signal": "Prolific AI-era angel; co-runs SSI w/ Sutskever",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Perplexity",
+      "CoreWeave",
+      "Figma",
+      "Rippling",
+      "Airtable",
+      "GitHub",
+      "Uber",
+      "Instacart"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "danielgross.com",
+        "url": "https://danielgross.com/"
+      },
+      {
+        "type": "twitter",
+        "title": "@danielgross",
+        "url": "https://x.com/danielgross"
+      },
+      {
+        "type": "program",
+        "title": "AI Grant (with Nat Friedman)",
+        "url": "https://aigrant.com/"
+      }
+    ],
+    "network_signals": [
+      "YC alum (Cue founder)",
+      "Apple ex-director ML",
+      "Pioneer founder",
+      "NFDG (Nat Friedman + Daniel Gross)",
+      "AI Grant"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI infra",
+      "AI applications",
+      "Dev tools",
+      "Frontier compute"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "$250K-$5M+",
+    "thesis_blurb": "Backs ambitious AI-native technical founders early; AI Grant offers $250K to AI-native companies.",
+    "confidence": "high"
   },
   {
     "id": "edwin-wee",
@@ -601,12 +955,37 @@
     "angel_signal": "Active angel via syndicates and Stripe-network deals",
     "score": 60,
     "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@edwinwee on X",
+        "url": "https://x.com/edwinwee"
+      },
+      {
+        "type": "essay",
+        "title": "Seven years at Stripe (LinkedIn)",
+        "url": "https://www.linkedin.com/pulse/seven-years-stripe-edwin-wee"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Anthropic alum",
+      "Cursor team",
+      "GTM operator"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI infra",
+      "Dev tools",
+      "B2B SaaS"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "confidence": "low"
   },
   {
     "id": "mike-maples-jr",
@@ -621,14 +1000,65 @@
     "notes": "SF/Palo Alto; consumer + B2B",
     "angel_signal": "Long-time prolific angel + Floodgate",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Twitter",
+      "Twitch",
+      "Okta",
+      "Lyft",
+      "Cruise",
+      "Outreach",
+      "Applied Intuition",
+      "Chegg"
+    ],
+    "writings": [
+      {
+        "type": "book",
+        "title": "Pattern Breakers",
+        "url": "https://www.patternbreakers.com/"
+      },
+      {
+        "type": "podcast",
+        "title": "Pattern Breakers Podcast",
+        "url": "https://podcasts.apple.com/us/podcast/pattern-breakers/id1690638172"
+      },
+      {
+        "type": "podcast",
+        "title": "Tim Ferriss Show #397",
+        "url": "https://tim.blog/2019/12/07/mike-maples-andy-rachleff-transcript/"
+      },
+      {
+        "type": "podcast",
+        "title": "Venture Unlocked Ep 19",
+        "url": "https://ventureunlocked.substack.com/p/mikemaples019"
+      },
+      {
+        "type": "essay",
+        "title": "Letters to a Young Investor (Generalist)",
+        "url": "https://www.generalist.com/p/mike-maples-jr-1"
+      }
+    ],
+    "network_signals": [
+      "Forbes Midas List 8x",
+      "Floodgate co-founder",
+      "Stanford GSB lecturer",
+      "First-check seed OG"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false,
-    "firm_partner_role": "Partner (co-founding) at Floodgate"
+    "sector_focus": [
+      "Consumer",
+      "AV/Robotics",
+      "Enterprise SaaS",
+      "Marketplaces"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "firm_partner_role": "Partner (co-founding) at Floodgate",
+    "check_size": "$500K-$2M (firm) / personal angel",
+    "thesis_blurb": "Backs 'pattern-breaker' founders pursuing inflection-point opportunities most people don't yet like.",
+    "confidence": "high"
   },
   {
     "id": "scott-banister",
@@ -643,13 +1073,45 @@
     "notes": "SF; deep early-stage",
     "angel_signal": "Co-runs syndicate w/ Cyan; 100+ investments",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Uber",
+      "SpaceX",
+      "Facebook",
+      "Postmates",
+      "DeepMind",
+      "Zappos",
+      "LiveOps",
+      "Topsy Labs"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@SBanister on X",
+        "url": "https://twitter.com/SBanister"
+      }
+    ],
+    "network_signals": [
+      "PayPal early advisor",
+      "IronPort co-founder (Cisco $830M exit)",
+      "199 investments",
+      "TechCrunch Angel of the Year 2016",
+      "Half Moon Bay base"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Consumer internet",
+      "Frontier tech",
+      "AI",
+      "Marketplaces"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "$25K-$50K",
+    "thesis_blurb": "Prolific Bay Area consumer-internet angel known for prescient bets on SpaceX, Uber, and DeepMind.",
+    "confidence": "high"
   },
   {
     "id": "greg-brockman",
@@ -664,13 +1126,48 @@
     "notes": "Top-tier AI angel; hard to reach but high signal",
     "angel_signal": "51 Crunchbase angel deals; $100K-$5M range; AI/devtools focus",
     "score": 51,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Replit",
+      "Hugging Face",
+      "Lambda",
+      "Sandbar",
+      "Uplimit",
+      "Lumos",
+      "Baseten"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "gregbrockman.com",
+        "url": "https://gregbrockman.com/"
+      },
+      {
+        "type": "twitter",
+        "title": "@gdb on X",
+        "url": "https://twitter.com/gdb"
+      }
+    ],
+    "network_signals": [
+      "OpenAI co-founder",
+      "Stripe Mafia (ex-CTO)",
+      "MIT dropout",
+      "51 investments / 7 unicorns"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI infra",
+      "Dev tools",
+      "SMB software",
+      "AI applications"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "$100K-$5M (sweet spot ~$1.5M)",
+    "thesis_blurb": "Concentrates on AI, developer tools, and SMB software at pre-seed and seed.",
+    "confidence": "high"
   },
   {
     "id": "ali-partovi",
@@ -685,13 +1182,51 @@
     "notes": "SF; mission-aligned tech-for-good angel",
     "angel_signal": "Neo fund + decades of angel checks (Facebook Airbnb Dropbox)",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Dropbox",
+      "Facebook",
+      "Airbnb",
+      "Uber",
+      "Postmates",
+      "Cursor",
+      "Bluesky",
+      "Kalshi",
+      "Opower"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "partovi.org",
+        "url": "https://www.partovi.org/"
+      },
+      {
+        "type": "twitter",
+        "title": "@apartovi",
+        "url": "https://twitter.com/apartovi"
+      }
+    ],
+    "network_signals": [
+      "Code.org co-founder",
+      "Neo founder ($200M AUM)",
+      "Identical twin (Hadi Partovi)",
+      "iLike co-founder",
+      "57 Neo portfolio cos"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI",
+      "Consumer",
+      "Enterprise SaaS",
+      "Crypto"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "$250K-$3M (Neo); personal angel",
+    "thesis_blurb": "Backs young technical founders via Neo mentorship community; led Bluesky seed and was first into Cursor.",
+    "confidence": "high"
   },
   {
     "id": "auren-hoffman",
@@ -706,13 +1241,49 @@
     "notes": "SF; data/B2B focus; super-connector",
     "angel_signal": "~$25K checks into many technical-team startups",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "LiveRamp (founded)",
+      "SafeGraph (founded)",
+      "Dialog (co-founded)"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "World of DaaS (host)",
+        "url": "https://www.worldofdaas.com/"
+      },
+      {
+        "type": "twitter",
+        "title": "@auren on X",
+        "url": "https://twitter.com/auren"
+      },
+      {
+        "type": "blog",
+        "title": "Summation (Substack)",
+        "url": "https://summation.net/"
+      }
+    ],
+    "network_signals": [
+      "LiveRamp founder ($1.85B Acxiom acq)",
+      "100+ angel deals",
+      "Data/DaaS thesis",
+      "Flex Capital GP"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Data / DaaS",
+      "B2B SaaS",
+      "Fintech",
+      "Vertical SaaS"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Data-as-a-Service evangelist; backs companies turning unique datasets into recurring revenue.",
+    "confidence": "high"
   },
   {
     "id": "avi-itskovich",
@@ -728,12 +1299,32 @@
     "angel_signal": "Founder-angel within Stripe alumni network",
     "score": 50,
     "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@aitskovi on X",
+        "url": "https://x.com/aitskovi"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Watershed co-founder",
+      "Climate tech founder",
+      "Sequoia-backed"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Climate",
+      "Dev tools",
+      "Fintech infra"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "confidence": "low"
   },
   {
     "id": "ben-rattray",
@@ -748,13 +1339,27 @@
     "notes": "Mission-aligned crowdfunding/social-impact peer; warm intro target via Stanford/social-tech network",
     "angel_signal": "Influential mission-driven founder; backers/board ties at Change.org",
     "score": 50,
-    "portfolio": [],
+    "portfolio": [
+      "Smashing"
+    ],
     "writings": [],
-    "network_signals": [],
+    "network_signals": [
+      "Change.org founder",
+      "Time 100 (2012)",
+      "Stanford alum",
+      "Social impact"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Social impact",
+      "Consumer"
+    ],
+    "stage_focus": [
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "confidence": "low"
   },
   {
     "id": "bret-taylor",
@@ -769,13 +1374,51 @@
     "notes": "SF Bay Area; AI-heavy",
     "angel_signal": "4 angel investments incl. Browser Company, Socket; runs Sierra ($10B AI startup)",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "The Browser Company",
+      "Socket",
+      "Terraton"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@btaylor on X",
+        "url": "https://x.com/btaylor"
+      },
+      {
+        "type": "blog",
+        "title": "Sierra blog",
+        "url": "https://sierra.ai/author/bret-taylor"
+      },
+      {
+        "type": "interview",
+        "title": "Who Got Me There: Bret Taylor",
+        "url": "https://www.whogotmehere.com/stories/bret-taylor"
+      }
+    ],
+    "network_signals": [
+      "OpenAI Chair",
+      "ex-Co-CEO Salesforce",
+      "ex-CTO Facebook",
+      "Google Maps co-creator",
+      "Quip founder",
+      "Shopify board"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI agents",
+      "Enterprise SaaS",
+      "Productivity",
+      "Dev tools"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Building Sierra (AI agents for customer service) while backing AI-native applied/agent companies.",
+    "confidence": "medium"
   },
   {
     "id": "brie-wolfson",
@@ -791,12 +1434,57 @@
     "angel_signal": "Smaller angel checks via Positive Sum / personal",
     "score": 50,
     "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "briewolfson.com",
+        "url": "https://www.briewolfson.com/"
+      },
+      {
+        "type": "essay",
+        "title": "What I Miss About Working at Stripe (Every)",
+        "url": "https://every.to/p/what-i-miss-about-working-at-stripe"
+      },
+      {
+        "type": "essay",
+        "title": "Notes on Taste",
+        "url": "https://www.kwokchain.com/p/notes-on-taste-by-brie-wolfson"
+      },
+      {
+        "type": "essay",
+        "title": "How to Flounder Mode (Not Boring)",
+        "url": "https://www.notboring.co/p/how-to-flounder-mode-with-brie-wolfson"
+      },
+      {
+        "type": "podcast",
+        "title": "Hyperlegible 013 with Brie Wolfson",
+        "url": "https://podcasts.apple.com/us/podcast/brie-wolfson-learning-to-love-flounder-mode-from-kevin/id1804641503?i=1000717690310"
+      },
+      {
+        "type": "podcast",
+        "title": "First Round Review: Stripe documentation best practices",
+        "url": "https://review.firstround.com/podcast/from-kickoffs-to-retros-and-slack-channels-stripes-documentation-best-practices-with-brie-wolfson/"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Stripe Press founder",
+      "Positive Sum (Matt Ocko)",
+      "Craft / taste-driven culture"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Brand/marketing-driven companies",
+      "Consumer",
+      "B2B SaaS"
+    ],
+    "stage_focus": [
+      "seed"
+    ],
+    "enriched": true,
+    "check_size": "unknown",
+    "thesis_blurb": "Champions craft, taste, and 'Flounder Mode' — backs companies obsessed with quality and culture.",
+    "confidence": "medium"
   },
   {
     "id": "calvin-french-owen",
@@ -811,13 +1499,47 @@
     "notes": "Eng/devtools angel; SF-based",
     "angel_signal": "Active angel per Crunchbase; recently joined Thrive",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Statsig",
+      "Metomic",
+      "Tesseral",
+      "Insight Health",
+      "Segment (founder)"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "Lessons for early stage founders",
+        "url": "https://calv.info/early-stage-lessons"
+      },
+      {
+        "type": "blog",
+        "title": "calv.info personal blog",
+        "url": "https://calv.info"
+      }
+    ],
+    "network_signals": [
+      "Segment Mafia",
+      "Twilio alum",
+      "MIT",
+      "Thrive Capital",
+      "YC-adjacent"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise infra",
+      "Dev tools",
+      "Data/analytics",
+      "Enterprise SaaS"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "$25K-$250K",
+    "thesis_blurb": "Backs technical founders building developer-facing infra and data tooling, drawing on Segment operator playbook.",
+    "confidence": "med"
   },
   {
     "id": "charlie-cheever",
@@ -832,13 +1554,52 @@
     "notes": "SF; technical-founder oriented",
     "angel_signal": "Angel investor in dev tools and consumer",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Harmonic",
+      "Etched",
+      "Rork",
+      "ShareWell",
+      "Logseq",
+      "Mem Protocol",
+      "Destiny",
+      "Socket"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@ccheever",
+        "url": "https://twitter.com/ccheever"
+      },
+      {
+        "type": "profile",
+        "title": "Signal NFX profile",
+        "url": "https://signal.nfx.com/investors/charlie-cheever"
+      }
+    ],
+    "network_signals": [
+      "Quora founder",
+      "Facebook alum",
+      "Expo / React Native",
+      "YC",
+      "Amazon alum"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Consumer",
+      "AI",
+      "Dev tools",
+      "Mobile",
+      "SMB software"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "up to $1M",
+    "thesis_blurb": "Prolific angel (40+ investments) backing developer tools, AI hardware, and consumer apps led by technical founders.",
+    "confidence": "high"
   },
   {
     "id": "christian-anderson",
@@ -854,12 +1615,27 @@
     "angel_signal": "Angel in Stripe/climate-alumni circles",
     "score": 50,
     "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@chranderson",
+        "url": "https://x.com/chranderson"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Watershed",
+      "Climate tech"
+    ],
     "testimonials": [],
-    "sector_focus": [],
+    "sector_focus": [
+      "Climate",
+      "Enterprise SaaS"
+    ],
     "stage_focus": [],
-    "enriched": false
+    "enriched": true,
+    "thesis_blurb": "Operator-founder, primarily focused on Watershed; angel activity limited / not publicly indexed.",
+    "confidence": "low"
   },
   {
     "id": "cindy-bi",
@@ -874,13 +1650,54 @@
     "notes": "SF; community-driven syndicate lead",
     "angel_signal": "$100K-$250K pre-seed checks; very active 2024-2025",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Zapier",
+      "Cruise",
+      "Rippling",
+      "Branch",
+      "Octolane AI",
+      "Versori",
+      "The Network"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "CapitalX GP Cindy's open playbook (Medium)",
+        "url": "https://cindybisv.medium.com/capitalx-gp-cindys-journey-to-vc-and-her-open-playbook-4975c259bcc"
+      },
+      {
+        "type": "interview",
+        "title": "TCT Exclusive: Cindy Bi, GP @ CapitalX (Sacra)",
+        "url": "https://sacra.com/p/tct-exclusive-cindy-bi-general-partner/"
+      },
+      {
+        "type": "linkedin",
+        "title": "@cindyxbi",
+        "url": "https://www.linkedin.com/in/cindyxbi/"
+      }
+    ],
+    "network_signals": [
+      "Solo GP",
+      "Rolling Fund",
+      "100+ angel investments",
+      "Founder LP base",
+      "Online-first investor"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "B2B SaaS",
+      "Productivity",
+      "Social platforms",
+      "AI"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed"
+    ],
+    "enriched": true,
+    "check_size": "$100K-$250K",
+    "thesis_blurb": "Online-first solo GP backing fast-moving founders pre-seed/seed; 19 unicorns claimed including Rippling, Zapier, Cruise.",
+    "confidence": "high"
   },
   {
     "id": "claire-hughes-johnson",
@@ -895,13 +1712,44 @@
     "notes": "Operator-network angel; high signal for ex-Stripe founders",
     "angel_signal": "Active angel; backed Quanta, Duna, Seapoint and many ex-Stripe cos",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Workstream",
+      "CoinTracker",
+      "Quanta",
+      "Stripe (operator)"
+    ],
+    "writings": [
+      {
+        "type": "book",
+        "title": "Scaling People (2023)",
+        "url": "https://www.scalingpeople.com/"
+      },
+      {
+        "type": "linkedin",
+        "title": "Claire Hughes Johnson",
+        "url": "https://www.linkedin.com/in/claire-hughes-johnson-7058"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Google alum",
+      "Yale SOM",
+      "Operator-advisor"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise SaaS",
+      "FinTech",
+      "Ops/HR tech"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "$10K-$100K",
+    "thesis_blurb": "Operator-angel leveraging Stripe scaling experience; selectively backs B2B/fintech founders she advises on org-building.",
+    "confidence": "high"
   },
   {
     "id": "cyan-banister",
@@ -916,13 +1764,55 @@
     "notes": "SF; weird/contrarian founders",
     "angel_signal": "Long Journey IV $181.8M closed Mar 2025; very active",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Uber",
+      "SpaceX",
+      "Niantic",
+      "Postmates",
+      "DeepMind",
+      "Carta",
+      "Thumbtack",
+      "Flexport",
+      "Affirm"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "Tim Ferriss Show #780: From Homeless to Top Angel",
+        "url": "https://tim.blog/2024/11/28/cyan-banister/"
+      },
+      {
+        "type": "podcast",
+        "title": "The Pitch (investor)",
+        "url": "https://www.thepitch.show/investors/cyan-banister-long-journey-ventures"
+      },
+      {
+        "type": "twitter",
+        "title": "@cyanbanister",
+        "url": "https://twitter.com/cyanbanister"
+      }
+    ],
+    "network_signals": [
+      "Founders Fund alum",
+      "PayPal-mafia adjacent",
+      "100+ angel investments",
+      "Long Journey Ventures"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Frontier tech",
+      "Consumer",
+      "Marketplaces",
+      "Deep tech"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed"
+    ],
+    "enriched": true,
+    "check_size": "$25K-$1M",
+    "thesis_blurb": "Backs 'magically weird' founders other investors dismiss; track record across Uber, SpaceX, DeepMind, Affirm.",
+    "confidence": "high"
   },
   {
     "id": "david-schmaier",
@@ -937,13 +1827,46 @@
     "notes": "SF Bay Area; B2B SaaS focus",
     "angel_signal": "Active angel; recent investments in Linkd, AppMesh (Nov 2025)",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Linkd",
+      "AppMesh",
+      "Punchh (board)",
+      "Vlocity (founder)"
+    ],
+    "writings": [
+      {
+        "type": "bio",
+        "title": "Salesforce executive bio",
+        "url": "https://www.salesforce.com/company/david-schmaier-bio/"
+      },
+      {
+        "type": "linkedin",
+        "title": "David Schmaier",
+        "url": "https://www.linkedin.com/in/david-schmaier-70476b43/"
+      }
+    ],
+    "network_signals": [
+      "Salesforce alum",
+      "Vlocity founder",
+      "Industry cloud",
+      "Enterprise SaaS network"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise SaaS",
+      "Vertical/industry cloud",
+      "AI for enterprise",
+      "Productivity software"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "check_size": "undisclosed",
+    "thesis_blurb": "Senior Salesforce exec selectively angel-investing in B2B software with vertical or strategic Salesforce-adjacent angles.",
+    "confidence": "med"
   },
   {
     "id": "david-singleton",
@@ -958,13 +1881,41 @@
     "notes": "Recently launched own startup; still writing selective angel checks",
     "angel_signal": "Angel in CloudCruise and others; AI agents focus",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "CloudCruise",
+      "/dev/agents (founder)"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@dps",
+        "url": "https://x.com/dps"
+      },
+      {
+        "type": "linkedin",
+        "title": "David Singleton",
+        "url": "https://www.linkedin.com/in/davidpsingleton/"
+      }
+    ],
+    "network_signals": [
+      "Stripe Mafia",
+      "Google/Android alum",
+      "AI agents",
+      "Meta (post-acquihire)"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI agents",
+      "Dev tools",
+      "Infra"
+    ],
+    "stage_focus": [
+      "Seed"
+    ],
+    "enriched": true,
+    "check_size": "undisclosed",
+    "thesis_blurb": "Recently focused on /dev/agents as founder/CEO; angel scope narrow with concentrated bets in AI agent infrastructure.",
+    "confidence": "low"
   },
   {
     "id": "dylan-field",
@@ -979,13 +1930,53 @@
     "notes": "SF; design/product founder bias",
     "angel_signal": "Active angel; backed Gumroad and many design/dev tools",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "OpenSea",
+      "Loom",
+      "Sunday Robotics",
+      "Warp",
+      "Netlify",
+      "Mercury",
+      "Census",
+      "CodeSandbox",
+      "Golden"
+    ],
+    "writings": [
+      {
+        "type": "twitter",
+        "title": "@zoink",
+        "url": "https://twitter.com/zoink"
+      },
+      {
+        "type": "profile",
+        "title": "Sequoia founder profile",
+        "url": "https://sequoiacap.com/founder/dylan-field/"
+      }
+    ],
+    "network_signals": [
+      "Thiel Fellow",
+      "Figma founder",
+      "Sequoia-backed",
+      "Design/dev-tool ecosystem"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Dev tools",
+      "Design",
+      "AI",
+      "Web3",
+      "FinTech",
+      "Enterprise"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "check_size": "$10K-$500K",
+    "thesis_blurb": "Active angel (118 investments) skewing toward design/dev-tool ecosystem and product-led B2B.",
+    "confidence": "high"
   },
   {
     "id": "eric-ries",
@@ -1000,13 +1991,50 @@
     "notes": "SF; mission-driven founder fit; high relevance for Change-style pitch",
     "angel_signal": "Long-time mission-aligned angel",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Asana",
+      "Pelago",
+      "IMVU (founder)",
+      "LTSE (founder)"
+    ],
+    "writings": [
+      {
+        "type": "book",
+        "title": "The Lean Startup",
+        "url": "http://theleanstartup.com/"
+      },
+      {
+        "type": "book",
+        "title": "Incorruptible (May 2025)",
+        "url": "https://www.linkedin.com/in/eries/"
+      },
+      {
+        "type": "podcast",
+        "title": "First Funders Pod Ep 07",
+        "url": "https://firstfunderspod.com/episodes/07-eric-ries-angel-lean-startup-creator-and-founder-of-ltse-on-how-he-invests-in-and-advises-a-new-wave-of-mission-first-startups/transcript"
+      }
+    ],
+    "network_signals": [
+      "Lean Startup author",
+      "LTSE founder",
+      "Mission-first investor",
+      "100+ investments"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Mission-driven startups",
+      "Enterprise applications",
+      "Consumer",
+      "Public-benefit cos"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed"
+    ],
+    "enriched": true,
+    "check_size": "$10K or less",
+    "thesis_blurb": "Writes small checks (<$10K) into 100+ mission-first startups for learning and catalysis; not a fund.",
+    "confidence": "high"
   },
   {
     "id": "frank-van-veenendaal",
@@ -1021,13 +2049,42 @@
     "notes": "SF Bay Area; high-profile target -- direct angel checks unverified",
     "angel_signal": "Board director at ServiceMax, Onfido, Room To Read; advises Salesforce Ventures",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Coupa (board)",
+      "Vlocity (board)",
+      "NewVoiceMedia (board)",
+      "Onfido (board)",
+      "ServiceMax (board)",
+      "Marin Software (board)"
+    ],
+    "writings": [
+      {
+        "type": "linkedin",
+        "title": "Frank van Veenendaal",
+        "url": "https://www.linkedin.com/in/frank-van-veenendaal-412477/"
+      }
+    ],
+    "network_signals": [
+      "Salesforce alum",
+      "Salesforce Ventures",
+      "Enterprise sales leadership",
+      "SaaS board director"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Enterprise SaaS",
+      "FinTech apps",
+      "Procurement/expense",
+      "Sales tech"
+    ],
+    "stage_focus": [
+      "Series B",
+      "Growth"
+    ],
+    "enriched": true,
+    "check_size": "undisclosed",
+    "thesis_blurb": "Board-director-style investor in late-stage SaaS, transforming emerging companies into market leaders via enterprise sales playbook.",
+    "confidence": "med"
   },
   {
     "id": "gokul-rajaram",
@@ -1042,13 +2099,66 @@
     "notes": "Most prolific operator-angel in SF; writes $25-100K",
     "angel_signal": "172+ investments; backed Airtable Faire Vercel; 14 exits",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Airtable",
+      "Coda",
+      "Faire",
+      "Figma",
+      "Groq",
+      "Cohesity",
+      "Cockroach Labs",
+      "Deel",
+      "Pigment",
+      "Postman",
+      "Rubrik",
+      "Runway",
+      "Supabase",
+      "Vercel",
+      "Ironclad",
+      "BetterUp",
+      "CRED"
+    ],
+    "writings": [
+      {
+        "type": "blog",
+        "title": "gokulrajaram.com",
+        "url": "https://www.gokulrajaram.com/"
+      },
+      {
+        "type": "podcast",
+        "title": "Outliers #102 with Daniel Scrivner",
+        "url": "https://www.danielscrivner.com/102/"
+      },
+      {
+        "type": "school",
+        "title": "Angel Investor School",
+        "url": "https://angelinvestorschool.com/speakers/gokul-rajaram/"
+      }
+    ],
+    "network_signals": [
+      "DoorDash alum",
+      "Square alum",
+      "Google alum",
+      "Pinterest/Coinbase/Trade Desk board",
+      "328 investments"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Software",
+      "AI",
+      "Marketplaces",
+      "Fintech",
+      "Dev tools"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "$50K-$250K",
+    "thesis_blurb": "One of Silicon Valley's most prolific angels; backs early-stage tech globally with operator-led product feedback.",
+    "confidence": "high"
   },
   {
     "id": "immad-akhund",
@@ -1063,13 +2173,54 @@
     "notes": "SF; fintech & B2B SaaS; very active",
     "angel_signal": "Dozens of pre-seed angel checks; launched $26M fund 2025",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Airtable",
+      "Substack",
+      "Rappi",
+      "Applied Intuition",
+      "Decagon",
+      "Gecko Robotics",
+      "Linear"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "20VC: Why Angel Investing Makes Founders Better Operators",
+        "url": "https://www.thetwentyminutevc.com/immadakhund"
+      },
+      {
+        "type": "podcast",
+        "title": "20VC: Immad Akhund's first $26M fund",
+        "url": "https://www.thetwentyminutevc.com/immad-akhund-2"
+      },
+      {
+        "type": "twitter",
+        "title": "@immad",
+        "url": "https://twitter.com/immad"
+      }
+    ],
+    "network_signals": [
+      "YC alum/partner",
+      "Mercury founder",
+      "350+ angel investments",
+      "Solo GP $26M fund"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "B2B SaaS",
+      "AI",
+      "FinTech",
+      "Dev tools",
+      "Robotics"
+    ],
+    "stage_focus": [
+      "Pre-seed",
+      "Seed"
+    ],
+    "enriched": true,
+    "check_size": "$25K-$250K",
+    "thesis_blurb": "Backs ambitious founders in $10B+ markets; 350+ checks across most industries except biotech/hard tech.",
+    "confidence": "high"
   },
   {
     "id": "jack-altman",
@@ -1084,14 +2235,63 @@
     "notes": "Brother of Sam Altman; SF; B2B SaaS focus",
     "angel_signal": "Hydrazine Capital + solo angel; very active SaaS/AI",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Antares Industries",
+      "David AI",
+      "Legora",
+      "Owner.com",
+      "Avoca",
+      "Fillout",
+      "Parahelp",
+      "Retell AI",
+      "Rogo",
+      "SF Compute",
+      "Figma",
+      "Rippling",
+      "Flexport",
+      "Opendoor",
+      "Finch",
+      "Durable"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "Venture Unlocked: Lattice to VC firm",
+        "url": "https://ventureunlocked.substack.com/p/coherence-in-venture-capital-strategies"
+      },
+      {
+        "type": "podcast",
+        "title": "Investor Operator: Building Lattice & Alt Capital",
+        "url": "https://www.investoroperator.io/building-lattice-alt-capital-jack-altman-on-investing-operating/"
+      },
+      {
+        "type": "twitter",
+        "title": "@jaltma",
+        "url": "https://x.com/jaltma"
+      }
+    ],
+    "network_signals": [
+      "Lattice founder",
+      "Altman family",
+      "$425M AUM Alt Capital",
+      "Founder-led B2B network"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false,
-    "firm_partner_role": "General Partner at Benchmark"
+    "sector_focus": [
+      "B2B software",
+      "AI",
+      "Hard tech",
+      "Vertical SaaS"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "firm_partner_role": "General Partner at Benchmark",
+    "check_size": "$1M-$5M (fund); angel checks separate",
+    "thesis_blurb": "Founder-turned-VC backing innovators in B2B software and hard tech via Alt Capital ($150M Fund I, $275M Fund II).",
+    "confidence": "high"
   },
   {
     "id": "jed-mccaleb",
@@ -1106,13 +2306,49 @@
     "notes": "SF; deep-tech & mission tech",
     "angel_signal": "Very active SF angel; deep tech + crypto",
     "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "AstroForge",
+      "Embrace Software",
+      "Socket",
+      "Arcadia Science (board)",
+      "Syllable (board)",
+      "Stellar (founder)",
+      "Vast (founder)"
+    ],
+    "writings": [
+      {
+        "type": "podcast",
+        "title": "Core Memory: Building a Space Station for $1B",
+        "url": "https://www.corememory.com/p/hes-building-a-space-station-jed-mccaleb-vast"
+      },
+      {
+        "type": "linkedin",
+        "title": "Jed McCaleb",
+        "url": "https://www.linkedin.com/in/jed-mccaleb-4052a4/"
+      }
+    ],
+    "network_signals": [
+      "Stellar/Ripple co-founder",
+      "Mt. Gox creator",
+      "Vast founder",
+      "Pantera Capital venture partner",
+      "Crypto OG"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "Space/aerospace",
+      "Crypto/blockchain",
+      "Deep tech",
+      "Bio/science tools"
+    ],
+    "stage_focus": [
+      "Seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "check_size": "undisclosed",
+    "thesis_blurb": "Self-funded crypto billionaire deploying capital into deep-tech, space, and frontier-science bets aligned with Vast/Stellar themes.",
+    "confidence": "med"
   },
   {
     "id": "jeff-morris-jr",
@@ -2033,13 +3269,48 @@
     "sf_uncertain": false,
     "notes": "Menlo Park / Bay Area HQ",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Shopify",
+      "Adyen",
+      "Notion",
+      "Fitbit",
+      "Credit Karma",
+      "Canva",
+      "Crusoe",
+      "Chalk (board)",
+      "Wherobots (board)",
+      "Voiceflow (board)",
+      "Literati (board)"
+    ],
+    "writings": [
+      "Generalist interview: 'Why Being a Generalist VC Is a Competitive Advantage'",
+      "Felicis 1% Founder Development Pledge post",
+      "Frequent X/Twitter (@asenkut)"
+    ],
+    "network_signals": [
+      "12x Forbes Midas List 2014-2025",
+      "ex-Google early employee",
+      "Wharton Graduate Board",
+      "founder-first board policy",
+      "generalist global thesis"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise SaaS",
+      "AI",
+      "infra",
+      "consumer",
+      "fintech",
+      "healthcare"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Generalist global early-stage; founder-aligned; back outliers across geographies and sectors; 'always vote with founders' pledge.",
+    "confidence": "high"
   },
   {
     "id": "barry-eggers",
@@ -2054,13 +3325,43 @@
     "sf_uncertain": false,
     "notes": "Menlo Park",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Snap (seed discovery)",
+      "Nicira",
+      "Mext",
+      "Anthropic (firm-led)",
+      "xAI (firm-led)",
+      "Wiz (firm)",
+      "Cato Networks (firm)",
+      "Nimble Storage",
+      "Riverbed (investor)"
+    ],
+    "writings": [
+      "Metis Strategy interview: 'Learning Investments to Find the Next Big Thing'",
+      "Lightspeed founder podcasts"
+    ],
+    "network_signals": [
+      "multi-time Forbes Midas",
+      "ex-Cisco channel/M&A leader 1991-97",
+      "Nature Conservancy board",
+      "ONUG member",
+      "26 yrs VC + 10 yrs ops"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "IT infrastructure",
+      "networking",
+      "cloud",
+      "analytics",
+      "emerging infra"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Infrastructure-first investor using 'learning investments' to scout the next platform shift; Cisco operator DNA.",
+    "confidence": "high"
   },
   {
     "id": "christopher-schaepe",
@@ -2075,13 +3376,38 @@
     "sf_uncertain": false,
     "notes": "Menlo Park",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Riverbed",
+      "Quattro Wireless",
+      "Informatica (early)",
+      "Snap (firm)",
+      "Affirm (firm Series B)",
+      "MuleSoft (firm)",
+      "Rubrik (firm)"
+    ],
+    "writings": [
+      "Limited public writing; occasional Lightspeed firm posts"
+    ],
+    "network_signals": [
+      "Stanford GSB MBA 1991",
+      "ex-Weiss Peck Greer",
+      "ex-Goldman Sachs",
+      "ex-IBM",
+      "Lightspeed co-founder 2000"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise infra",
+      "semis",
+      "communications"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Founding-era Lightspeed partner with deep semis/comms/enterprise infra roots; lower public profile, long-tenured operator.",
+    "confidence": "medium"
   },
   {
     "id": "david-weiden",
@@ -2096,13 +3422,41 @@
     "sf_uncertain": false,
     "notes": "Menlo Park",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Okta",
+      "RingCentral",
+      "Upstart",
+      "Stripe (early firm)",
+      "Jet.com (firm)"
+    ],
+    "writings": [
+      "A Letter A Day Substack profile (Kevin Gee)",
+      "occasional firm posts"
+    ],
+    "network_signals": [
+      "ex-Netscape",
+      "ex-AOL",
+      "ex-Salesforce early",
+      "ex-Tellme VP (Microsoft acquisition)",
+      "Forbes/Fortune top investor"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "internet software",
+      "SMB SaaS",
+      "fintech",
+      "payments",
+      "social",
+      "e-commerce",
+      "health IT"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Operator-investor for internet software; pattern-matches scaling playbooks from Netscape/Salesforce/Tellme onto early-stage SaaS.",
+    "confidence": "high"
   },
   {
     "id": "jon-callaghan",
@@ -2117,13 +3471,41 @@
     "sf_uncertain": false,
     "notes": "Co-founded 2005; SF Bay",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Peloton (board)",
+      "Fitbit (board)",
+      "Automattic",
+      "HashiCorp",
+      "Duo Security",
+      "Ring",
+      "Tray.io"
+    ],
+    "writings": [
+      "20VC podcast: 'Why Investors Have Bias / Maximize Risk / Get Good at Losing'",
+      "Stanford NVCA Symposium talks",
+      "TechCrunch op-eds (Dec 2025: 'The phone is dead')"
+    ],
+    "network_signals": [
+      "co-founded True 2005",
+      "founder-first ethos",
+      "consumer hardware + dev infra mix",
+      "two-decade brand"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer tech",
+      "developer infra",
+      "hardware",
+      "wearables",
+      "marketplaces"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Backs category-defining founders before the category exists; consumer + dev-infra small-fund seed model.",
+    "confidence": "high"
   },
   {
     "id": "peter-nieh",
@@ -2138,13 +3520,38 @@
     "sf_uncertain": false,
     "notes": "Menlo Park",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Nimble Storage",
+      "Riverbed (firm)",
+      "Aerohive",
+      "Nicira (firm)",
+      "Solar Junction",
+      "MuleSoft (firm)"
+    ],
+    "writings": [
+      "Medium @peterlsvp",
+      "Lightspeed firm posts on infra"
+    ],
+    "network_signals": [
+      "~30 yrs investing",
+      "ex-General Magic operator (pre-smartphone)",
+      "category-creator thesis",
+      "co-founder DNA"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "SaaS",
+      "infrastructure",
+      "storage",
+      "networking"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Backs technology disruptions that create new categories; SaaS/infra specialist with operator background.",
+    "confidence": "medium"
   },
   {
     "id": "ravi-mhatre",
@@ -2159,13 +3566,48 @@
     "sf_uncertain": false,
     "notes": "Menlo Park HQ",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Anduril",
+      "AppDynamics",
+      "Guardant Health",
+      "MuleSoft",
+      "Nutanix",
+      "Rubrik",
+      "ThoughtSpot",
+      "Zscaler",
+      "Cato Networks (board)",
+      "Typeface (board)",
+      "Offchain Labs",
+      "Natera"
+    ],
+    "writings": [
+      "Medium @ravi-lsvp",
+      "YouTube: 'The Language of Technology' interview series",
+      "Frequent enterprise/AI panels"
+    ],
+    "network_signals": [
+      "25+ years at Lightspeed",
+      "Stanford GSB Trust advisory",
+      "ex-WAVC board",
+      "TiE Silicon Valley",
+      "deep enterprise network"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise software",
+      "infra",
+      "cybersecurity",
+      "AI",
+      "data"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Category-defining enterprise infra and security; long-term partner from Series A through scale.",
+    "confidence": "high"
   },
   {
     "id": "samir-kaul",
@@ -2180,13 +3622,44 @@
     "sf_uncertain": false,
     "notes": "Menlo Park; Healthcare",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Impossible Foods",
+      "Ultima Genomics",
+      "Varda Space Industries",
+      "Ceibo (copper)",
+      "Mainspring Energy",
+      "Guardant Health (firm)",
+      "Jack Creek Investment Corp"
+    ],
+    "writings": [
+      "20VC podcast: 'Why Pro Rata Is A Cop Out'",
+      "Venture Unlocked Substack: 'Building an Iconic Durable Firm'",
+      "BIO International panels"
+    ],
+    "network_signals": [
+      "20+ yrs Khosla",
+      "non-consensus thesis",
+      "deep climate/biotech operator network",
+      "Stanford GSB"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "sustainability",
+      "climate",
+      "food",
+      "biotech",
+      "deep tech",
+      "advanced manufacturing",
+      "space"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Take technical risk, not market risk; capital-intensive science bets in climate, food, biotech, and frontier industries.",
+    "confidence": "high"
   },
   {
     "id": "sundeep-peechu",
@@ -2201,13 +3674,45 @@
     "sf_uncertain": false,
     "notes": "Bay Area",
     "score": 75,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Plaid",
+      "Mercor",
+      "Coalition",
+      "Komodo Health",
+      "Ginkgo Bioworks",
+      "Matterport",
+      "Recursion Pharma",
+      "Wish",
+      "Cedar",
+      "Earnin",
+      "Juniper Square",
+      "Pindrop",
+      "Picnic Health"
+    ],
+    "writings": [
+      "LinkedIn investment memos (e.g., 'Investing in Mercor')",
+      "Crunchbase News interview on Felicis AI bets",
+      "Felicis blog posts"
+    ],
+    "network_signals": [
+      "founding-era Felicis",
+      "AI infra and foundation-model network (Runway, Poolside, Supabase, Weights & Biases firm)",
+      "decade+ hold philosophy"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI infra",
+      "fintech",
+      "healthcare/digital health",
+      "enterprise SaaS"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Long-hold conviction investor across AI, fintech, and healthtech; partner-first operating support.",
+    "confidence": "high"
   },
   {
     "id": "alex-immerman",
@@ -2222,13 +3727,50 @@
     "sf_uncertain": false,
     "notes": "Growth; promoted 2025-26",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Kalshi",
+      "EliseAI",
+      "Revolut",
+      "Waymo",
+      "Coinbase",
+      "Robinhood",
+      "Stripe",
+      "ElevenLabs",
+      "Flock Safety",
+      "Harvey",
+      "Hebbia",
+      "Roblox",
+      "Anduril",
+      "Sardine"
+    ],
+    "writings": [
+      "Run the Numbers podcast on CFO/AI",
+      "a16z growth essays",
+      "@aleximm on X",
+      "a16z 'Investing in Kalshi' post"
+    ],
+    "network_signals": [
+      "ex-General Atlantic growth investor",
+      "Wharton",
+      "promoted to GP 2024–25",
+      "co-leads $22B Growth platform",
+      "fintech/crypto crossover"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "growth-stage",
+      "fintech",
+      "crypto",
+      "AI applications",
+      "consumer"
+    ],
+    "stage_focus": [
+      "growth",
+      "Series C+"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Back category-defining growth-stage companies across AI, crypto, fintech, and physical-world tech.",
+    "confidence": "high"
   },
   {
     "id": "alex-rampell",
@@ -2243,13 +3785,52 @@
     "sf_uncertain": false,
     "notes": "Fintech; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Mercury",
+      "Plaid",
+      "Opendoor",
+      "Affirm (co-founder)",
+      "Branch",
+      "Capitolis",
+      "Descript",
+      "Divvy Homes",
+      "Earnin",
+      "FlyHomes",
+      "Point",
+      "Propel",
+      "Sentilink",
+      "VGS",
+      "Wise (LSE)"
+    ],
+    "writings": [
+      "Why Software Is Eating the Markets (a16z)",
+      "20VC w/ Harry Stebbings",
+      "@arampell on X",
+      "a16z fintech reports",
+      "Walker Dunlop fintech webcast"
+    ],
+    "network_signals": [
+      "Affirm co-founder (w/ Max Levchin)",
+      "TrialPay founder (sold Visa)",
+      "Harvard CS",
+      "PayPal mafia adjacent",
+      "serial fintech founder"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "fintech",
+      "proptech",
+      "vertical software",
+      "apps"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Innovation vs Distribution — incumbents have distribution, startups must out-innovate fast.",
+    "confidence": "high"
   },
   {
     "id": "ali-yahya",
@@ -2264,13 +3845,47 @@
     "sf_uncertain": false,
     "notes": "Crypto; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Solana",
+      "EigenLayer",
+      "Alchemy",
+      "Aleo",
+      "Aztec",
+      "Espresso",
+      "Gensyn",
+      "Jito",
+      "LayerZero",
+      "XMTP",
+      "zkSync"
+    ],
+    "writings": [
+      "a16z crypto blog",
+      "Web3 with a16z podcast",
+      "@alive_eth on X",
+      "Stanford crypto research papers"
+    ],
+    "network_signals": [
+      "ex-Google Brain (TensorFlow core dev)",
+      "ex-Google X Everyday Robot",
+      "Stanford CS (security/distributed systems)",
+      "early Bitcoin reader (2010)",
+      "deep crypto-engineer Rolodex"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "crypto infrastructure",
+      "L1/L2 protocols",
+      "ZK",
+      "decentralized AI"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Crypto is the infrastructure for credibly-neutral compute and decentralized coordination.",
+    "confidence": "high"
   },
   {
     "id": "andrew-chen",
@@ -2285,13 +3900,44 @@
     "sf_uncertain": false,
     "notes": "Consumer; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Clubhouse",
+      "Substack",
+      "Sleeper",
+      "Sandbox VR",
+      "Snackpass",
+      "Patreon (angel)",
+      "Wish (angel)"
+    ],
+    "writings": [
+      "The Cold Start Problem (book, 2021)",
+      "andrewchen.com (long-running blog)",
+      "andrewchen.substack.com",
+      "@andrewchen on X",
+      "guest on Lenny's Podcast, 20VC"
+    ],
+    "network_signals": [
+      "ex-Uber Rider Growth lead",
+      "U Washington applied math",
+      "growth-marketing community godfather",
+      "leads a16z speedrun (games/AI)",
+      "consumer angel network"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer",
+      "gaming",
+      "marketplaces",
+      "growth/network effects",
+      "social"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Network effects + cold-start playbook; consumer is back, especially gaming/AI-native social.",
+    "confidence": "high"
   },
   {
     "id": "anish-acharya",
@@ -2306,13 +3952,44 @@
     "sf_uncertain": false,
     "notes": "Consumer/fintech",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Deel",
+      "The Coterie",
+      "Titan",
+      "Mosaic",
+      "Method",
+      "Clutch",
+      "HappyRobot",
+      "Arc (observer)",
+      "Carbonated (observer)"
+    ],
+    "writings": [
+      "Lex Fridman/Lex Substack podcast",
+      "a16z fintech essays",
+      "@illscience on X",
+      "FF News interviews",
+      "a16z 'Investing in Deel' announcement"
+    ],
+    "network_signals": [
+      "Snowball founder (sold Credit Karma 2015)",
+      "ex-Credit Karma GM Cards",
+      "Waterloo CS",
+      "Indian-American consumer founder mafia",
+      "leaving a16z to start own fund (2025)"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer fintech",
+      "B2C AI",
+      "vertical SaaS"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "AI-native consumer products usher in an era of abundance; fintech distribution wins.",
+    "confidence": "high"
   },
   {
     "id": "anjney-midha",
@@ -2327,13 +4004,47 @@
     "sf_uncertain": false,
     "notes": "Infra/AI",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Mistral AI",
+      "Black Forest Labs",
+      "Luma AI",
+      "Sesame AI",
+      "LMArena",
+      "OpenRouter",
+      "Periodic Labs",
+      "Anthropic (angel)",
+      "ElevenLabs (angel)",
+      "Ideogram (angel)"
+    ],
+    "writings": [
+      "Sifted interview Feb 2025",
+      "TechCrunch DeepSeek/GPU analysis",
+      "a16z AI podcast",
+      "@AnjneyMidha on X",
+      "a16z 'Investing in Mistral' post"
+    ],
+    "network_signals": [
+      "ex-Discord VP Platform Ecosystem",
+      "Ubiquity6 founder (sold Niantic)",
+      "Stanford",
+      "deep AI research lab access (DeepMind/OAI/Mistral)",
+      "GPU/compute kingmaker reputation"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI",
+      "open-source models",
+      "AI infrastructure",
+      "developer tools"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Bet on AI infra + open-source foundation models serving global demand.",
+    "confidence": "high"
   },
   {
     "id": "arianna-simpson",
@@ -2348,13 +4059,44 @@
     "sf_uncertain": false,
     "notes": "Crypto; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Avara/Aave (rumored backer)",
+      "Phantom",
+      "Lido",
+      "Yuga Labs",
+      "Worldcoin",
+      "Aleo",
+      "Story Protocol",
+      "Polymarket"
+    ],
+    "writings": [
+      "Fortune Term Sheet Next interview Sep 2025",
+      "a16z crypto blog",
+      "Web3 with a16z podcast",
+      "@AriannaSimpson on X"
+    ],
+    "network_signals": [
+      "Autonomous Partners founder (crypto fund)",
+      "ex-Facebook + ex-BitGo",
+      "Penn State Schreyer Honors",
+      "Brian Armstrong / Steve Cohen LP relationships",
+      "promoted from deal partner to GP"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "crypto",
+      "stablecoins",
+      "crypto x AI",
+      "web3 consumer"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Back the best founders across crypto cycles — stablecoins and crypto-AI are next frontier.",
+    "confidence": "medium"
   },
   {
     "id": "astasia-myers",
@@ -2369,13 +4111,46 @@
     "sf_uncertain": false,
     "notes": "Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "portfolio": [
+      "LaunchDarkly",
+      "Solo.io",
+      "Hex",
+      "Semgrep",
+      "Airbyte",
+      "Supabase"
+    ],
+    "writings": [
+      "astasiamyers.com blog",
+      "Memory Leak Substack (prior)",
+      "frequent dev-tools/infra Twitter/X presence",
+      "research-driven 'ground truth' posts"
+    ],
+    "network_signals": [
+      "ex-Quiet Capital enterprise partner",
+      "ex-Redpoint early enterprise",
+      "ex-Cisco Investments",
+      "deep practitioner/CTO network",
+      "Forbes 30u30 alum"
+    ],
+    "testimonials": [
+      "Founders cite she will 'run through walls' for them"
+    ],
+    "sector_focus": [
+      "AI infra",
+      "data",
+      "open source",
+      "developer tools",
+      "cloud infra",
+      "security"
+    ],
+    "stage_focus": [
+      "pre-seed",
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Research-driven enterprise infra and dev-tools investor; ground-truth thesis development with practitioner network.",
+    "confidence": "high"
   },
   {
     "id": "ben-horowitz",
@@ -2390,13 +4165,45 @@
     "sf_uncertain": false,
     "notes": "Cofounder; Menlo Park HQ",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Anyscale",
+      "Databricks",
+      "Mayvenn",
+      "NationBuilder",
+      "Navan",
+      "UnitedMasters",
+      "Okta (former)",
+      "Lyft (former)"
+    ],
+    "writings": [
+      "The Hard Thing About Hard Things (book)",
+      "What You Do Is Who You Are (book)",
+      "a16z Podcast",
+      "bhorowitz.com archive",
+      "@bhorowitz on X"
+    ],
+    "network_signals": [
+      "Opsware founder/CEO (sold HP $1.6B)",
+      "Columbia/UCLA CS",
+      "Cultural Leadership Fund founder",
+      "deep enterprise CIO Rolodex",
+      "Stanford GSB lecturer"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise SaaS",
+      "data",
+      "AI infrastructure",
+      "culture-driven companies"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Back technical founders building category-defining companies; culture eats strategy.",
+    "confidence": "high"
   },
   {
     "id": "beth-seidenberg",
@@ -2411,13 +4218,45 @@
     "sf_uncertain": false,
     "notes": "Bay Area; healthcare",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Acelyrin (board)",
+      "Kyverna (board)",
+      "Progyny (board)",
+      "Sagimet (board)",
+      "Vera (board)",
+      "Capsida Biotherapeutics",
+      "Latigo Biotherapeutics",
+      "40+ biotech incubations since 2005"
+    ],
+    "writings": [
+      "HBA 2022 Woman of the Year features",
+      "industry panels",
+      "Westlake portfolio announcements"
+    ],
+    "network_signals": [
+      "ex-Amgen CMO + head of global development",
+      "ex-Merck Research Labs",
+      "ex-Bristol-Myers Squibb",
+      "MD Univ Miami",
+      "Johns Hopkins residency",
+      "NIH fellowship",
+      "Westlake $820M+ AUM"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "biotech",
+      "therapeutics",
+      "life sciences",
+      "drug development"
+    ],
+    "stage_focus": [
+      "incubation",
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Physician-investor incubating LA-based biotech; deep pharma R&D operator network; Kleiner-era legacy still surfaces in healthcare deal flow.",
+    "confidence": "high"
   },
   {
     "id": "chetan-puttagunta",
@@ -2453,13 +4292,46 @@
     "sf_uncertain": true,
     "notes": "Crypto; partly NYC",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Coinbase",
+      "OpenSea",
+      "Oculus VR (former board)",
+      "Dapper Labs",
+      "Uniswap",
+      "Sky Mavis (Axie)",
+      "Optimism",
+      "Helium",
+      "MakerDAO"
+    ],
+    "writings": [
+      "Read Write Own (Random House, 2024)",
+      "cdixon.org blog",
+      "cdixon Substack",
+      "a16z crypto podcast (Web3 with a16z)",
+      "@cdixon on X"
+    ],
+    "network_signals": [
+      "Hunch founder (sold eBay 2011)",
+      "Founder Collective co-founder",
+      "Columbia PhD (philosophy)",
+      "co-invests Paradigm/USV/Polychain",
+      "ex-eBay exec"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "crypto",
+      "web3",
+      "blockchain infrastructure",
+      "consumer crypto"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Read Write Own — blockchains enable user-owned networks; the next era of the internet.",
+    "confidence": "high"
   },
   {
     "id": "connie-chan",
@@ -2474,13 +4346,42 @@
     "sf_uncertain": false,
     "notes": "Consumer; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Cider",
+      "Whatnot",
+      "KoBold Metals",
+      "Run the World",
+      "Knowable",
+      "Pinterest (early)",
+      "Lime (early)"
+    ],
+    "writings": [
+      "When One App Rules Them All: WeChat (a16z classic)",
+      "a16z Podcast on China/consumer",
+      "@conniechan on X",
+      "conniechan.com"
+    ],
+    "network_signals": [
+      "Stanford",
+      "ex-HSN executive",
+      "deep China-tech expertise (lived in HK)",
+      "Gold House member",
+      "Pinterest/Lime early bets"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer",
+      "marketplaces",
+      "social",
+      "Asia-tech crossover"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Customer-backward investing; lessons from China consumer scale applied to US.",
+    "confidence": "high"
   },
   {
     "id": "david-george",
@@ -2495,13 +4396,50 @@
     "sf_uncertain": false,
     "notes": "Growth lead; Menlo Park",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Databricks",
+      "Figma",
+      "Stripe",
+      "SpaceX",
+      "Anduril",
+      "OpenAI",
+      "Cursor",
+      "Harvey",
+      "Abridge",
+      "Current",
+      "Greenlight",
+      "Workrise"
+    ],
+    "writings": [
+      "a16z Frameworks for Late-Stage Investing podcast",
+      "20VC w/ Harry Stebbings (multiple)",
+      "a16z Substack essays",
+      "Building a16z Growth pod",
+      "LinkedIn long-form posts"
+    ],
+    "network_signals": [
+      "ex-General Atlantic (7 years; Airbnb/CrowdStrike/Slack/Uber)",
+      "Notre Dame",
+      "head of a16z Growth fund",
+      "deep CFO/banker network for late-stage",
+      "Stanford Children's Hospital board"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "growth-stage",
+      "AI",
+      "consumer internet",
+      "enterprise software",
+      "fintech"
+    ],
+    "stage_focus": [
+      "growth",
+      "Series C+",
+      "pre-IPO"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Pay fair prices for great compounders; public-market discipline applied to private growth.",
+    "confidence": "high"
   },
   {
     "id": "david-sze",
@@ -2537,13 +4475,47 @@
     "sf_uncertain": false,
     "notes": "American Dynamism; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Anduril",
+      "Flock Safety",
+      "Skydio",
+      "Superhuman",
+      "AnyRoad",
+      "CX2",
+      "Supermove",
+      "Vitally",
+      "Wingspan"
+    ],
+    "writings": [
+      "Investing in American Dynamism (a16z)",
+      "Investing Capital to Defend the Nation (a16z)",
+      "a16z American Dynamism podcast",
+      "@davidu on X",
+      "Axios interview Feb 2025"
+    ],
+    "network_signals": [
+      "OpenDNS founder/CEO (Cisco $635M, 2015)",
+      "Cisco SVP",
+      "co-architect of American Dynamism w/ Katherine Boyle",
+      "DC/defense relationships",
+      "WUSTL"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "American Dynamism",
+      "defense",
+      "aerospace",
+      "public safety",
+      "industrials",
+      "infrastructure"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Back founders advancing US national interest — defense, manufacturing, public safety.",
+    "confidence": "high"
   },
   {
     "id": "eric-vishria",
@@ -2579,13 +4551,43 @@
     "sf_uncertain": false,
     "notes": "American Dynamism",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Base Power",
+      "Mariana Minerals",
+      "Diode Computing",
+      "Swan Technologies",
+      "Ulysses",
+      "Phaidra (prior)",
+      "Clickhouse (prior)",
+      "BRINC Drones (prior)"
+    ],
+    "writings": [
+      "a16z Autonomy Across Air, Land, and Sea podcast",
+      "MCJ Inevitable podcast",
+      "a16z 'Investing in Base Power' announcement",
+      "@espricewright on X"
+    ],
+    "network_signals": [
+      "ex-Index Ventures partner (infra/AI)",
+      "ex-Palantir Forward Deployed Engineer",
+      "Stanford",
+      "built Palantir Industrials biz",
+      "runs a16z Engineering Fellows"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "American Dynamism (energy)",
+      "robotics",
+      "industrials",
+      "AI for physical world"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "AI for the physical world — energy, robotics, manufacturing reshaped by software.",
+    "confidence": "high"
   },
   {
     "id": "ev-randle",
@@ -2621,13 +4623,41 @@
     "sf_uncertain": false,
     "notes": "SF (Outer Richmond) per Felicis post Feb 2026",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Mercor",
+      "Skild AI",
+      "Paraform",
+      "Deepjudge",
+      "Predibase",
+      "Ricursive Intelligence",
+      "Flower Labs",
+      "Cambridge Terahertz",
+      "Operand"
+    ],
+    "writings": [
+      "Felicis blog: 'Investing in Mercor', 'Investing in Operand'",
+      "LinkedIn investment memos"
+    ],
+    "network_signals": [
+      "ex-Zetta Venture Partners (first AI-focused fund)",
+      "ex-SVB Capital (Shield AI board observer + Felicis LP)",
+      "robotics foundation-model thesis"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI",
+      "robotics",
+      "vertical software",
+      "defense",
+      "AI labor markets"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Backs 'root-node' AI problems: foundational robotics infra and AI-native labor markets; led Skild AI Series A.",
+    "confidence": "high"
   },
   {
     "id": "jeff-jordan",
@@ -2642,13 +4672,44 @@
     "sf_uncertain": false,
     "notes": "Menlo Park",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Airbnb",
+      "Pinterest",
+      "Instacart",
+      "Accolade",
+      "OfferUp",
+      "Incredible Health",
+      "Codi",
+      "Lookout",
+      "Shef",
+      "Wonderschool"
+    ],
+    "writings": [
+      "a16z Marketplace 100 reports",
+      "20VC: Ultimate Guide to Marketplaces",
+      "a16z blog posts on marketplace dynamics",
+      "3 Tips for Board Members (YouTube)"
+    ],
+    "network_signals": [
+      "ex-CEO OpenTable (IPO)",
+      "ex-PayPal President",
+      "ex-Disney/eBay exec",
+      "Stanford GSB",
+      "stepped back to part-time role 2023"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "marketplaces",
+      "consumer",
+      "commerce"
+    ],
+    "stage_focus": [
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Best marketplaces win on fragmented supply + cohort retention; ex-OpenTable/PayPal operator.",
+    "confidence": "high"
   },
   {
     "id": "jerry-chen",
@@ -2684,13 +4745,49 @@
     "sf_uncertain": true,
     "notes": "Bio+Health",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Asimov",
+      "CAMP4",
+      "Cartography",
+      "Doppler Bio",
+      "Dyno Therapeutics",
+      "Earli",
+      "IDRx",
+      "Komodo Health",
+      "Octant Bio",
+      "Tome Biosciences",
+      "Vicinitas"
+    ],
+    "writings": [
+      "The Century of Biology (a16z)",
+      "Bio Eats World podcast (host)",
+      "@jorgecondebio on X",
+      "Building in Bio essay series",
+      "a16z Bio + Health blog"
+    ],
+    "network_signals": [
+      "Knome co-founder/CEO (sold 2015)",
+      "Syros CSO/CFO",
+      "Harvard MBA + Harvard-MIT HST MS",
+      "Johns Hopkins biology",
+      "ex-Morgan Stanley biotech banker"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "bio",
+      "biotech therapeutics",
+      "synthetic biology",
+      "diagnostics",
+      "bio-tools"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "The Century of Biology — engineering biology is the next computing platform.",
+    "confidence": "high"
   },
   {
     "id": "julie-yoo",
@@ -2705,13 +4802,47 @@
     "sf_uncertain": false,
     "notes": "Bio+Health; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "AKASA",
+      "Bayesian Health",
+      "Firefly Health",
+      "Ribbon Health",
+      "Tomorrow Health",
+      "Zus Health",
+      "Hippocratic AI",
+      "Ambience",
+      "Sprinter Health",
+      "Thatch Health",
+      "Turquoise Health"
+    ],
+    "writings": [
+      "Opportunities in Healthcare Q&A (a16z)",
+      "Bio Eats World podcast appearances",
+      "Healthcare Brew interview Mar 2025",
+      "@julesyoo on X",
+      "Aspen Ideas talks"
+    ],
+    "network_signals": [
+      "Kyruus co-founder/CPO (healthtech operator)",
+      "MIT Sloan MBA + MS",
+      "scaled Kyruus to 20M patients",
+      "deep payer/provider Rolodex",
+      "AcademyHealth"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "healthtech",
+      "healthcare AI",
+      "patient access",
+      "payer/provider software"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Modernize how Americans access, pay for, and experience healthcare; AI in clinical workflow.",
+    "confidence": "high"
   },
   {
     "id": "marc-andreessen",
@@ -2726,13 +4857,48 @@
     "sf_uncertain": false,
     "notes": "Cofounder; Menlo Park HQ",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Applied Intuition",
+      "Carta",
+      "Coinbase",
+      "Dialpad",
+      "Flow",
+      "Golden",
+      "Honor",
+      "OpenGov",
+      "Samsara",
+      "Meta (board)"
+    ],
+    "writings": [
+      "The Techno-Optimist Manifesto (a16z.com)",
+      "Why Software Is Eating the World (WSJ 2011)",
+      "a16z Podcast (host/guest)",
+      "@pmarca on X (heavy threads)",
+      "Pmarca Guide archive"
+    ],
+    "network_signals": [
+      "Netscape co-founder",
+      "Stanford CS dropout / UIUC",
+      "Meta/Facebook board since 2008",
+      "OpenAI/AI mafia ties",
+      "co-invests with Sequoia, Founders Fund"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "generalist",
+      "consumer",
+      "enterprise",
+      "AI",
+      "fintech"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Software is eating the world; American Dynamism + AI as next platform shift.",
+    "confidence": "high"
   },
   {
     "id": "martin-casado",
@@ -2747,13 +4913,51 @@
     "sf_uncertain": false,
     "notes": "Enterprise; Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Cursor",
+      "Fivetran",
+      "Netlify",
+      "Kong",
+      "Astranis",
+      "Convex",
+      "Ideogram",
+      "Material Security",
+      "Imply",
+      "World Labs",
+      "Ambient.ai",
+      "Pindrop",
+      "dbt Labs (exit)",
+      "Yubico (IPO)"
+    ],
+    "writings": [
+      "a16z infra blog posts",
+      "Where Value Will Accrue in AI (a16z podcast w/ Sarah Wang)",
+      "20VC w/ Harry Stebbings",
+      "@martin_casado on X",
+      "Inside a16z's $1.25B Infra Bet (Jack Altman pod)"
+    ],
+    "network_signals": [
+      "Nicira founder (VMware $1.26B)",
+      "Stanford CS PhD",
+      "ex-Lawrence Livermore Nat'l Lab",
+      "VMware SVP networking",
+      "co-invests Sequoia, Index, Greylock"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "infrastructure",
+      "AI",
+      "security",
+      "developer tools",
+      "data infra"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "AI shifts where value accrues in the stack; infra and inference are the picks-and-shovels.",
+    "confidence": "high"
   },
   {
     "id": "mike-duboe",
@@ -2810,13 +5014,33 @@
     "sf_uncertain": true,
     "notes": "Reported departure; verify status",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "healthcare, fintech and enterprise software portfolio (specifics not public)",
+      "select Felicis healthcare deals 2016-2024"
+    ],
+    "writings": [
+      "minimal public writing",
+      "Kauffman Fellows directory"
+    ],
+    "network_signals": [
+      "Kauffman Fellow",
+      "ex-GP Felicis 2021-2025",
+      "transitioned to venture partner Feb 2025",
+      "co-founder Las Casas Holdings"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "healthcare",
+      "fintech",
+      "enterprise software"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Lower-bandwidth venture partner role since April 2025; historic Felicis healthcare/fintech/enterprise sponsor; verify warmth before approach.",
+    "confidence": "medium"
   },
   {
     "id": "peter-buckland",
@@ -2852,13 +5076,49 @@
     "sf_uncertain": false,
     "notes": "SF",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Twitter (IPO)",
+      "Yelp (IPO)",
+      "New Relic (IPO)",
+      "Elastic (IPO)",
+      "Zendesk (IPO)",
+      "Zuora (IPO)",
+      "Hortonworks (IPO)",
+      "Airtable",
+      "Clickhouse",
+      "Cockroach Labs",
+      "Docker",
+      "Sorare",
+      "Buoyant",
+      "TimescaleDB"
+    ],
+    "writings": [
+      "20VC w/ Harry Stebbings (multiple deep-dives)",
+      "Benchmark Conversations",
+      "Amigos de las Americas In Conversation",
+      "long Twitter threads on open source"
+    ],
+    "network_signals": [
+      "ex-Accel partner (7 years)",
+      "Stanford GSB MBA",
+      "Bucknell BA",
+      "perennial Forbes Midas List (#2 in 2015)",
+      "open-source community deep ties"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise open source",
+      "developer infrastructure",
+      "consumer",
+      "data"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Open-source-driven infra and developer-led companies; long-hold compounders.",
+    "confidence": "high"
   },
   {
     "id": "peter-thiel",
@@ -2894,13 +5154,37 @@
     "sf_uncertain": false,
     "notes": "Joined Oct 2025; ex-VMware",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Temporal",
+      "AI infra co-investments via a16z Growth/Infra (firm-led)"
+    ],
+    "writings": [
+      "What VMware's former CEO says you should prioritize after PMF (a16z)",
+      "a16z podcast: AI, Robotics, Rebirth of Infrastructure",
+      "@RaghuRaghuram on X",
+      "a16z Substack"
+    ],
+    "network_signals": [
+      "ex-VMware CEO (took it independent post-Dell, sold to Broadcom $69B)",
+      "20+ years VMware product leader",
+      "joined a16z 2024 as Managing Partner",
+      "deep enterprise CIO network",
+      "MBA Wharton"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "AI infrastructure",
+      "enterprise infra",
+      "cloud",
+      "growth"
+    ],
+    "stage_focus": [
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "AI rebuilds enterprise infra from the silicon up; bring CEO operating scar tissue to founders.",
+    "confidence": "medium"
   },
   {
     "id": "saam-motamedi",
@@ -3041,13 +5325,42 @@
     "sf_uncertain": false,
     "notes": "Bay Area",
     "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Runway",
+      "MotherDuck",
+      "DatologyAI",
+      "Deepjudge",
+      "Supabase",
+      "GreenPlaces",
+      "Vowel"
+    ],
+    "writings": [
+      "TechCrunch contributor",
+      "GTM/category-creation talks",
+      "Felicis blog"
+    ],
+    "network_signals": [
+      "ex-Yammer marketing lead through Microsoft acq",
+      "ex-Salesforce, Platfora, Zenefits",
+      "category-design network",
+      "GTM operator credibility"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "enterprise SaaS",
+      "analytics",
+      "cloud infra",
+      "data services",
+      "AI",
+      "fintech"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Enterprise GTM operator turned investor; helps founders with category creation, positioning, and freemium-to-enterprise scaling.",
+    "confidence": "high"
   },
   {
     "id": "adam-d-augelli",
@@ -3062,13 +5375,44 @@
     "sf_uncertain": false,
     "notes": "",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Splice (board)",
+      "Pendulum Therapeutics (board)",
+      "Deep Genomics (board)",
+      "Prime Roots (board)",
+      "Feelmore (board)",
+      "Kettle",
+      "Radiant Graph",
+      "Dinamo Bio",
+      "The Nuclear Company",
+      "SuppCo",
+      "Howie"
+    ],
+    "writings": [
+      "20VC podcast on portfolio construction",
+      "BIOS Community podcast on founder-driven life sciences investing"
+    ],
+    "network_signals": [
+      "joined True as analyst 2010",
+      "ex-B-Stock",
+      "life sciences + frontier tech bridge",
+      "True signature seed network"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "life sciences",
+      "biotech",
+      "consumer",
+      "frontier/climate",
+      "dev tools"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Founder-driven seed investor crossing life sciences and frontier categories; long-tenured True insider.",
+    "confidence": "high"
   },
   {
     "id": "adina-tecklu",
@@ -3083,13 +5427,43 @@
     "sf_uncertain": false,
     "notes": "SF/Bay Area",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Aven",
+      "Basis",
+      "Stuut",
+      "Rain",
+      "Singularity",
+      "Ravenna",
+      "Homebase",
+      "Limbic",
+      "Brigit (Canaan)",
+      "Tia Clinic (Canaan)"
+    ],
+    "writings": [
+      "TechCrunch contributor",
+      "X @adinatecklu"
+    ],
+    "network_signals": [
+      "ex-Canaan (built Canaan Beta seed practice)",
+      "Creative Destruction Lab mentor",
+      "underserved-market thesis"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "application software",
+      "AI",
+      "fintech",
+      "consumer",
+      "underserved markets"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Application-layer software with disruptive models, often serving historically underserved markets/demos.",
+    "confidence": "high"
   },
   {
     "id": "alex-morgan",
@@ -3104,13 +5478,43 @@
     "sf_uncertain": false,
     "notes": "Bay Area",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "CellFE",
+      "Cellino",
+      "Bionaut Labs",
+      "Liberate Bio",
+      "neurotech portfolio (most active investor)"
+    ],
+    "writings": [
+      "BioPharma Dive interview on biotech outlook + cell therapy",
+      "BIO Convention talks",
+      "PMWC Precision Medicine talks",
+      "50+ scientific articles, h-index 38"
+    ],
+    "network_signals": [
+      "MD/PhD Stanford",
+      "ex-MITRE AI engineer",
+      "GoldLab Foundation",
+      "deep biotech KOL network",
+      "company incubation at KV"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "biotech",
+      "cell therapy",
+      "neurotech",
+      "digital health",
+      "AI/ML for bio",
+      "drug delivery"
+    ],
+    "stage_focus": [
+      "seed",
+      "Series A",
+      "incubation"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Physician-scientist investor incubating biotech and digital-health companies at the AI/ML and therapeutics intersection.",
+    "confidence": "high"
   },
   {
     "id": "alex-taussig",
@@ -3125,13 +5529,47 @@
     "sf_uncertain": false,
     "notes": "Consumer",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Faire",
+      "Daily Harvest",
+      "Outschool",
+      "Zola",
+      "Frubana",
+      "All Day Kitchens",
+      "Archive",
+      "Found",
+      "Muni"
+    ],
+    "writings": [
+      "Substack: 'Drinking from the Firehose' (firehose.vc)",
+      "Medium @ataussig",
+      "Lightspeed standardized e-commerce model post",
+      "Wharton Fintech podcast"
+    ],
+    "network_signals": [
+      "co-leads Lightspeed consumer Americas+Europe",
+      "co-leads LatAm",
+      "Harvard physics summa cum laude",
+      "MIT MS materials",
+      "HBS Baker Scholar"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer",
+      "commerce",
+      "marketplaces",
+      "fintech-marketplace overlap",
+      "climate",
+      "media"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B",
+      "growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Reimagines massive consumer categories via tech-enabled marketplaces and brands; data-driven commerce framework.",
+    "confidence": "high"
   },
   {
     "id": "alfred-lin",
@@ -3251,13 +5689,40 @@
     "sf_uncertain": false,
     "notes": "Enterprise; US",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "Netskope",
+      "TripActions/Navan",
+      "AppZen",
+      "Moveworks",
+      "Celona",
+      "Nutanix (firm)"
+    ],
+    "writings": [
+      "Medium @arifj",
+      "Netskope blog author",
+      "X @arifj",
+      "Milken Institute panels"
+    ],
+    "network_signals": [
+      "Lightspeed since 2008",
+      "Milken Global Conference speaker",
+      "founder-as-technologist filter"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "cloud",
+      "datacenter",
+      "enterprise SaaS",
+      "security",
+      "AI"
+    ],
+    "stage_focus": [
+      "Series A",
+      "Series B"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Early-stage enterprise IT/SaaS investor; backs deep-tech founders thinking long-term about cloud and AI infra.",
+    "confidence": "high"
   },
   {
     "id": "arun-mathew",
@@ -3314,13 +5779,40 @@
     "sf_uncertain": true,
     "notes": "India focus historically",
     "score": 60,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
+    "portfolio": [
+      "OYO (board)",
+      "Udaan",
+      "Byju's",
+      "MagicPin",
+      "IEX (India Energy Exchange)",
+      "Neko Health (board)",
+      "Aspire (board)"
+    ],
+    "writings": [
+      "X @bsomaia",
+      "Antoine Buteau 'Lessons from Bejul Somaia' interview"
+    ],
+    "network_signals": [
+      "25+ yrs investing",
+      "built Lightspeed India practice",
+      "helped open SEA + Europe practices",
+      "2019 Midas Touch India winner",
+      "$1B+ DPI"
+    ],
     "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": false
+    "sector_focus": [
+      "consumer",
+      "enterprise",
+      "growth",
+      "fintech",
+      "marketplaces"
+    ],
+    "stage_focus": [
+      "Series A through growth"
+    ],
+    "enriched": true,
+    "thesis_blurb": "Cross-border builder; deep India/SEA franchise; long-hold partner for category-leading consumer and enterprise companies.",
+    "confidence": "high"
   },
   {
     "id": "bill-coughran",
