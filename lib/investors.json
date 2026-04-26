@@ -272,7 +272,10 @@
     "enriched": true,
     "check_size": "$250K-$25M (sweet spot $10M)",
     "thesis_blurb": "Multi-stage application software investor focused on enterprise, vertical SaaS, SMBTech, and AI apps; six board observer seats.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "ernest-addison",
@@ -335,7 +338,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 4500000000,
+    "firm_stages": "growth",
+    "firm_website": "bondcap.com"
   },
   {
     "id": "kunaal-patel",
@@ -419,7 +425,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "daniel-fong",
@@ -503,7 +512,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "max-zang",
@@ -524,7 +536,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 325000000,
+    "firm_stages": "seed",
+    "firm_website": "audacious.co"
   },
   {
     "id": "peter-xia",
@@ -608,7 +623,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "sachin-h",
@@ -629,7 +647,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "naval-ravikant",
@@ -813,7 +834,10 @@
     "enriched": true,
     "check_size": "unknown",
     "thesis_blurb": "Backs B2B SaaS and fintech founders building infrastructure and partnerships-driven products.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "aaron-levie",
@@ -2579,7 +2603,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "nat-friedman",
@@ -2642,7 +2669,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "patrick-collison",
@@ -2684,7 +2714,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "rob-solomon",
@@ -2790,7 +2823,10 @@
     "sector_focus": [],
     "stage_focus": [],
     "enriched": false,
-    "firm_partner_role": "General Partner at Slow Ventures"
+    "firm_partner_role": "General Partner at Slow Ventures",
+    "aum_usd": 650000000,
+    "firm_stages": "seed",
+    "firm_website": "slow.co"
   },
   {
     "id": "siqi-chen",
@@ -2981,7 +3017,10 @@
     "sector_focus": [],
     "stage_focus": [],
     "enriched": false,
-    "firm_partner_role": "Partner at True Ventures"
+    "firm_partner_role": "Partner at True Ventures",
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "will-larson-lethain",
@@ -3002,7 +3041,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "garry-tan",
@@ -3023,7 +3065,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 500000,
+    "firm_stages": "seed",
+    "firm_website": "ycombinator.com"
   },
   {
     "id": "benjamin-mann",
@@ -3310,7 +3355,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Generalist global early-stage; founder-aligned; back outliers across geographies and sectors; 'always vote with founders' pledge.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "barry-eggers",
@@ -3456,7 +3504,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Operator-investor for internet software; pattern-matches scaling playbooks from Netscape/Salesforce/Tellme onto early-stage SaaS.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "jon-callaghan",
@@ -3505,7 +3556,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Backs category-defining founders before the category exists; consumer + dev-infra small-fund seed model.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "peter-nieh",
@@ -3659,7 +3713,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Take technical risk, not market risk; capital-intensive science bets in climate, food, biotech, and frontier industries.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "sundeep-peechu",
@@ -3712,7 +3769,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Long-hold conviction investor across AI, fintech, and healthtech; partner-first operating support.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "alex-immerman",
@@ -3770,7 +3830,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Back category-defining growth-stage companies across AI, crypto, fintech, and physical-world tech.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "alex-rampell",
@@ -3830,7 +3893,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Innovation vs Distribution — incumbents have distribution, startups must out-innovate fast.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "ali-yahya",
@@ -3885,7 +3951,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Crypto is the infrastructure for credibly-neutral compute and decentralized coordination.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "andrew-chen",
@@ -3937,7 +4006,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Network effects + cold-start playbook; consumer is back, especially gaming/AI-native social.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "anish-acharya",
@@ -3989,7 +4061,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "AI-native consumer products usher in an era of abundance; fintech distribution wins.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "anjney-midha",
@@ -4044,7 +4119,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Bet on AI infra + open-source foundation models serving global demand.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "arianna-simpson",
@@ -4096,7 +4174,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Back the best founders across crypto cycles — stablecoins and crypto-AI are next frontier.",
-    "confidence": "medium"
+    "confidence": "medium",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "astasia-myers",
@@ -4150,7 +4231,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Research-driven enterprise infra and dev-tools investor; ground-truth thesis development with practitioner network.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "ben-horowitz",
@@ -4203,7 +4287,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Back technical founders building category-defining companies; culture eats strategy.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "beth-seidenberg",
@@ -4256,7 +4343,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Physician-investor incubating LA-based biotech; deep pharma R&D operator network; Kleiner-era legacy still surfaces in healthcare deal flow.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "chetan-puttagunta",
@@ -4277,7 +4367,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed+",
+    "firm_website": "benchmark.com"
   },
   {
     "id": "chris-dixon",
@@ -4331,7 +4424,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Read Write Own — blockchains enable user-owned networks; the next era of the internet.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "connie-chan",
@@ -4381,7 +4477,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Customer-backward investing; lessons from China consumer scale applied to US.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "david-george",
@@ -4439,7 +4538,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Pay fair prices for great compounders; public-market discipline applied to private growth.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "david-sze",
@@ -4460,7 +4562,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "david-ulevitch",
@@ -4515,7 +4620,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Back founders advancing US national interest — defense, manufacturing, public safety.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "eric-vishria",
@@ -4536,7 +4644,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed+",
+    "firm_website": "benchmark.com"
   },
   {
     "id": "erin-price-wright",
@@ -4587,7 +4698,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "AI for the physical world — energy, robotics, manufacturing reshaped by software.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "ev-randle",
@@ -4608,7 +4722,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed+",
+    "firm_website": "benchmark.com"
   },
   {
     "id": "james-detweiler",
@@ -4657,7 +4774,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Backs 'root-node' AI problems: foundational robotics infra and AI-native labor markets; led Skild AI Series A.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "jeff-jordan",
@@ -4709,7 +4829,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Best marketplaces win on fragmented supply + cohort retention; ex-OpenTable/PayPal operator.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "jerry-chen",
@@ -4730,7 +4853,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "jorge-conde",
@@ -4787,7 +4913,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "The Century of Biology — engineering biology is the next computing platform.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "julie-yoo",
@@ -4842,7 +4971,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Modernize how Americans access, pay for, and experience healthcare; AI in clinical workflow.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "marc-andreessen",
@@ -4898,7 +5030,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Software is eating the world; American Dynamism + AI as next platform shift.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "martin-casado",
@@ -4957,7 +5092,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "AI shifts where value accrues in the stack; infra and inference are the picks-and-shovels.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "mike-duboe",
@@ -4978,7 +5116,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "napoleon-ta",
@@ -4999,7 +5140,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "niki-pezeshki",
@@ -5040,7 +5184,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Lower-bandwidth venture partner role since April 2025; historic Felicis healthcare/fintech/enterprise sponsor; verify warmth before approach.",
-    "confidence": "medium"
+    "confidence": "medium",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "peter-buckland",
@@ -5061,7 +5208,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "peter-fenton",
@@ -5118,7 +5268,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Open-source-driven infra and developer-led companies; long-hold compounders.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 425000000,
+    "firm_stages": "seed+",
+    "firm_website": "benchmark.com"
   },
   {
     "id": "peter-thiel",
@@ -5139,7 +5292,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "raghu-raghuram",
@@ -5184,7 +5340,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "AI rebuilds enterprise infra from the silicon up; bring CEO operating scar tissue to founders.",
-    "confidence": "medium"
+    "confidence": "medium",
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "saam-motamedi",
@@ -5205,7 +5364,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "sarah-guo",
@@ -5226,7 +5388,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "sarah-wang",
@@ -5247,7 +5412,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "sriram-krishnan",
@@ -5268,7 +5436,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "trae-stephens",
@@ -5289,7 +5460,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "vineeta-agarwala",
@@ -5310,7 +5484,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 7600000000,
+    "firm_stages": "both",
+    "firm_website": "a16z.com"
   },
   {
     "id": "viviana-faga",
@@ -5360,7 +5537,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Enterprise GTM operator turned investor; helps founders with category creation, positioning, and freemium-to-enterprise scaling.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 2830000000,
+    "firm_stages": "both",
+    "firm_website": "felicis.com"
   },
   {
     "id": "adam-d-augelli",
@@ -5412,7 +5592,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Founder-driven seed investor crossing life sciences and frontier categories; long-tenured True insider.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "adina-tecklu",
@@ -5463,7 +5646,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Application-layer software with disruptive models, often serving historically underserved markets/demos.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "alex-morgan",
@@ -5514,7 +5700,10 @@
     ],
     "enriched": true,
     "thesis_blurb": "Physician-scientist investor incubating biotech and digital-health companies at the AI/ML and therapeutics intersection.",
-    "confidence": "high"
+    "confidence": "high",
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "alex-taussig",
@@ -5611,7 +5800,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "andrew-braccia",
@@ -5632,7 +5824,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "andrew-reed",
@@ -5674,7 +5869,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "arif-janmohamed",
@@ -5743,7 +5941,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "asheem-chandna",
@@ -5764,7 +5965,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "bejul-somaia",
@@ -5854,7 +6058,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "bogomil-balkansky",
@@ -5896,7 +6103,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "brian-singerman",
@@ -5917,7 +6127,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "bryan-schreier",
@@ -5959,7 +6172,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "casey-aylward",
@@ -5980,7 +6196,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "cat-wu",
@@ -6043,7 +6262,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "damir-becirovic",
@@ -6085,7 +6307,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "danny-rimer",
@@ -6127,7 +6352,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "delian-asparouhov",
@@ -6148,7 +6376,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "doug-leone",
@@ -6211,7 +6442,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "ethan-choi",
@@ -6232,7 +6466,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "evan-moore",
@@ -6253,7 +6490,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "faraz-fatemi",
@@ -6337,7 +6577,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "hemant-taneja",
@@ -6358,7 +6601,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "ilya-fushman",
@@ -6379,7 +6625,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "jahanvi-sardana",
@@ -6463,7 +6712,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "jim-goetz",
@@ -6505,7 +6757,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "john-locke",
@@ -6526,7 +6781,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "jon-chu",
@@ -6547,7 +6805,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "josephine-chen",
@@ -6589,7 +6850,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "kanu-gulati",
@@ -6610,7 +6874,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "keith-rabois",
@@ -6631,7 +6898,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "konstantine-buhler",
@@ -6673,7 +6943,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "lauren-gross",
@@ -6694,7 +6967,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "lauren-reeder",
@@ -6736,7 +7012,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "liz-wessel",
@@ -6757,7 +7036,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "mamoon-hamid",
@@ -6778,7 +7060,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 5460000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "kleinerperkins.com"
   },
   {
     "id": "marc-bhargava",
@@ -6799,7 +7084,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "mark-goldberg",
@@ -6883,7 +7171,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "moritz-baier-lentz",
@@ -6946,7 +7237,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "nina-achadjian",
@@ -6988,7 +7282,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "paris-heymann",
@@ -7051,7 +7348,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "phil-black",
@@ -7072,7 +7372,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "phin-barnes",
@@ -7093,7 +7396,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "ping-li",
@@ -7114,7 +7420,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "pranav-singhvi",
@@ -7135,7 +7444,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "puneet-agarwal",
@@ -7156,7 +7468,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "quentin-clark",
@@ -7177,7 +7492,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "rajesh-swaminathan",
@@ -7198,7 +7516,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "reid-hoffman",
@@ -7219,7 +7540,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "rich-wong",
@@ -7240,7 +7564,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "roelof-botha",
@@ -7282,7 +7609,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "ryan-sweeney",
@@ -7303,7 +7633,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "sachin-patel",
@@ -7345,7 +7678,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "sarah-cannon",
@@ -7387,7 +7723,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16200000000,
+    "firm_stages": "seed+",
+    "firm_website": "foundersfund.com"
   },
   {
     "id": "sebastian-duesterhoeft",
@@ -7429,7 +7768,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed/seed+",
+    "firm_website": "greylock.com"
   },
   {
     "id": "shardul-shah",
@@ -7513,7 +7855,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "sven-strohband",
@@ -7534,7 +7879,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "tal-morgenstern",
@@ -7576,7 +7924,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1520000000,
+    "firm_stages": "seed",
+    "firm_website": "firstround.com"
   },
   {
     "id": "tony-conrad",
@@ -7597,7 +7948,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1980000000,
+    "firm_stages": "seed",
+    "firm_website": "trueventures.com"
   },
   {
     "id": "trevor-oelschig",
@@ -7618,7 +7972,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 16700000000,
+    "firm_stages": "both",
+    "firm_website": "generalcatalyst.com"
   },
   {
     "id": "vas-natarajan",
@@ -7639,7 +7996,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10500000000,
+    "firm_stages": "both",
+    "firm_website": "accel.com"
   },
   {
     "id": "vinod-khosla",
@@ -7660,7 +8020,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 10600000000,
+    "firm_stages": "both",
+    "firm_website": "khoslaventures.com"
   },
   {
     "id": "aileen-lee",
@@ -7681,7 +8044,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 127500000,
+    "firm_stages": "seed",
+    "firm_website": "cowboy.vc"
   },
   {
     "id": "alex-bard",
@@ -7702,7 +8068,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "alex-kolicich",
@@ -7744,7 +8113,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed",
+    "firm_website": "uncorkcapital.com"
   },
   {
     "id": "annie-kadavy",
@@ -7765,7 +8137,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "brett-gibson",
@@ -7786,7 +8161,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   },
   {
     "id": "chris-farmer",
@@ -7849,7 +8227,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "eurie-kim",
@@ -7870,7 +8251,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "forerunnerventures.com"
   },
   {
     "id": "glenn-solomon",
@@ -7891,7 +8275,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "hans-tung",
@@ -7912,7 +8299,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "ilya-kirnos",
@@ -7954,7 +8344,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "john-hamer",
@@ -7975,7 +8368,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "kiersten-stead",
@@ -7996,7 +8392,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "kimmy-scotti",
@@ -8038,7 +8437,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "forerunnerventures.com"
   },
   {
     "id": "mar-hershenson",
@@ -8059,7 +8461,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "pre-seed/seed",
+    "firm_website": "pear.vc"
   },
   {
     "id": "matthew-ocko",
@@ -8080,7 +8485,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "pejman-nozad",
@@ -8101,7 +8509,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "pre-seed/seed",
+    "firm_website": "pear.vc"
   },
   {
     "id": "satish-dharmaraj",
@@ -8122,7 +8533,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "wayne-hu",
@@ -8164,7 +8578,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "ajay-vashee",
@@ -8248,7 +8665,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "brittany-walker",
@@ -8269,7 +8689,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "cack-wilhelm",
@@ -8311,7 +8734,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "carmen-chang",
@@ -8374,7 +8800,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "crystal-huang",
@@ -8458,7 +8887,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1390000000,
+    "firm_stages": "seed",
+    "firm_website": "nfx.com"
   },
   {
     "id": "james-green",
@@ -8479,7 +8911,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "joanne-chen",
@@ -8500,7 +8935,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "jon-auerbach",
@@ -8521,7 +8959,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "josh-makower",
@@ -8605,7 +9046,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3200000000,
+    "firm_stages": "seed",
+    "firm_website": "amplifypartners.com"
   },
   {
     "id": "lucas-swisher",
@@ -8668,7 +9112,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "mike-dauber",
@@ -8689,7 +9136,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3200000000,
+    "firm_stages": "seed",
+    "firm_website": "amplifypartners.com"
   },
   {
     "id": "morgan-beller",
@@ -8710,7 +9160,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1390000000,
+    "firm_stages": "seed",
+    "firm_website": "nfx.com"
   },
   {
     "id": "murat-bicer",
@@ -8731,7 +9184,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "nabeel-hyatt",
@@ -8773,7 +9229,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1390000000,
+    "firm_stages": "seed",
+    "firm_website": "nfx.com"
   },
   {
     "id": "pete-sonsini",
@@ -8815,7 +9274,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "rick-yang",
@@ -8857,7 +9319,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "saar-gur",
@@ -8878,7 +9343,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3150000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "crv.com"
   },
   {
     "id": "sandy-miller",
@@ -8941,7 +9409,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3200000000,
+    "firm_stages": "seed",
+    "firm_website": "amplifypartners.com"
   },
   {
     "id": "somesh-dash",
@@ -9025,7 +9496,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "sunil-dhaliwal",
@@ -9046,7 +9520,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 3200000000,
+    "firm_stages": "seed",
+    "firm_website": "amplifypartners.com"
   },
   {
     "id": "ted-wang",
@@ -9067,7 +9544,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 127500000,
+    "firm_stages": "seed",
+    "firm_website": "cowboy.vc"
   },
   {
     "id": "tom-loverro",
@@ -9109,7 +9589,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 650000000,
+    "firm_stages": "seed",
+    "firm_website": "slow.co"
   },
   {
     "id": "will-reed",
@@ -9193,7 +9676,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   },
   {
     "id": "addison-leong",
@@ -9214,7 +9700,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "pre-seed/seed",
+    "firm_website": "pear.vc"
   },
   {
     "id": "alex-moore",
@@ -9256,7 +9745,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "amanda-robson",
@@ -9277,7 +9769,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 127500000,
+    "firm_stages": "seed",
+    "firm_website": "cowboy.vc"
   },
   {
     "id": "amy-saper",
@@ -9298,7 +9793,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed",
+    "firm_website": "uncorkcapital.com"
   },
   {
     "id": "andrew-sather",
@@ -9319,7 +9817,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   },
   {
     "id": "ann-bordetsky",
@@ -9445,7 +9946,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "forerunnerventures.com"
   },
   {
     "id": "byron-deeter",
@@ -9487,7 +9991,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 127500000,
+    "firm_stages": "seed",
+    "firm_website": "cowboy.vc"
   },
   {
     "id": "croom-beatty",
@@ -9508,7 +10015,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "dan-cahana",
@@ -9529,7 +10039,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "dan-rose",
@@ -9571,7 +10084,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "forest-baskett",
@@ -9655,7 +10171,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "janelle-teng",
@@ -9697,7 +10216,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed",
+    "firm_website": "uncorkcapital.com"
   },
   {
     "id": "joff-redfern",
@@ -9718,7 +10240,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "jonathan-golden",
@@ -9760,7 +10285,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "keith-bender",
@@ -9781,7 +10309,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "pre-seed/seed",
+    "firm_website": "pear.vc"
   },
   {
     "id": "kelly-chen",
@@ -9802,7 +10333,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed+",
+    "firm_website": "dcvc.com"
   },
   {
     "id": "kevin-colleran",
@@ -9823,7 +10357,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 650000000,
+    "firm_stages": "seed",
+    "firm_website": "slow.co"
   },
   {
     "id": "kim-mai-cutler",
@@ -9844,7 +10381,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   },
   {
     "id": "lauri-moore",
@@ -9886,7 +10426,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "mark-siegel",
@@ -9907,7 +10450,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "mary-d-onofrio",
@@ -9949,7 +10495,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "mike-droesch",
@@ -9991,7 +10540,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "nicole-johnson",
@@ -10012,7 +10564,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1500000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "forerunnerventures.com"
   },
   {
     "id": "parul-singh",
@@ -10033,7 +10588,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   },
   {
     "id": "pranav-reddy",
@@ -10075,7 +10633,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 12600000000,
+    "firm_stages": "both",
+    "firm_website": "notablecapital.com"
   },
   {
     "id": "sameer-dholakia",
@@ -10117,7 +10678,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "scott-sandell",
@@ -10159,7 +10723,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "sid-trivedi",
@@ -10180,7 +10747,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1910000000,
+    "firm_stages": "seed",
+    "firm_website": "foundationcapital.com"
   },
   {
     "id": "sofia-guerra",
@@ -10222,7 +10792,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "susan-liu",
@@ -10243,7 +10816,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed",
+    "firm_website": "uncorkcapital.com"
   },
   {
     "id": "talia-goldberg",
@@ -10306,7 +10882,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1560000000,
+    "firm_stages": "seed/Series A",
+    "firm_website": "redpoint.com"
   },
   {
     "id": "tripp-jones",
@@ -10327,7 +10906,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "seed",
+    "firm_website": "uncorkcapital.com"
   },
   {
     "id": "tyler-sosin",
@@ -10348,7 +10930,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "venky-ganesan",
@@ -10369,7 +10954,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 1650000000,
+    "firm_stages": "seed+",
+    "firm_website": "menlovc.com"
   },
   {
     "id": "vivien-ho",
@@ -10390,7 +10978,10 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 425000000,
+    "firm_stages": "pre-seed/seed",
+    "firm_website": "pear.vc"
   },
   {
     "id": "zoe-perret",
@@ -10411,6 +11002,9 @@
     "testimonials": [],
     "sector_focus": [],
     "stage_focus": [],
-    "enriched": false
+    "enriched": false,
+    "aum_usd": 670000000,
+    "firm_stages": "seed",
+    "firm_website": "initialized.com"
   }
 ]

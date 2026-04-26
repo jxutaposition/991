@@ -11,7 +11,13 @@ const TARGET_MEETINGS = 52;
 const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260
 const TARGET_KEEPS_50PCT = Math.ceil(ALL_INVESTORS.length / 2);
 
-type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed";
+type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed" | "skipped";
+
+function formatAUM(usd: number): string {
+  if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(usd >= 10_000_000_000 ? 0 : 1)}B AUM`;
+  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(0)}M AUM`;
+  return `$${usd.toLocaleString()} AUM`;
+}
 
 function bucketLabel(b: string) {
   if (b === "warm") return "WARM";
@@ -44,6 +50,7 @@ export default function Page() {
     else if (filter === "cold_angel") list = list.filter(i => i.bucket === "cold_angel");
     else if (filter === "cold_partner") list = list.filter(i => i.bucket === "cold_partner");
     else if (filter === "unreviewed") list = list.filter(i => !decisions[i.id]);
+    else if (filter === "skipped") list = list.filter(i => decisions[i.id] === "skip");
     return list;
   }, [filter, decisions]);
 
@@ -79,6 +86,7 @@ export default function Page() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "ArrowLeft") decide("cut");
       else if (e.key === "ArrowRight") decide("keep");
+      else if (e.key === "ArrowDown") decide("skip");
       else if (e.key === "ArrowUp") back();
     }
     window.addEventListener("keydown", onKey);
@@ -88,6 +96,7 @@ export default function Page() {
   const totalReviewed = Object.keys(decisions).length;
   const kept = Object.values(decisions).filter(d => d === "keep").length;
   const cut = Object.values(decisions).filter(d => d === "cut").length;
+  const skipped = Object.values(decisions).filter(d => d === "skip").length;
 
   if (!hydrated) {
     return <div style={{ padding: 20 }}>Loading…</div>;
@@ -98,6 +107,7 @@ export default function Page() {
       <Header
         kept={kept}
         cut={cut}
+        skipped={skipped}
         total={ALL_INVESTORS.length}
         reviewed={totalReviewed}
         target5x={TARGET_KEEPS_5X}
@@ -123,27 +133,27 @@ export default function Page() {
       )}
 
       {current && (
-        <Controls onCut={() => decide("cut")} onKeep={() => decide("keep")} onBack={back} />
+        <Controls onCut={() => decide("cut")} onSkip={() => decide("skip")} onKeep={() => decide("keep")} onBack={back} />
       )}
     </main>
   );
 }
 
 function Header(props: {
-  kept: number; cut: number; total: number; reviewed: number;
+  kept: number; cut: number; skipped: number; total: number; reviewed: number;
   target5x: number; target50: number;
   filter: FilterMode; setFilter: (f: FilterMode) => void;
   filteredCount: number; currentIndex: number;
   onExport: () => void; onReset: () => void;
 }) {
-  const { kept, cut, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onReset } = props;
+  const { kept, cut, skipped, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h1 style={{ fontSize: 18, fontWeight: 600 }}>Lele Investor Swipe</h1>
         <div style={{ fontSize: 12, color: "#9a9aa3" }}>
-          {reviewed}/{total} reviewed · {kept} kept · {cut} cut
+          {reviewed}/{total} reviewed · {kept} kept · {cut} cut · {skipped} skipped
         </div>
       </div>
 
@@ -158,6 +168,7 @@ function Header(props: {
         <FilterBtn active={filter === "warm"} onClick={() => setFilter("warm")}>Warm</FilterBtn>
         <FilterBtn active={filter === "cold_angel"} onClick={() => setFilter("cold_angel")}>Angels</FilterBtn>
         <FilterBtn active={filter === "cold_partner"} onClick={() => setFilter("cold_partner")}>Partners</FilterBtn>
+        <FilterBtn active={filter === "skipped"} onClick={() => setFilter("skipped")}>Skipped ({skipped})</FilterBtn>
         <FilterBtn active={filter === "all"} onClick={() => setFilter("all")}>All</FilterBtn>
         <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <FilterBtn onClick={onExport}>Export CSV</FilterBtn>
@@ -213,13 +224,13 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
         <div style={{
           position: "absolute", top: 12, right: 12,
           padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600,
-          background: decision === "keep" ? "#22c55e" : "#ef4444",
+          background: decision === "keep" ? "#22c55e" : decision === "skip" ? "#a855f7" : "#ef4444",
           color: "#fff",
-        }}>{decision === "keep" ? "KEPT" : "CUT"}</div>
+        }}>{decision === "keep" ? "KEPT" : decision === "skip" ? "SKIPPED" : "CUT"}</div>
       )}
 
       <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{
             padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
             background: bucketColor(i.bucket), color: "#0b0b0d",
@@ -227,6 +238,15 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
           <span style={{ fontSize: 11, color: "#9a9aa3" }}>signal: {i.score}</span>
           {i.confidence && <span style={{ fontSize: 11, color: "#9a9aa3" }}>· data: {i.confidence}</span>}
           {i.sf_uncertain && <span style={{ fontSize: 11, color: "#f59e0b" }}>· SF unverified</span>}
+          {typeof i.aum_usd === "number" && i.aum_usd > 0 && (
+            <span style={{
+              padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+              background: "#1e3b29", color: "#86efac",
+            }}>{formatAUM(i.aum_usd)}</span>
+          )}
+          {i.firm_stages && (
+            <span style={{ fontSize: 11, color: "#9a9aa3" }}>· stages: {i.firm_stages}</span>
+          )}
         </div>
         <h2 style={{ fontSize: 24, fontWeight: 600 }}>{i.name}</h2>
         <div style={{ color: "#c5c5cc", fontSize: 14 }}>{i.role}{i.firm && i.firm !== i.role ? ` · ${i.firm}` : ""}</div>
@@ -327,11 +347,12 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Controls({ onCut, onKeep, onBack }: { onCut: () => void; onKeep: () => void; onBack: () => void }) {
+function Controls({ onCut, onSkip, onKeep, onBack }: { onCut: () => void; onSkip: () => void; onKeep: () => void; onBack: () => void }) {
   return (
-    <div style={{ display: "flex", gap: 10, position: "sticky", bottom: 0, paddingTop: 8, paddingBottom: 8, background: "linear-gradient(to top, #0b0b0d 70%, transparent)" }}>
+    <div style={{ display: "flex", gap: 8, position: "sticky", bottom: 0, paddingTop: 8, paddingBottom: 8, background: "linear-gradient(to top, #0b0b0d 70%, transparent)" }}>
       <button onClick={onBack} style={btnStyle("#22222a", "#c5c5cc", false)} aria-label="back">↑ Back</button>
       <button onClick={onCut} style={btnStyle("#3b1e1e", "#fca5a5", true)}>← Cut</button>
+      <button onClick={onSkip} style={btnStyle("#2d2440", "#d8b4fe", false)} aria-label="skip">↓ Skip</button>
       <button onClick={onKeep} style={btnStyle("#1e3b29", "#86efac", true)}>Keep →</button>
     </div>
   );
