@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
-import { loadDecisions, saveDecision, clearDecisions, exportCSV } from "../lib/storage";
+import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, loadLGMQueue, exportLGMQueue } from "../lib/storage";
 
 const ALL_INVESTORS = investorsData as Investor[];
 
@@ -63,6 +63,9 @@ export default function Page() {
     if (!current) return;
     saveDecision(current.id, d);
     setDecisions(prev => ({ ...prev, [current.id]: d }));
+    // Auto-queue Keeps to LGM "investors" campaign sync queue
+    if (d === "keep") queueForLGM(current.id);
+    else dequeueFromLGM(current.id);
     if (filter === "unreviewed") {
       // index stays; the filtered list will shrink and the next item slides in
     } else {
@@ -117,6 +120,11 @@ export default function Page() {
         filteredCount={filtered.length}
         currentIndex={index}
         onExport={() => exportCSV(decisions, ALL_INVESTORS)}
+        onExportLGM={() => {
+          const n = exportLGMQueue(ALL_INVESTORS);
+          alert(`Exported ${n} kept investors as LGM-ready CSV. Import into your LGM "investors" campaign as an audience.`);
+        }}
+        lgmQueueSize={loadLGMQueue().length}
         onReset={() => {
           if (confirm("Clear all decisions?")) {
             clearDecisions();
@@ -144,9 +152,10 @@ function Header(props: {
   target5x: number; target50: number;
   filter: FilterMode; setFilter: (f: FilterMode) => void;
   filteredCount: number; currentIndex: number;
-  onExport: () => void; onReset: () => void;
+  onExport: () => void; onExportLGM: () => void; lgmQueueSize: number;
+  onReset: () => void;
 }) {
-  const { kept, cut, skipped, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onReset } = props;
+  const { kept, cut, skipped, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, lgmQueueSize, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -172,6 +181,7 @@ function Header(props: {
         <FilterBtn active={filter === "all"} onClick={() => setFilter("all")}>All</FilterBtn>
         <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <FilterBtn onClick={onExport}>Export CSV</FilterBtn>
+          <FilterBtn onClick={onExportLGM}>LGM queue ({lgmQueueSize})</FilterBtn>
           <FilterBtn onClick={onReset}>Reset</FilterBtn>
         </span>
       </div>
@@ -281,12 +291,38 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
         </Section>
       )}
 
-      {(i.sector_focus.length > 0 || i.stage_focus.length > 0 || i.check_size) && (
-        <Section label="Fit">
+      {(i.sector_focus.length > 0 || i.stage_focus.length > 0 || i.check_size || i.leads_rounds) && (
+        <Section label="Individual focus">
           <div style={{ fontSize: 13, color: "#c5c5cc" }}>
             {i.sector_focus.length > 0 && <div>Sector: {i.sector_focus.join(", ")}</div>}
             {i.stage_focus.length > 0 && <div>Stage: {i.stage_focus.join(", ")}</div>}
             {i.check_size && <div>Check: {i.check_size}</div>}
+            {i.leads_rounds && i.leads_rounds !== "unknown" && (
+              <div>
+                Leads rounds: <span style={{ color: i.leads_rounds === "lead" ? "#86efac" : i.leads_rounds === "both" ? "#fde68a" : "#9a9aa3" }}>
+                  {i.leads_rounds === "lead" ? "Yes (leads)" : i.leads_rounds === "both" ? "Both (leads + follows)" : "Follows only"}
+                </span>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {i.firm_stages && (
+        <Section label="Firm-level (separate)">
+          <div style={{ fontSize: 13, color: "#c5c5cc" }}>
+            <div>Firm stages: {i.firm_stages}</div>
+            {typeof i.aum_usd === "number" && i.aum_usd > 0 && <div>Firm AUM: {formatAUM(i.aum_usd)}</div>}
+          </div>
+        </Section>
+      )}
+
+      {i.co_investors && i.co_investors.length > 0 && (
+        <Section label="Frequent co-investors">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {i.co_investors.map((c, idx) => (
+              <span key={idx} style={{ padding: "4px 8px", borderRadius: 6, background: "#2a1f30", color: "#e9d5ff", fontSize: 12 }}>{c}</span>
+            ))}
           </div>
         </Section>
       )}
@@ -301,21 +337,6 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
               </li>
             ))}
           </ul>
-        </Section>
-      )}
-
-      {i.testimonials.length > 0 && (
-        <Section label="Founder testimonials">
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {i.testimonials.slice(0, 3).map((t, idx) => (
-              <blockquote key={idx} style={{ borderLeft: "2px solid #3a3a44", paddingLeft: 10, fontSize: 13, color: "#c5c5cc" }}>
-                &ldquo;{t.quote}&rdquo;
-                <cite style={{ display: "block", fontStyle: "normal", color: "#9a9aa3", fontSize: 12, marginTop: 2 }}>
-                  — {t.author}{t.source_url ? <> · <a href={t.source_url} target="_blank" rel="noopener noreferrer">source</a></> : null}
-                </cite>
-              </blockquote>
-            ))}
-          </div>
         </Section>
       )}
 
