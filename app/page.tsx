@@ -27,7 +27,13 @@ function pushToLGM(investor: Investor) {
   fetch("/api/lgm/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ firstname, lastname, linkedinUrl: investor.linkedin }),
+    body: JSON.stringify({
+      firstname,
+      lastname,
+      linkedinUrl: investor.linkedin,
+      companyName: investor.firm || undefined,
+      jobTitle: investor.role || undefined,
+    }),
   })
     .then(r => r.json().then(j => ({ ok: r.ok, j })))
     .then(({ ok, j }) => {

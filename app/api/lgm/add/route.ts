@@ -9,6 +9,8 @@ type AddLeadBody = {
   firstname?: string;
   lastname?: string;
   linkedinUrl?: string;
+  companyName?: string;
+  jobTitle?: string;
 };
 
 export async function POST(req: Request) {
@@ -28,12 +30,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "linkedinUrl required" }, { status: 400 });
   }
 
-  const payload = {
+  const payload: Record<string, string> = {
     audience: LGM_AUDIENCE_ID,
     firstname: body.firstname ?? "",
     lastname: body.lastname ?? "",
     linkedinUrl: body.linkedinUrl,
   };
+  if (body.companyName) payload.companyName = body.companyName;
+  if (body.jobTitle) payload.jobTitle = body.jobTitle;
 
   const url = `${LGM_ENDPOINT}?apikey=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
