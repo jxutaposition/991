@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeLinkedInProfileUrl } from "../../../../lib/linkedin";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ type AddLeadBody = {
   linkedinUrl?: string;
   companyName?: string;
   jobTitle?: string;
+  sourceInvestorId?: string;
 };
 
 export async function POST(req: Request) {
@@ -26,18 +28,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  if (!body.linkedinUrl) {
-    return NextResponse.json({ error: "linkedinUrl required" }, { status: 400 });
+  const linkedinUrl = normalizeLinkedInProfileUrl(body.linkedinUrl);
+  if (!linkedinUrl) {
+    return NextResponse.json({ error: "valid linkedin profile url required" }, { status: 400 });
   }
 
   const payload: Record<string, string> = {
     audience: LGM_AUDIENCE_ID,
-    firstname: body.firstname ?? "",
-    lastname: body.lastname ?? "",
-    linkedinUrl: body.linkedinUrl,
+    linkedinUrl,
   };
-  if (body.companyName) payload.companyName = body.companyName;
-  if (body.jobTitle) payload.jobTitle = body.jobTitle;
+  if (body.sourceInvestorId) payload.crm_id = body.sourceInvestorId;
+  payload.customAttribute1 = linkedinUrl;
 
   const url = `${LGM_ENDPOINT}?apikey=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
@@ -53,5 +54,5 @@ export async function POST(req: Request) {
   if (!res.ok) {
     return NextResponse.json({ error: "lgm rejected", status: res.status, body: parsed }, { status: 502 });
   }
-  return NextResponse.json({ ok: true, lgm: parsed });
+  return NextResponse.json({ ok: true, sent: payload, lgm: parsed });
 }

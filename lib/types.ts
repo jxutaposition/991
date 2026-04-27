@@ -57,6 +57,6 @@ export type Investor = {
   israeli?: boolean;
 };
 
-export type Decision = "keep" | "cut" | "skip";
+export type Decision = "keep" | "cut" | "skip" | "more";
 
 export type DecisionMap = Record<string, Decision>;

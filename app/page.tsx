@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
-import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, loadLGMQueue, exportLGMQueue } from "../lib/storage";
+import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
+import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, loadLGMQueue, exportLGMQueue, queueForMore, dequeueFromMore, loadMoreQueue, queueForLGMMissingLinkedIn, dequeueFromLGMMissingLinkedIn, loadLGMMissingLinkedInQueue, exportLGMMissingLinkedInQueue } from "../lib/storage";
 
-const ALL_INVESTORS = (investorsData as Investor[]).filter(i => !i.israeli);
+const ALL_INVESTORS = (investorsData as Investor[])
+  .filter(i => !i.israeli)
+  .filter(i => Boolean(normalizeLinkedInProfileUrl(i.linkedin)));
 
 const TARGET_MEETINGS = 52;
 const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260
@@ -13,26 +16,22 @@ const TARGET_KEEPS_50PCT = Math.ceil(ALL_INVESTORS.length / 2);
 
 type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed" | "skipped";
 
-function splitName(full: string): { firstname: string; lastname: string } {
-  const trimmed = full.trim();
-  if (!trimmed) return { firstname: "", lastname: "" };
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) return { firstname: parts[0], lastname: "" };
-  return { firstname: parts[0], lastname: parts.slice(1).join(" ") };
-}
-
 function pushToLGM(investor: Investor) {
-  if (!investor.linkedin) return;
-  const { firstname, lastname } = splitName(investor.name);
+  const linkedinUrl = normalizeLinkedInProfileUrl(investor.linkedin);
+  if (!linkedinUrl) {
+    console.warn("Skipping LGM add without a valid LinkedIn profile URL", {
+      id: investor.id,
+      name: investor.name,
+      url: investor.linkedin,
+    });
+    return;
+  }
   fetch("/api/lgm/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      firstname,
-      lastname,
-      linkedinUrl: investor.linkedin,
-      companyName: investor.firm || undefined,
-      jobTitle: investor.role || undefined,
+      linkedinUrl,
+      sourceInvestorId: investor.id,
     }),
   })
     .then(r => r.json().then(j => ({ ok: r.ok, j })))
@@ -94,26 +93,33 @@ export default function Page() {
     setDecisions(prev => ({ ...prev, [current.id]: d }));
     // Auto-queue Keeps to LGM "investors" campaign sync queue
     if (d === "keep") {
-      queueForLGM(current.id);
-      pushToLGM(current);
+      if (normalizeLinkedInProfileUrl(current.linkedin)) {
+        queueForLGM(current.id);
+        dequeueFromLGMMissingLinkedIn(current.id);
+        pushToLGM(current);
+      } else {
+        dequeueFromLGM(current.id);
+        queueForLGMMissingLinkedIn(current.id);
+        console.warn("Kept investor has no valid LinkedIn profile URL for LGM", {
+          id: current.id,
+          name: current.name,
+          url: current.linkedin,
+        });
+      }
+      dequeueFromMore(current.id);
+    } else if (d === "more") {
+      dequeueFromLGM(current.id);
+      dequeueFromLGMMissingLinkedIn(current.id);
+      queueForMore(current.id);
     } else {
       dequeueFromLGM(current.id);
+      dequeueFromLGMMissingLinkedIn(current.id);
+      dequeueFromMore(current.id);
     }
     if (filter === "unreviewed") {
       // index stays; the filtered list will shrink and the next item slides in
     } else {
       setIndex(i => Math.min(i + 1, filtered.length - 1));
-    }
-  }
-
-  function back() {
-    if (filter === "unreviewed") {
-      // pick the most recent decision and reverse it: simplest = pop last by name
-      // Better: just decrement index in non-filtered view
-      setFilter("all");
-      setIndex(i => Math.max(0, i - 1));
-    } else {
-      setIndex(i => Math.max(0, i - 1));
     }
   }
 
@@ -123,7 +129,7 @@ export default function Page() {
       if (e.key === "ArrowLeft") decide("cut");
       else if (e.key === "ArrowRight") decide("keep");
       else if (e.key === "ArrowDown") decide("skip");
-      else if (e.key === "ArrowUp") back();
+      else if (e.key === "ArrowUp") decide("more");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -133,6 +139,7 @@ export default function Page() {
   const kept = Object.values(decisions).filter(d => d === "keep").length;
   const cut = Object.values(decisions).filter(d => d === "cut").length;
   const skipped = Object.values(decisions).filter(d => d === "skip").length;
+  const more = Object.values(decisions).filter(d => d === "more").length;
 
   if (!hydrated) {
     return <div style={{ padding: 20 }}>Loading…</div>;
@@ -144,6 +151,7 @@ export default function Page() {
         kept={kept}
         cut={cut}
         skipped={skipped}
+        more={more}
         total={ALL_INVESTORS.length}
         reviewed={totalReviewed}
         target5x={TARGET_KEEPS_5X}
@@ -158,6 +166,12 @@ export default function Page() {
           alert(`Exported ${n} kept investors as LGM-ready CSV. Import into your LGM "investors" campaign as an audience.`);
         }}
         lgmQueueSize={loadLGMQueue().length}
+        lgmMissingLinkedInSize={loadLGMMissingLinkedInQueue().length}
+        moreQueueSize={loadMoreQueue().length}
+        onExportLGMMissingLinkedIn={() => {
+          const n = exportLGMMissingLinkedInQueue(ALL_INVESTORS);
+          alert(`Exported ${n} kept investors missing valid LinkedIn profile URLs.`);
+        }}
         onReset={() => {
           if (confirm("Clear all decisions?")) {
             clearDecisions();
@@ -174,21 +188,21 @@ export default function Page() {
       )}
 
       {current && (
-        <Controls onCut={() => decide("cut")} onSkip={() => decide("skip")} onKeep={() => decide("keep")} onBack={back} />
+        <Controls onCut={() => decide("cut")} onSkip={() => decide("skip")} onMore={() => decide("more")} onKeep={() => decide("keep")} />
       )}
     </main>
   );
 }
 
 function Header(props: {
-  kept: number; cut: number; skipped: number; total: number; reviewed: number;
+  kept: number; cut: number; skipped: number; more: number; total: number; reviewed: number;
   target5x: number; target50: number;
   filter: FilterMode; setFilter: (f: FilterMode) => void;
   filteredCount: number; currentIndex: number;
-  onExport: () => void; onExportLGM: () => void; lgmQueueSize: number;
+  onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
   onReset: () => void;
 }) {
-  const { kept, cut, skipped, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, lgmQueueSize, onReset } = props;
+  const { kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -202,6 +216,8 @@ function Header(props: {
       <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#9a9aa3", flexWrap: "wrap" }}>
         <Pill active={kept >= target5x}>5× target: {kept}/{target5x}</Pill>
         <Pill active={kept >= target50}>50% kept: {kept}/{target50}</Pill>
+        <Pill active={lgmMissingLinkedInSize > 0}>LGM retry: {lgmMissingLinkedInSize}</Pill>
+        <Pill active={moreQueueSize > 0}>Lookalikes: {moreQueueSize}</Pill>
         <Pill active>{remaining} left in filter</Pill>
       </div>
 
@@ -215,6 +231,7 @@ function Header(props: {
         <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <FilterBtn onClick={onExport}>Export CSV</FilterBtn>
           <FilterBtn onClick={onExportLGM}>LGM queue ({lgmQueueSize})</FilterBtn>
+          <FilterBtn onClick={onExportLGMMissingLinkedIn}>LGM retry ({lgmMissingLinkedInSize})</FilterBtn>
           <FilterBtn onClick={onReset}>Reset</FilterBtn>
         </span>
       </div>
@@ -267,9 +284,9 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
         <div style={{
           position: "absolute", top: 12, right: 12,
           padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600,
-          background: decision === "keep" ? "#22c55e" : decision === "skip" ? "#a855f7" : "#ef4444",
+          background: decision === "keep" ? "#22c55e" : decision === "skip" ? "#a855f7" : decision === "more" ? "#0ea5e9" : "#ef4444",
           color: "#fff",
-        }}>{decision === "keep" ? "KEPT" : decision === "skip" ? "SKIPPED" : "CUT"}</div>
+        }}>{decision === "keep" ? "KEPT" : decision === "skip" ? "SKIPPED" : decision === "more" ? "MORE" : "CUT"}</div>
       )}
 
       <div>
@@ -413,7 +430,7 @@ function Card({ investor, decision }: { investor: Investor; decision?: Decision 
       )}
 
       <div style={{ marginTop: "auto", display: "flex", gap: 12, fontSize: 13 }}>
-        {i.linkedin && <a href={i.linkedin} target="_blank" rel="noopener noreferrer">LinkedIn / Source</a>}
+        {i.linkedin && <a href={i.linkedin} target="_blank" rel="noopener noreferrer">{normalizeLinkedInProfileUrl(i.linkedin) ? "LinkedIn" : "Source"}</a>}
       </div>
 
       {!i.enriched && (
@@ -434,10 +451,10 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Controls({ onCut, onSkip, onKeep, onBack }: { onCut: () => void; onSkip: () => void; onKeep: () => void; onBack: () => void }) {
+function Controls({ onCut, onSkip, onMore, onKeep }: { onCut: () => void; onSkip: () => void; onMore: () => void; onKeep: () => void }) {
   return (
     <div style={{ display: "flex", gap: 8, position: "sticky", bottom: 0, paddingTop: 8, paddingBottom: 8, background: "linear-gradient(to top, #0b0b0d 70%, transparent)" }}>
-      <button onClick={onBack} style={btnStyle("#22222a", "#c5c5cc", false)} aria-label="back">↑ Back</button>
+      <button onClick={onMore} style={btnStyle("#123044", "#7dd3fc", false)} aria-label="more">↑ More</button>
       <button onClick={onCut} style={btnStyle("#3b1e1e", "#fca5a5", true)}>← Cut</button>
       <button onClick={onSkip} style={btnStyle("#2d2440", "#d8b4fe", false)} aria-label="skip">↓ Skip</button>
       <button onClick={onKeep} style={btnStyle("#1e3b29", "#86efac", true)}>Keep →</button>
