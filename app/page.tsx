@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
-import { loadRemoteState, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, exportLGMQueue, queueForMore, dequeueFromMore, queueForLGMMissingLinkedIn, dequeueFromLGMMissingLinkedIn, exportLGMMissingLinkedInQueue } from "../lib/storage";
+import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue } from "../lib/storage";
 
 const ALL_INVESTORS = (investorsData as Investor[])
   .filter(i => !i.israeli)
@@ -119,25 +119,10 @@ export default function Page() {
   const current = filtered[index];
 
   async function persistDecision(selected: Investor, d: Decision) {
-    await saveDecision(selected.id, d);
-    if (d === "keep") {
-      if (normalizeLinkedInProfileUrl(selected.linkedin)) {
-        await queueForLGM(selected.id);
-        await dequeueFromLGMMissingLinkedIn(selected.id);
-      } else {
-        await dequeueFromLGM(selected.id);
-        await queueForLGMMissingLinkedIn(selected.id);
-      }
-      await dequeueFromMore(selected.id);
-    } else if (d === "more") {
-      await dequeueFromLGM(selected.id);
-      await dequeueFromLGMMissingLinkedIn(selected.id);
-      await queueForMore(selected.id);
-    } else {
-      await dequeueFromLGM(selected.id);
-      await dequeueFromLGMMissingLinkedIn(selected.id);
-      await dequeueFromMore(selected.id);
-    }
+    const queue = d === "keep"
+      ? normalizeLinkedInProfileUrl(selected.linkedin) ? "lgm" : "lgmMissingLinkedIn"
+      : d === "more" ? "more" : "none";
+    await saveSwipeDecision(selected.id, d, queue);
   }
 
   function decide(d: Decision) {

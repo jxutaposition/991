@@ -57,6 +57,10 @@ export async function GET() {
       else if (row.kind === "lgm_synced") lgmSynced[row.entity_id] = row.value;
     }
 
+    for (const [id, decision] of Object.entries(decisions)) {
+      if (decision === "more" && !moreQueue.includes(id)) moreQueue.push(id);
+    }
+
     return NextResponse.json({ decisions, lgmQueue, lgmMissingLinkedInQueue, moreQueue, lgmSynced });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "state load failed" }, { status: 500 });
@@ -69,7 +73,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const op = body?.op;
 
-    if (op === "saveDecision") {
+    if (op === "saveSwipe") {
+      await saveSwipe(body.id, body.decision, body.queue);
+    } else if (op === "saveDecision") {
       await upsert("decision", body.id, body.decision);
     } else if (op === "queue") {
       await upsert(QUEUE_KIND[body.queue as QueueName], body.id, "1");
@@ -87,6 +93,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "state update failed" }, { status: 500 });
+  }
+}
+
+async function saveSwipe(id: string | undefined, decision: Decision | undefined, queue: QueueName | "none" | undefined) {
+  if (!id || !decision) throw new Error("missing state fields");
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      `insert into investor_swipe_state (kind, entity_id, value, updated_at)
+       values ($1, $2, $3, now())
+       on conflict (kind, entity_id) do update set value = excluded.value, updated_at = now()`,
+      ["decision", id, decision]
+    );
+    await client.query(
+      "delete from investor_swipe_state where entity_id = $1 and kind = any($2::text[])",
+      [id, [QUEUE_KIND.lgm, QUEUE_KIND.lgmMissingLinkedIn, QUEUE_KIND.more]]
+    );
+    if (queue && queue !== "none") {
+      await client.query(
+        `insert into investor_swipe_state (kind, entity_id, value, updated_at)
+         values ($1, $2, $3, now())
+         on conflict (kind, entity_id) do update set value = excluded.value, updated_at = now()`,
+        [QUEUE_KIND[queue], id, "1"]
+      );
+    }
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback");
+    throw err;
+  } finally {
+    client.release();
   }
 }
 

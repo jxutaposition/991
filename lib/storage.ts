@@ -52,34 +52,48 @@ export async function loadRemoteState(): Promise<RemoteState> {
 }
 
 export async function saveDecision(id: string, decision: Decision) {
+  saveLegacyDecision(id, decision);
   await stateRequest({ op: "saveDecision", id, decision });
 }
 
+export async function saveSwipeDecision(id: string, decision: Decision, queue: "lgm" | "lgmMissingLinkedIn" | "more" | "none") {
+  saveLegacyDecision(id, decision);
+  saveLegacyQueueState(id, queue);
+  await stateRequest({ op: "saveSwipe", id, decision, queue });
+}
+
 export async function clearDecisions() {
+  clearLegacyState();
   await stateRequest({ op: "clear" });
 }
 
 export async function queueForLGM(id: string) {
+  saveLegacyQueueItem(LEGACY_LGM_QUEUE_KEY, id);
   await stateRequest({ op: "queue", queue: "lgm", id });
 }
 
 export async function dequeueFromLGM(id: string) {
+  removeLegacyQueueItem(LEGACY_LGM_QUEUE_KEY, id);
   await stateRequest({ op: "dequeue", queue: "lgm", id });
 }
 
 export async function queueForLGMMissingLinkedIn(id: string) {
+  saveLegacyQueueItem(LEGACY_LGM_MISSING_LINKEDIN_KEY, id);
   await stateRequest({ op: "queue", queue: "lgmMissingLinkedIn", id });
 }
 
 export async function dequeueFromLGMMissingLinkedIn(id: string) {
+  removeLegacyQueueItem(LEGACY_LGM_MISSING_LINKEDIN_KEY, id);
   await stateRequest({ op: "dequeue", queue: "lgmMissingLinkedIn", id });
 }
 
 export async function queueForMore(id: string) {
+  saveLegacyQueueItem(LEGACY_MORE_QUEUE_KEY, id);
   await stateRequest({ op: "queue", queue: "more", id });
 }
 
 export async function dequeueFromMore(id: string) {
+  removeLegacyQueueItem(LEGACY_MORE_QUEUE_KEY, id);
   await stateRequest({ op: "dequeue", queue: "more", id });
 }
 
@@ -105,6 +119,50 @@ function readLegacyJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function saveLegacyDecision(id: string, decision: Decision) {
+  if (typeof window === "undefined") return;
+  const decisions = readLegacyJson<DecisionMap>(LEGACY_DECISIONS_KEY, {});
+  decisions[id] = decision;
+  localStorage.setItem(LEGACY_DECISIONS_KEY, JSON.stringify(decisions));
+  localStorage.removeItem(LEGACY_MIGRATED_KEY);
+}
+
+function saveLegacyQueueState(id: string, queue: "lgm" | "lgmMissingLinkedIn" | "more" | "none") {
+  if (typeof window === "undefined") return;
+  removeLegacyQueueItem(LEGACY_LGM_QUEUE_KEY, id);
+  removeLegacyQueueItem(LEGACY_LGM_MISSING_LINKEDIN_KEY, id);
+  removeLegacyQueueItem(LEGACY_MORE_QUEUE_KEY, id);
+  if (queue === "lgm") saveLegacyQueueItem(LEGACY_LGM_QUEUE_KEY, id);
+  else if (queue === "lgmMissingLinkedIn") saveLegacyQueueItem(LEGACY_LGM_MISSING_LINKEDIN_KEY, id);
+  else if (queue === "more") saveLegacyQueueItem(LEGACY_MORE_QUEUE_KEY, id);
+  localStorage.removeItem(LEGACY_MIGRATED_KEY);
+}
+
+function saveLegacyQueueItem(key: string, id: string) {
+  if (typeof window === "undefined") return;
+  const queue = readLegacyJson<string[]>(key, []);
+  if (!queue.includes(id)) queue.push(id);
+  localStorage.setItem(key, JSON.stringify(queue));
+  localStorage.removeItem(LEGACY_MIGRATED_KEY);
+}
+
+function removeLegacyQueueItem(key: string, id: string) {
+  if (typeof window === "undefined") return;
+  const queue = readLegacyJson<string[]>(key, []);
+  localStorage.setItem(key, JSON.stringify(queue.filter(x => x !== id)));
+  localStorage.removeItem(LEGACY_MIGRATED_KEY);
+}
+
+function clearLegacyState() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(LEGACY_DECISIONS_KEY);
+  localStorage.removeItem(LEGACY_LGM_QUEUE_KEY);
+  localStorage.removeItem(LEGACY_LGM_MISSING_LINKEDIN_KEY);
+  localStorage.removeItem(LEGACY_MORE_QUEUE_KEY);
+  localStorage.removeItem(LEGACY_LGM_SYNCED_KEY);
+  localStorage.removeItem(LEGACY_MIGRATED_KEY);
 }
 
 function hasLegacyState(state: RemoteState) {
