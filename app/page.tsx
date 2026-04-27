@@ -9,12 +9,24 @@ import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, de
 const ALL_INVESTORS = (investorsData as Investor[])
   .filter(i => !i.israeli)
   .filter(i => Boolean(normalizeLinkedInProfileUrl(i.linkedin)));
+const MESSAGING_INVESTORS = ALL_INVESTORS.filter(i => isRealAngel(i) && isConnectionEligible(i));
+const FIT_TOPICS = [
+  { label: "SMB tech", words: ["smb", "small business", "seller", "merchant", "payroll", "commerce", "service business", "ops"] },
+  { label: "Marketplace", words: ["marketplace", "two-sided", "network effects", "consumer platform"] },
+  { label: "Impact", words: ["impact", "mission", "civic", "govtech", "public interest", "education", "healthcare", "climate", "social"] },
+  { label: "PLG", words: ["product-led", "product led", "self-serve", "productivity", "dev tools", "developer tools", "notion", "figma", "replit"] },
+  { label: "Community-led", words: ["community", "creator", "substack", "discord", "all raise", "operator collective"] },
+  { label: "Women", words: ["women", "female founder", "project include", "all raise"] },
+  { label: "Australian", words: ["australian", "australia", "sydney", "melbourne", "brisbane"] },
+  { label: "Agent applications", words: ["agent", "agents", "ai", "automation", "workflow", "copilot"] },
+];
 
 const TARGET_MEETINGS = 52;
 const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260
 const TARGET_KEEPS_50PCT = Math.ceil(ALL_INVESTORS.length / 2);
 
 type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed" | "skipped";
+type ViewMode = "review" | "message";
 
 function pushToLGM(investor: Investor) {
   const linkedinUrl = normalizeLinkedInProfileUrl(investor.linkedin);
@@ -64,6 +76,7 @@ function bucketColor(b: string) {
 export default function Page() {
   const [decisions, setDecisions] = useState<DecisionMap>({});
   const [filter, setFilter] = useState<FilterMode>("unreviewed");
+  const [view, setView] = useState<ViewMode>("review");
   const [index, setIndex] = useState(0);
   const [hydrated, setHydrated] = useState(false);
 
@@ -81,6 +94,7 @@ export default function Page() {
     else if (filter === "skipped") list = list.filter(i => decisions[i.id] === "skip");
     return list;
   }, [filter, decisions]);
+  const messaging = useMemo(() => MESSAGING_INVESTORS, []);
 
   // Reset index when filter changes
   useEffect(() => { setIndex(0); }, [filter]);
@@ -148,6 +162,8 @@ export default function Page() {
   return (
     <main style={{ minHeight: "100vh", padding: "16px", maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
       <Header
+        view={view}
+        setView={setView}
         kept={kept}
         cut={cut}
         skipped={skipped}
@@ -181,20 +197,27 @@ export default function Page() {
         }}
       />
 
-      {current ? (
-        <Card investor={current} decision={decisions[current.id]} />
-      ) : (
-        <EmptyState />
-      )}
+      {view === "review" ? (
+        <>
+          {current ? (
+            <Card investor={current} decision={decisions[current.id]} />
+          ) : (
+            <EmptyState />
+          )}
 
-      {current && (
-        <Controls onCut={() => decide("cut")} onSkip={() => decide("skip")} onMore={() => decide("more")} onKeep={() => decide("keep")} />
+          {current && (
+            <Controls onCut={() => decide("cut")} onSkip={() => decide("skip")} onMore={() => decide("more")} onKeep={() => decide("keep")} />
+          )}
+        </>
+      ) : (
+        <MessagingTab investors={messaging} />
       )}
     </main>
   );
 }
 
 function Header(props: {
+  view: ViewMode; setView: (v: ViewMode) => void;
   kept: number; cut: number; skipped: number; more: number; total: number; reviewed: number;
   target5x: number; target50: number;
   filter: FilterMode; setFilter: (f: FilterMode) => void;
@@ -202,7 +225,7 @@ function Header(props: {
   onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
   onReset: () => void;
 }) {
-  const { kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
+  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -222,6 +245,8 @@ function Header(props: {
       </div>
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <FilterBtn active={view === "review"} onClick={() => setView("review")}>Review</FilterBtn>
+        <FilterBtn active={view === "message"} onClick={() => setView("message")}>Message</FilterBtn>
         <FilterBtn active={filter === "unreviewed"} onClick={() => setFilter("unreviewed")}>Unreviewed</FilterBtn>
         <FilterBtn active={filter === "warm"} onClick={() => setFilter("warm")}>Warm</FilterBtn>
         <FilterBtn active={filter === "cold_angel"} onClick={() => setFilter("cold_angel")}>Angels</FilterBtn>
@@ -474,6 +499,90 @@ function btnStyle(bg: string, fg: string, big: boolean): React.CSSProperties {
     fontWeight: 600,
     cursor: "pointer",
   };
+}
+
+function MessagingTab({ investors }: { investors: Investor[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>People to message</h2>
+        <div style={{ fontSize: 12, color: "#9a9aa3" }}>{investors.length} matches</div>
+      </div>
+      <div style={{ display: "grid", gap: 12 }}>
+        {investors.map(i => (
+          <MessageCard key={i.id} investor={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageCard({ investor }: { investor: Investor }) {
+  const fits = getFits(investor);
+  const copy = buildCopy(investor, fits);
+  return (
+    <div style={{ background: "#16161b", border: "1px solid #2a2a31", borderRadius: 12, padding: 16, display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>{investor.name}</div>
+          <div style={{ fontSize: 12, color: "#9a9aa3" }}>{investor.role}{investor.firm ? ` · ${investor.firm}` : ""}</div>
+        </div>
+        <a href={investor.linkedin} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>LinkedIn</a>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {fits.map(f => <span key={f} style={{ padding: "3px 8px", borderRadius: 999, background: "#202028", fontSize: 11, color: "#d7d7df" }}>{f}</span>)}
+        <span style={{ padding: "3px 8px", borderRadius: 999, background: investor.connection_degree === "1st" ? "#16301f" : "#33261b", fontSize: 11, color: "#eaeaea" }}>{investor.connection_degree === "1st" ? "1st degree" : "2nd degree"}</span>
+      </div>
+      <textarea readOnly value={copy} rows={3} style={{ width: "100%", resize: "none", background: "#101014", color: "#f2f2f7", border: "1px solid #2a2a31", borderRadius: 8, padding: 10, fontSize: 13, lineHeight: 1.4 }} />
+    </div>
+  );
+}
+
+function getFits(i: Investor): string[] {
+  const haystack = [
+    i.notes,
+    i.thesis_blurb,
+    i.firm,
+    i.role,
+    i.firm_partner_role,
+    i.bucket,
+    ...(i.sector_focus || []),
+    ...(i.stage_focus || []),
+    ...(i.network_signals || []),
+    ...(i.writings || []).map(w => `${w.type} ${w.title}`),
+  ].filter(Boolean).join(" ").toLowerCase();
+  return FIT_TOPICS.filter(t => t.words.some(w => haystack.includes(w))).map(t => t.label);
+}
+
+function buildCopy(i: Investor, fits: string[]) {
+  const fitText = fits.length ? fits.slice(0, 2).join(" + ") : "agent-first SMB";
+  const intro = i.connection_degree === "1st" ? "Already connected" : "We’re connected on LinkedIn";
+  return `${intro}. Saw your ${fitText} signal. ${startupLine(fits)} ${normalizeLinkedInProfileUrl(i.linkedin)}`;
+}
+
+function startupLine(fits: string[]) {
+  const first = fits[0] || "SMB tech";
+  if (first === "Agent applications") return "99 helps service businesses run agent-first ops.";
+  if (first === "Impact") return "99 turns service businesses into agent-first ops.";
+  if (first === "Marketplace") return "99 helps operators scale with agent-first workflows.";
+  if (first === "Community-led") return "99 helps community-driven operators use agents.";
+  return "99 turns service businesses into agent-first ops.";
+}
+
+function isRealAngel(i: Investor) {
+  const notes = (i.notes || "").toLowerCase();
+  if (notes.includes("unclear if invests") || notes.includes("unverified angel") || notes.includes("limited public angel signal") || notes.includes("flagged") || notes.includes("exclude") || notes.includes("deprioritize") || notes.includes("not a fit") || notes.includes("long shot")) {
+    return false;
+  }
+  return Boolean(i.leads_rounds && i.leads_rounds !== "unknown") || /angel|invest|checks|portfolio|personal angel|small check|advisor|scout/i.test(notes);
+}
+
+function hasLinkedIn(i: Investor) {
+  return Boolean(normalizeLinkedInProfileUrl(i.linkedin));
+}
+
+function isConnectionEligible(i: Investor) {
+  return i.connection_degree === "1st" || (i.connection_degree === "2nd" && Boolean(i.connection_via && i.connection_via.length));
 }
 
 function EmptyState() {

@@ -1,152 +1,5 @@
 [
   {
-    "id": "allison-barr-allen",
-    "name": "Allison Barr Allen",
-    "firm": "Operator Collective",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/allison-barr-allen-22304a17/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 1,
-    "sf_based": true,
-    "notes": "Operator Collective GP; ex-Uber. SF-based.",
-    "score": 95,
-    "portfolio": [
-      "Esusu",
-      "Hex",
-      "AirGarage",
-      "Mercury",
-      "Tofu",
-      "Paramark",
-      "Replo"
-    ],
-    "writings": [],
-    "network_signals": [
-      "ex-Uber Money exec",
-      "Co-founder Fast (payments)",
-      "Founder Trail Run Capital angel fund",
-      "30+ angel investments"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Enterprise Software",
-      "SMB Software",
-      "AI",
-      "FinTech",
-      "Health IT"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "enriched": true,
-    "check_size": "up to $50K (angel); Operator Collective Seed+A",
-    "thesis_blurb": "Backs operator-led startups across enterprise, fintech, and AI; emphasizes AI transformation at Seed+A.",
-    "confidence": "high",
-    "connection_degree": "1st"
-  },
-  {
-    "id": "heston-berkman",
-    "name": "Heston Berkman",
-    "firm": "Banter Capital",
-    "role": "Partner at Banter Capital",
-    "linkedin": "https://www.linkedin.com/in/hestonberkman/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 1,
-    "sf_based": true,
-    "notes": "Partner-level — schedule post-5/6.",
-    "score": 95,
-    "portfolio": [
-      "ZeroLend"
-    ],
-    "writings": [
-      {
-        "type": "podcast",
-        "title": "Ep 023 - Heston Berkman, Founder and Partner at Banter Capital",
-        "url": "https://podcasts.apple.com/us/podcast/ep-023-heston-berkman-founder-and-partner-at-banter-capital/id1711344638?i=1000671564990"
-      }
-    ],
-    "network_signals": [
-      "Founder/Partner Banter Capital",
-      "Tied to Crypto Banter media network (Ran Neuner)",
-      "Crypto/DeFi specialist"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Crypto",
-      "DeFi",
-      "Blockchain Gaming",
-      "Crypto Infrastructure"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "enriched": true,
-    "check_size": "$100K-$2M",
-    "thesis_blurb": "Token and equity investments across DeFi, blockchain gaming, and crypto infrastructure.",
-    "confidence": "medium",
-    "connection_degree": "2nd",
-    "connection_via": [
-      {
-        "name": "Matthew Lewis",
-        "occupation": "Banter Capital"
-      }
-    ]
-  },
-  {
-    "id": "saanya-ojha",
-    "name": "Saanya Ojha",
-    "firm": "Bain Capital Ventures",
-    "role": "Partner at Bain Capital Ventures",
-    "linkedin": "https://www.linkedin.com/in/saanyaojha/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 1,
-    "sf_based": true,
-    "notes": "Partner-level — schedule post-5/6. BCV writes seed + Series A; SF presence.",
-    "score": 95,
-    "portfolio": [
-      "Cloudwalk",
-      "Melio",
-      "Mercury",
-      "BharatPe",
-      "Cred"
-    ],
-    "writings": [
-      {
-        "type": "substack",
-        "title": "Saanya Ojha on Substack",
-        "url": "https://substack.com/@saanyaojha"
-      }
-    ],
-    "network_signals": [
-      "ex-Coatue (fintech practice)",
-      "ex-Goldman Sachs hedge fund analyst",
-      "Wharton finance",
-      "Joined BCV 2023"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Fintech",
-      "Cloud Infrastructure",
-      "Cybersecurity",
-      "Developer Tools",
-      "AI"
-    ],
-    "stage_focus": [
-      "growth",
-      "Series B+"
-    ],
-    "enriched": true,
-    "check_size": "$25M-$100M (sweet spot $50M)",
-    "thesis_blurb": "Growth-stage software investor focused on cloud infra, cybersecurity, and the developer ecosystem; metrics-driven approach.",
-    "confidence": "high"
-  },
-  {
     "id": "allison-kiang",
     "name": "Allison Kiang",
     "firm": "Twelve Below",
@@ -184,106 +37,6 @@
     "check_size": "unknown",
     "thesis_blurb": "Backs exceptional founders building data-moat systems at pre-seed/seed across healthtech, fintech, climate, and consumer.",
     "confidence": "medium"
-  },
-  {
-    "id": "anna-chen",
-    "name": "Anna Chen",
-    "firm": "Madrona",
-    "role": "(role unknown — Other-tagged)",
-    "linkedin": "https://www.linkedin.com/in/yuan-anna-chen/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 2,
-    "sf_based": true,
-    "notes": "Madrona is Seattle-based but has SF presence. Misclassified as Other in source sheet — verify role.",
-    "score": 90,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "ex-General Atlantic tech group associate",
-      "ex-J.P. Morgan tech M&A analyst",
-      "Joined Madrona 2024",
-      "Based in Palo Alto office"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Intelligent Applications",
-      "Enterprise Software",
-      "Consumer Tech",
-      "AI/ML"
-    ],
-    "stage_focus": [
-      "Series A",
-      "Series B",
-      "acceleration stage"
-    ],
-    "enriched": true,
-    "check_size": "unknown",
-    "thesis_blurb": "Sources and evaluates acceleration-stage opportunities across Madrona's intelligent apps, enterprise, and consumer themes.",
-    "confidence": "medium"
-  },
-  {
-    "id": "chelcie-taylor",
-    "name": "Chelcie Taylor",
-    "firm": "Notable Capital",
-    "role": "(role unknown — Other-tagged)",
-    "linkedin": "https://www.linkedin.com/in/chelcie-taylor/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 2,
-    "sf_based": true,
-    "notes": "Notable Capital (formerly GGV US). Verify if Partner or junior.",
-    "score": 90,
-    "portfolio": [
-      "Arteria.ai",
-      "Electric",
-      "Heard",
-      "Homebase",
-      "Plenful",
-      "Realm",
-      "Slice",
-      "Stream",
-      "Vic.ai",
-      "Wispr",
-      "Pinwheel",
-      "Mindee"
-    ],
-    "writings": [
-      {
-        "type": "blog",
-        "title": "Chelcie Taylor at TechCrunch",
-        "url": "https://techcrunch.com/author/chelcie-taylor/"
-      }
-    ],
-    "network_signals": [
-      "NVCA Rising Star 2024",
-      "Princeton Political Science",
-      "Harvard MBA",
-      "Leads Notable's SMBTech 50 list",
-      "Leads Notable's AI applications initiative"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Application Software",
-      "Enterprise SaaS",
-      "Vertical SaaS",
-      "SMBTech",
-      "AI"
-    ],
-    "stage_focus": [
-      "Series A",
-      "Series B",
-      "multi-stage"
-    ],
-    "enriched": true,
-    "check_size": "$250K-$25M (sweet spot $10M)",
-    "thesis_blurb": "Multi-stage application software investor focused on enterprise, vertical SaaS, SMBTech, and AI apps; six board observer seats.",
-    "confidence": "high",
-    "aum_usd": 12600000000,
-    "firm_stages": "both",
-    "firm_website": "notablecapital.com"
   },
   {
     "id": "ernest-addison",
@@ -437,63 +190,6 @@
     "thesis_blurb": "Investor at Acrew Capital focused on AI and healthcare; brings data-science background from Tempus AI and Valo Health to clinical-AI investments."
   },
   {
-    "id": "scott-khanna",
-    "name": "Scott Khanna",
-    "firm": "Matrix Partners",
-    "role": "(role unknown — Other-tagged)",
-    "linkedin": "https://www.linkedin.com/in/scottkhanna/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 2,
-    "sf_based": true,
-    "notes": "Matrix is top-tier seed/Series A. Verify role.",
-    "score": 90,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Matrix-talent-partner",
-      "ex-eBay-PayPal",
-      "executive-search",
-      "not-investing-partner"
-    ],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": true,
-    "check_size": "unknown",
-    "thesis_blurb": "Talent Partner at Matrix Partners (not an investing partner); supports portfolio leadership recruiting.",
-    "leads_rounds": "unknown",
-    "confidence": "high"
-  },
-  {
-    "id": "bijan-vaez",
-    "name": "Bijan Vaez",
-    "firm": "Merchkit",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/bijanvaez/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 3,
-    "sf_based": true,
-    "notes": "Verify — Merchkit is a startup not a VC.",
-    "score": 85,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "AI commerce",
-      "retail tech",
-      "SaaS"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "Founder/CEO of Merchkit (AI retail merchandising) and Antler venture partner; angels into early-stage AI/commerce companies."
-  },
-  {
     "id": "christopher-k-lee-mph",
     "name": "Christopher K. Lee MPH",
     "firm": "(no firm)",
@@ -521,33 +217,6 @@
     "firm_website": "generalcatalyst.com",
     "confidence": "low",
     "thesis_blurb": "VC scout and healthtech strategist who connects early-stage founders with a dozen+ VC funds and angel groups."
-  },
-  {
-    "id": "daniel-fong",
-    "name": "Daniel Fong",
-    "firm": "Network Right",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/dfong523/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 3,
-    "sf_based": true,
-    "notes": "Verify firm + role.",
-    "score": 85,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "B2B SaaS",
-      "IT/cybersecurity",
-      "tools for VC-backed cos"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "CEO of Network Right (IT/cyber for VC-backed cos) angel-investing in startups since 2020; networked into YC/a16z/Sequoia portfolios via service relationships."
   },
   {
     "id": "hugo-hazon",
@@ -733,197 +402,6 @@
     "thesis_blurb": "Backs enterprise-software founders with PLG and operator DNA, leveraging GP background from General Catalyst and OpenView.",
     "leads_rounds": "both",
     "confidence": "med"
-  },
-  {
-    "id": "peter-xia",
-    "name": "Peter Xia",
-    "firm": "LIM Advisors",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/peter-xia8/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 3,
-    "sf_based": true,
-    "notes": "LIM = Hong Kong PE/hedge — likely not relevant for SF seed; deprioritize unless angel-active.",
-    "score": 85,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Hong-Kong",
-      "LIM-IR",
-      "Columbia-econ",
-      "hedge-fund-not-VC"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "public-markets multi-strategy"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "check_size": "unknown",
-    "thesis_blurb": "Investor relations professional at Hong Kong hedge fund LIM Advisors (multi-strategy across Asia) — not a startup VC.",
-    "leads_rounds": "unknown",
-    "confidence": "high"
-  },
-  {
-    "id": "rochelle-ritchie",
-    "name": "Rochelle Ritchie",
-    "firm": "Folklore Ventures",
-    "role": "(role unknown — Other-tagged)",
-    "linkedin": "https://www.linkedin.com/in/rritchie1/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "partner",
-    "warm_priority": 3,
-    "sf_based": true,
-    "notes": "Folklore is Australian-based but sometimes US deals.",
-    "score": 85,
-    "portfolio": [],
-    "writings": [
-      "Folklore Insights blog (marketing)"
-    ],
-    "network_signals": [
-      "Folklore-marketing-comms",
-      "9yr-startup-VC-agency",
-      "not-investor",
-      "AU-tied"
-    ],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": true,
-    "check_size": "unknown",
-    "thesis_blurb": "Marketing & Communications Manager at Folklore Ventures (not an investing role); tells portfolio stories.",
-    "leads_rounds": "unknown",
-    "confidence": "high"
-  },
-  {
-    "id": "sami-khdair",
-    "name": "Sami Khdair",
-    "firm": "Front Row Ventures",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/sami-khdair/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 3,
-    "sf_based": true,
-    "notes": "Front Row = student-VC; junior. Useful intro path.",
-    "score": 85,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "enterprise apps",
-      "environment tech",
-      "healthtech",
-      "sustainability tech",
-      "AI"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "Investment associate at Front Row Ventures, Canada's first student-run VC fund backing student-founded startups."
-  },
-  {
-    "id": "noah-lin",
-    "name": "Noah Lin",
-    "firm": "(no firm)",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/noah-lin17/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 4,
-    "sf_based": true,
-    "notes": "Insufficient data — verify before reaching out.",
-    "score": 80,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": true,
-    "aum_usd": 16700000000,
-    "firm_stages": "both",
-    "firm_website": "generalcatalyst.com",
-    "confidence": "low",
-    "thesis_blurb": "Early-career investor associated with defy.vc; limited public investment record."
-  },
-  {
-    "id": "sachin-h",
-    "name": "Sachin H",
-    "firm": "(no firm)",
-    "role": "(headline blank)",
-    "linkedin": "https://www.linkedin.com/in/sachinht/",
-    "bucket": "warm",
-    "priority_tier": 1,
-    "sub_bucket": "angel_or_associate",
-    "warm_priority": 4,
-    "sf_based": true,
-    "notes": "Insufficient data — verify before reaching out.",
-    "score": 80,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "enriched": true,
-    "aum_usd": 16700000000,
-    "firm_stages": "both",
-    "firm_website": "generalcatalyst.com",
-    "confidence": "low",
-    "thesis_blurb": "Solo angel investor; identity ambiguous in public sources (multiple Sachin H. profiles)."
-  },
-  {
-    "id": "edwin-wee",
-    "name": "Edwin Wee",
-    "firm": "ex-Stripe Partnerships, Anthropic GTM",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/edwinwee",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "Bridges Stripe + Anthropic alumni networks",
-    "angel_signal": "Active angel via syndicates and Stripe-network deals",
-    "score": 60,
-    "portfolio": [],
-    "writings": [
-      {
-        "type": "twitter",
-        "title": "@edwinwee on X",
-        "url": "https://x.com/edwinwee"
-      },
-      {
-        "type": "essay",
-        "title": "Seven years at Stripe (LinkedIn)",
-        "url": "https://www.linkedin.com/pulse/seven-years-stripe-edwin-wee"
-      }
-    ],
-    "network_signals": [
-      "Stripe Mafia",
-      "Anthropic alum",
-      "Cursor team",
-      "GTM operator"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "AI infra",
-      "Dev tools",
-      "B2B SaaS"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "enriched": true,
-    "check_size": "unknown",
-    "confidence": "low"
   },
   {
     "id": "ali-partovi",
@@ -1175,60 +653,6 @@
     "confidence": "high"
   },
   {
-    "id": "david-schmaier",
-    "name": "David Schmaier",
-    "firm": "President & CSO Salesforce / Founder Vlocity",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/david-schmaier-70476b43",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "SF Bay Area; B2B SaaS focus",
-    "angel_signal": "Active angel; recent investments in Linkd, AppMesh (Nov 2025)",
-    "score": 50,
-    "portfolio": [
-      "Linkd",
-      "AppMesh",
-      "Punchh (board)",
-      "Vlocity (founder)"
-    ],
-    "writings": [
-      {
-        "type": "bio",
-        "title": "Salesforce executive bio",
-        "url": "https://www.salesforce.com/company/david-schmaier-bio/"
-      },
-      {
-        "type": "linkedin",
-        "title": "David Schmaier",
-        "url": "https://www.linkedin.com/in/david-schmaier-70476b43/"
-      }
-    ],
-    "network_signals": [
-      "Salesforce alum",
-      "Vlocity founder",
-      "Industry cloud",
-      "Enterprise SaaS network"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Enterprise SaaS",
-      "Vertical/industry cloud",
-      "AI for enterprise",
-      "Productivity software"
-    ],
-    "stage_focus": [
-      "Seed",
-      "Series A",
-      "Series B"
-    ],
-    "enriched": true,
-    "check_size": "undisclosed",
-    "thesis_blurb": "Senior Salesforce exec selectively angel-investing in B2B software with vertical or strategic Salesforce-adjacent angles.",
-    "confidence": "med"
-  },
-  {
     "id": "david-singleton",
     "name": "David Singleton",
     "firm": "ex-CTO Stripe, CEO /dev/agents",
@@ -1276,64 +700,6 @@
     "check_size": "undisclosed",
     "thesis_blurb": "Recently focused on /dev/agents as founder/CEO; angel scope narrow with concentrated bets in AI agent infrastructure.",
     "confidence": "low"
-  },
-  {
-    "id": "eric-ries",
-    "name": "Eric Ries",
-    "firm": "Author Lean Startup; founder LTSE",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/eries/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "SF; mission-driven founder fit; high relevance for Change-style pitch",
-    "angel_signal": "Long-time mission-aligned angel",
-    "score": 50,
-    "portfolio": [
-      "Asana",
-      "Pelago",
-      "IMVU (founder)",
-      "LTSE (founder)"
-    ],
-    "writings": [
-      {
-        "type": "book",
-        "title": "The Lean Startup",
-        "url": "http://theleanstartup.com/"
-      },
-      {
-        "type": "book",
-        "title": "Incorruptible (May 2025)",
-        "url": "https://www.linkedin.com/in/eries/"
-      },
-      {
-        "type": "podcast",
-        "title": "First Funders Pod Ep 07",
-        "url": "https://firstfunderspod.com/episodes/07-eric-ries-angel-lean-startup-creator-and-founder-of-ltse-on-how-he-invests-in-and-advises-a-new-wave-of-mission-first-startups/transcript"
-      }
-    ],
-    "network_signals": [
-      "Lean Startup author",
-      "LTSE founder",
-      "Mission-first investor",
-      "100+ investments"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Mission-driven startups",
-      "Enterprise applications",
-      "Consumer",
-      "Public-benefit cos"
-    ],
-    "stage_focus": [
-      "Pre-seed",
-      "Seed"
-    ],
-    "enriched": true,
-    "check_size": "$10K or less",
-    "thesis_blurb": "Writes small checks (<$10K) into 100+ mission-first startups for learning and catalysis; not a fund.",
-    "confidence": "high"
   },
   {
     "id": "frank-van-veenendaal",
@@ -1386,63 +752,6 @@
     "confidence": "med"
   },
   {
-    "id": "jed-mccaleb",
-    "name": "Jed McCaleb",
-    "firm": "Stellar / Vast founder",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/jed-mccaleb-4052a4",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "SF; deep-tech & mission tech",
-    "angel_signal": "Very active SF angel; deep tech + crypto",
-    "score": 50,
-    "portfolio": [
-      "AstroForge",
-      "Embrace Software",
-      "Socket",
-      "Arcadia Science (board)",
-      "Syllable (board)",
-      "Stellar (founder)",
-      "Vast (founder)"
-    ],
-    "writings": [
-      {
-        "type": "podcast",
-        "title": "Core Memory: Building a Space Station for $1B",
-        "url": "https://www.corememory.com/p/hes-building-a-space-station-jed-mccaleb-vast"
-      },
-      {
-        "type": "linkedin",
-        "title": "Jed McCaleb",
-        "url": "https://www.linkedin.com/in/jed-mccaleb-4052a4/"
-      }
-    ],
-    "network_signals": [
-      "Stellar/Ripple co-founder",
-      "Mt. Gox creator",
-      "Vast founder",
-      "Pantera Capital venture partner",
-      "Crypto OG"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Space/aerospace",
-      "Crypto/blockchain",
-      "Deep tech",
-      "Bio/science tools"
-    ],
-    "stage_focus": [
-      "Seed",
-      "Series A"
-    ],
-    "enriched": true,
-    "check_size": "undisclosed",
-    "thesis_blurb": "Self-funded crypto billionaire deploying capital into deep-tech, space, and frontier-science bets aligned with Vast/Stellar themes.",
-    "confidence": "med"
-  },
-  {
     "id": "jeff-weinstein",
     "name": "Jeff Weinstein",
     "firm": "Product Lead, Stripe",
@@ -1486,34 +795,6 @@
     "thesis_blurb": "Stripe product lead (payments, Atlas) who angels small checks into early fintech and developer-tooling companies.",
     "leads_rounds": "follow",
     "confidence": "med"
-  },
-  {
-    "id": "jennifer-dulski",
-    "name": "Jennifer Dulski",
-    "firm": "Former President & COO Change.org (now Rising Team CEO)",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/jenniferdulski/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "Ran Change.org ops 2013-2017; strong operator network",
-    "angel_signal": "Active operator-angel via Rising Team / All Raise",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "future of work",
-      "leadership tech",
-      "SaaS",
-      "communities"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "CEO of Rising Team and Stanford GSB faculty; light angel investor focused on operator-led teams and community/leadership tools."
   },
   {
     "id": "michael-siliski",
@@ -1635,33 +916,6 @@
     "thesis_blurb": "Head of Product at Watershed (climate); operator with deep 0-to-1 SaaS reps from Stripe Billing/Treasury — light angel activity."
   },
   {
-    "id": "taylor-francis",
-    "name": "Taylor Francis",
-    "firm": "Co-founder Watershed, ex-Stripe Atlas",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/taylor-francis-5a2a44a",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "Climate / SMB angle",
-    "angel_signal": "Founder-angel within Stripe alumni network",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "climate tech",
-      "carbon accounting",
-      "sustainability software"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "Watershed co-founder (carbon accounting) and lifelong climate advocate; light angel involvement in climate tech."
-  },
-  {
     "id": "tim-cadogan",
     "name": "Tim Cadogan",
     "firm": "CEO GoFundMe (current)",
@@ -1690,33 +944,6 @@
     "thesis_blurb": "GoFundMe CEO with ad-tech and search operating background; no public angel/VC portfolio of significance."
   },
   {
-    "id": "benjamin-mann",
-    "name": "Benjamin Mann",
-    "firm": "Co-founder, Anthropic",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/benmann",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "SF-based; unverified angel activity",
-    "angel_signal": "high-profile target — angel activity unverified",
-    "score": 20,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "AI safety",
-      "alignment",
-      "AI infrastructure"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "Anthropic co-founder and GPT-3 co-architect; primarily a researcher, no notable public angel portfolio."
-  },
-  {
     "id": "catherine-olsson",
     "name": "Catherine Olsson",
     "firm": "Early Anthropic, ex-OpenAI",
@@ -1742,73 +969,6 @@
     "enriched": true,
     "confidence": "low",
     "thesis_blurb": "Anthropic interpretability researcher with Open Philanthropy grantmaking background; primarily a researcher, no notable angel portfolio."
-  },
-  {
-    "id": "jack-clark",
-    "name": "Jack Clark",
-    "firm": "Co-founder & Head of Policy, Anthropic",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/jackclarksf",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "Policy-focused; SF-based; long shot but warm AI angle",
-    "angel_signal": "high-profile target — angel activity unverified",
-    "score": 20,
-    "portfolio": [],
-    "writings": [
-      "Import AI newsletter (Substack, 70K+ subs since 2016)",
-      "jack-clark.net",
-      "X/Twitter @jackclarkSF",
-      "ITIF/Stanford AI Index"
-    ],
-    "network_signals": [
-      "Anthropic-co-founder-Head-of-Policy",
-      "ex-OpenAI-Policy-Director",
-      "ex-Bloomberg-journalist",
-      "NAIAC-member",
-      "AI-Index-founding"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "AI policy",
-      "AI research",
-      "frontier AI"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "check_size": "unknown",
-    "thesis_blurb": "Writes the Import AI newsletter (70K+ readers) covering AI research and policy; Anthropic Head of Policy, not an active angel investor.",
-    "leads_rounds": "unknown",
-    "confidence": "med"
-  },
-  {
-    "id": "kraig-swensrud",
-    "name": "Kraig Swensrud",
-    "firm": "Former CMO Salesforce / Founder Qualified",
-    "role": "Angel",
-    "linkedin": "https://www.linkedin.com/in/kraigswensrud",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sub_bucket": "",
-    "sf_based": true,
-    "notes": "SF; Salesforce-ecosystem GTM expertise",
-    "angel_signal": "Founder/CEO Qualified (acquired by Salesforce 2026); high-profile target -- angel activity unverified",
-    "score": 20,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [
-      "sales/marketing tech",
-      "B2B SaaS",
-      "Salesforce ecosystem"
-    ],
-    "stage_focus": [],
-    "enriched": true,
-    "confidence": "low",
-    "thesis_blurb": "Two-time founder (GetFeedback, Qualified) and ex-Salesforce CMO; light angel activity in B2B SaaS and Salesforce ecosystem."
   },
   {
     "id": "sebastian-duesterhoeft",
@@ -2238,42 +1398,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "medium",
-    "israeli": false
-  },
-  {
-    "id": "yin-wu",
-    "name": "Yin Wu",
-    "firm": "Pulley (Founder/CEO)",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/yinwu1/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": true,
-    "notes": "Founder/CEO Pulley (cap-table SaaS, Carta competitor — note: Pulley itself is fine; Carta the company is excluded). Serial founder (Microsoft acq, YC). SF Bay angel + advisor in fintech and SMB tools.",
-    "score": 80,
-    "portfolio": [
-      "YC operator-angel network"
-    ],
-    "writings": [],
-    "network_signals": [
-      "YC",
-      "Female Founders Fund LP"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "SMB",
-      "Fintech",
-      "DevTools"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "check_size": "$10K-$50K",
-    "thesis_blurb": "Serial founder-angel; backs SMB SaaS and fintech.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "high",
     "israeli": false
   },
   {
@@ -3153,39 +2277,6 @@
     "israeli": false
   },
   {
-    "id": "cori-zarek",
-    "name": "Cori Zarek",
-    "firm": "ex-U.S. Deputy CTO; ex-Beeck Center; ex-18F",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/corizarek/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "Civic operator. Primarily DC-based; flagging uncertain for Bay Area.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "USDS adjacent",
-      "open data"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Civic",
-      "GovTech",
-      "Open data"
-    ],
-    "stage_focus": [
-      "pre-seed"
-    ],
-    "check_size": "$5K-$10K",
-    "thesis_blurb": "Open data, civic transparency.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "raylene-yung",
     "name": "Raylene Yung",
     "firm": "Founder The Tech Talent Project; ex-USDS lead; ex-Stripe; ex-Facebook",
@@ -3248,39 +2339,6 @@
     ],
     "check_size": "$10K-$25K",
     "thesis_blurb": "Consumer + impact at the policy/product intersection.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "vivian-graubard",
-    "name": "Vivian Graubard",
-    "firm": "ex-USDS founding team; ex-New America",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/viviangraubard/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "USDS founding team member who worked on human-trafficking and gender-based violence tech projects. Likely DC-based — flagged.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "USDS founding",
-      "civic tech"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Civic",
-      "Gender",
-      "Impact"
-    ],
-    "stage_focus": [
-      "pre-seed"
-    ],
-    "check_size": "$5K-$10K",
-    "thesis_blurb": "Tech for vulnerable populations and public services.",
     "co_investors": [],
     "enriched": true,
     "confidence": "low",
@@ -3386,38 +2444,6 @@
     "israeli": false
   },
   {
-    "id": "rohan-bhobe",
-    "name": "Rohan Bhobe",
-    "firm": "Co-founder & CEO Nava PBC; ex-USDS",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/rohanbhobe/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": false,
-    "notes": "Co-founder/CEO Nava PBC. Primarily DC-based. Flagged — likely fails SF gate.",
-    "score": 55,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Nava co-founder",
-      "USDS"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Civic",
-      "Healthcare"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$25K",
-    "thesis_blurb": "Public-benefit, civic infrastructure.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "sami-inkinen",
     "name": "Sami Inkinen",
     "firm": "Co-founder & CEO Virta Health; co-founder Trulia",
@@ -3486,37 +2512,6 @@
     "israeli": false
   },
   {
-    "id": "michael-zimbalist",
-    "name": "Michael Zimbalist",
-    "firm": "ex-NYT R&D Labs SVP; consultant",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/michaelzimbalist/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "Built NYT R&D Labs. Likely NYC; flagged.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "NYT R&D"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Media",
-      "Consumer"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$25K",
-    "thesis_blurb": "Media and consumer technology.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "nick-rockwell",
     "name": "Nick Rockwell",
     "firm": "ex-CTO NYT; ex-CTO Conde Nast; ex-CTO Fastly",
@@ -3547,164 +2542,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "medium",
-    "israeli": false
-  },
-  {
-    "id": "kinsey-wilson",
-    "name": "Kinsey Wilson",
-    "firm": "ex-EVP Product/Tech NYT; ex-NPR; founder Newspack",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/kinseywilson/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "NYT product/tech leader. Likely NYC. Flagged.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "NYT EVP",
-      "NPR"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Media"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$25K",
-    "thesis_blurb": "Local journalism and media tech.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "sam-dolnick",
-    "name": "Sam Dolnick",
-    "firm": "Deputy Managing Editor NYT",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/sam-dolnick-9b0489114/",
-    "bucket": "cold_angel",
-    "priority_tier": 5,
-    "sf_based": false,
-    "notes": "NYC-based; not a fit for SF gate.",
-    "score": 30,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "NYT"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Media"
-    ],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "scott-heiferman",
-    "name": "Scott Heiferman",
-    "firm": "Co-founder Meetup; ex-Bloomberg ops",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/heiferman/",
-    "bucket": "cold_angel",
-    "priority_tier": 5,
-    "sf_based": false,
-    "notes": "NYC-based — fails SF gate.",
-    "score": 30,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Meetup",
-      "Bloomberg"
-    ],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "andy-palmer",
-    "name": "Andy Palmer",
-    "firm": "Co-founder Tamr; Koa Labs; ex-Vertica",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/andypalmer/",
-    "bucket": "cold_angel",
-    "priority_tier": 5,
-    "sf_based": false,
-    "notes": "Boston-based — fails SF gate.",
-    "score": 30,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "evan-burfield",
-    "name": "Evan Burfield",
-    "firm": "Co-founder 1776; civic",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/evanburfield/",
-    "bucket": "cold_angel",
-    "priority_tier": 5,
-    "sf_based": false,
-    "notes": "DC-based — fails SF gate.",
-    "score": 30,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "jeff-meisel",
-    "name": "Jeff Meisel",
-    "firm": "ex-Census Bureau CDO; ex-Lockheed; civic operator",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/jmeisel/",
-    "bucket": "cold_angel",
-    "priority_tier": 5,
-    "sf_based": false,
-    "notes": "Lockheed flagged — defense exclusion; drop. Note: user excluded military/defense.",
-    "score": 0,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
     "israeli": false
   },
   {
@@ -3812,37 +2649,6 @@
     "israeli": false
   },
   {
-    "id": "leah-pearlman",
-    "name": "Leah Pearlman",
-    "firm": "Co-creator Facebook 'Like' button; founder Dharma Comics",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/leahpearlman/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": true,
-    "notes": "Bay Area-based mission-driven creator-operator. Limited public angel signal; flagged.",
-    "score": 55,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "ex-Facebook"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Consumer",
-      "Wellbeing"
-    ],
-    "stage_focus": [
-      "pre-seed"
-    ],
-    "check_size": "$5K-$10K",
-    "thesis_blurb": "Wellbeing-focused consumer product.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "alex-macgillivray",
     "name": "Alex Macgillivray",
     "firm": "ex-Deputy U.S. CTO; ex-General Counsel Twitter",
@@ -3876,38 +2682,6 @@
     "israeli": false
   },
   {
-    "id": "andrea-coravos",
-    "name": "Andrea Coravos",
-    "firm": "Co-founder & CEO HumanFirst; ex-USDS volunteer",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/andreacoravos/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "USDS volunteer/civic-tech operator; primarily NYC. Flagged.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "USDS volunteer",
-      "HumanFirst founder"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Healthcare",
-      "Civic"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$25K",
-    "thesis_blurb": "Digital health infrastructure.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "lenny-mendonca",
     "name": "Lenny Mendonca",
     "firm": "ex-Senior Partner McKinsey; ex-CA Chief Economic Advisor; CfA board",
@@ -3938,37 +2712,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "medium",
-    "israeli": false
-  },
-  {
-    "id": "andrew-mclaughlin",
-    "name": "Andrew McLaughlin",
-    "firm": "ex-Deputy U.S. CTO; ex-Higher Ground Labs; Civic Hall",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/amclaughlin/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "Primarily NY/DC — flagged.",
-    "score": 50,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Deputy U.S. CTO"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Civic",
-      "Policy"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$25K",
-    "thesis_blurb": "Civic policy and political tech.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
     "israeli": false
   },
   {
@@ -4358,30 +3101,6 @@
     "israeli": false
   },
   {
-    "id": "gustav-soderstrom",
-    "name": "Gustav Soderstrom",
-    "firm": "Co-President & CPO Spotify",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/gustavsoderstrom/",
-    "bucket": "cold_angel",
-    "priority_tier": 3,
-    "sf_based": false,
-    "notes": "Stockholm/Bay-Area split. Excluding from SF list.",
-    "score": 0,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "Excluded — primarily Stockholm-based.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "kevin-rose",
     "name": "Kevin Rose",
     "firm": "ex-Digg founder / Medium contributor / True Ventures",
@@ -4496,30 +3215,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "medium",
-    "israeli": false
-  },
-  {
-    "id": "ankur-nagpal",
-    "name": "Ankur Nagpal",
-    "firm": "Founder Teachable / Vibe Capital / Carry",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/ankurnagpal/",
-    "bucket": "cold_angel",
-    "priority_tier": 1,
-    "sf_based": false,
-    "notes": "Teachable founder. Primarily NYC. EXCLUDING.",
-    "score": 0,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "EXCLUDED — NYC.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
     "israeli": false
   },
   {
@@ -4710,30 +3405,6 @@
     "israeli": false
   },
   {
-    "id": "alexis-ohanian",
-    "name": "Alexis Ohanian",
-    "firm": "Co-founder Reddit / Founder Seven Seven Six",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/alexisohanian/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": false,
-    "notes": "Reddit co-founder; based in NYC/Florida. EXCLUDING for SF Bay filter.",
-    "score": 0,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "EXCLUDED — non-SF.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "steve-huffman",
     "name": "Steve Huffman",
     "firm": "Co-founder & CEO Reddit",
@@ -4802,38 +3473,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "faris-masad",
-    "name": "Faris Masad",
-    "firm": "Replit",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/farismasad/",
-    "bucket": "cold_angel",
-    "priority_tier": 3,
-    "sf_based": true,
-    "notes": "VP Engineering / early eng leader at Replit; SF-based.",
-    "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Replit early team"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Dev tools",
-      "Infra"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "check_size": "$5K-$25K",
-    "thesis_blurb": "Engineering operator-angel focused on developer infrastructure.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "medium",
     "israeli": false
   },
   {
@@ -5187,39 +3826,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "medium",
-    "israeli": false
-  },
-  {
-    "id": "tom-lowry",
-    "name": "Tom Lowry",
-    "firm": "Figma",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/tomlowry/",
-    "bucket": "cold_angel",
-    "priority_tier": 3,
-    "sf_based": true,
-    "notes": "Designer Advocate / Director of Design Advocacy at Figma. SF-based.",
-    "score": 65,
-    "portfolio": [],
-    "writings": [
-      "@tomlowryca on X"
-    ],
-    "network_signals": [
-      "Figma design advocate"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Design tools",
-      "Prosumer"
-    ],
-    "stage_focus": [
-      "pre-seed"
-    ],
-    "check_size": "$5K-$10K",
-    "thesis_blurb": "Design-advocate angel backing creator/design tooling.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
     "israeli": false
   },
   {
@@ -5986,54 +4592,6 @@
     "israeli": false
   },
   {
-    "id": "kareem-zaki-cashapp",
-    "name": "Kareem Zaki",
-    "firm": "Partner Thrive Capital; ex-Cash App / Square advisor",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/kareem-zaki-b4849a16/",
-    "bucket": "cold_angel",
-    "priority_tier": 3,
-    "sf_based": false,
-    "notes": "Likely NYC-based — exclude from final SF list.",
-    "score": 40,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "marcelo-lebre",
-    "name": "Marcelo Lebre",
-    "firm": "Co-founder & President Remote; (Portugal-based)",
-    "role": "Founder",
-    "linkedin": "https://www.linkedin.com/in/marcelolebre/",
-    "bucket": "cold_angel",
-    "priority_tier": 4,
-    "sf_based": false,
-    "notes": "Not SF-based — exclude.",
-    "score": 20,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [],
-    "testimonials": [],
-    "sector_focus": [],
-    "stage_focus": [],
-    "check_size": "",
-    "thesis_blurb": "",
-    "co_investors": [],
-    "enriched": false,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "lauren-cooks-levitan",
     "name": "Lauren Cooks Levitan",
     "firm": "Faire",
@@ -6234,40 +4792,6 @@
     "co_investors": [],
     "enriched": true,
     "confidence": "high",
-    "israeli": false
-  },
-  {
-    "id": "shantanu-sinha",
-    "name": "Shantanu Sinha",
-    "firm": "Google for Education (ex-President Khan Academy)",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/shantanusinha/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": true,
-    "notes": "Former President & COO Khan Academy (2010-2014). Now VP/GM Google for Education. Bay Area based.",
-    "score": 82,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Khan Academy alum",
-      "Google for Education",
-      "MIT"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Education",
-      "EdTech",
-      "AI"
-    ],
-    "stage_focus": [
-      "seed"
-    ],
-    "check_size": "$10K-$50K",
-    "thesis_blurb": "Senior edtech operator with deep Khan Academy + Google for Education network.",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "medium",
     "israeli": false
   },
   {
@@ -6476,40 +5000,6 @@
     "israeli": false
   },
   {
-    "id": "satish-kanwar",
-    "name": "Satish Kanwar",
-    "firm": "Former VP Product Shopify; Partner Good Friends (founder fund)",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/satishkanwar/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": false,
-    "notes": "Ex-VP Product Shopify, runs Good Friends with other Shopify alums. Toronto-primary but very active in SF commerce founder network — flag uncertainty.",
-    "score": 70,
-    "portfolio": [],
-    "writings": [],
-    "network_signals": [
-      "Shopify alum",
-      "Good Friends GP"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Commerce",
-      "SMB",
-      "Marketplace"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "check_size": "$25K-$100K",
-    "thesis_blurb": "DTC, commerce infra, founder-first checks",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
     "id": "atlee-clark",
     "name": "Atlee Clark",
     "firm": "Former Director Shopify App & Partner Platform; angel",
@@ -6537,42 +5027,6 @@
     ],
     "check_size": "$5K-$25K",
     "thesis_blurb": "App ecosystems, developer platforms, commerce SaaS",
-    "co_investors": [],
-    "enriched": true,
-    "confidence": "low",
-    "israeli": false
-  },
-  {
-    "id": "brandon-chu",
-    "name": "Brandon Chu",
-    "firm": "Former GM Platform Shopify; angel",
-    "role": "Operator",
-    "linkedin": "https://www.linkedin.com/in/branguin/",
-    "bucket": "cold_angel",
-    "priority_tier": 2,
-    "sf_based": false,
-    "notes": "Wrote 'Black Box of Product Management'; ex-GM Shopify Platform. Toronto-based but heavy SF founder engagement; uncertain.",
-    "score": 68,
-    "portfolio": [],
-    "writings": [
-      "The Black Box of Product Management (Medium)"
-    ],
-    "network_signals": [
-      "Shopify alum",
-      "PM thought leader"
-    ],
-    "testimonials": [],
-    "sector_focus": [
-      "Developer tools",
-      "PaaS",
-      "Commerce"
-    ],
-    "stage_focus": [
-      "pre-seed",
-      "seed"
-    ],
-    "check_size": "$5K-$25K",
-    "thesis_blurb": "Platform/API businesses, developer experience, marketplaces",
     "co_investors": [],
     "enriched": true,
     "confidence": "low",
