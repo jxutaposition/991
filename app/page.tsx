@@ -109,51 +109,69 @@ export default function Page() {
 
   const current = filtered[index];
 
-  async function decide(d: Decision) {
+  async function persistDecision(selected: Investor, d: Decision) {
+    await saveDecision(selected.id, d);
+    if (d === "keep") {
+      if (normalizeLinkedInProfileUrl(selected.linkedin)) {
+        await queueForLGM(selected.id);
+        await dequeueFromLGMMissingLinkedIn(selected.id);
+      } else {
+        await dequeueFromLGM(selected.id);
+        await queueForLGMMissingLinkedIn(selected.id);
+      }
+      await dequeueFromMore(selected.id);
+    } else if (d === "more") {
+      await dequeueFromLGM(selected.id);
+      await dequeueFromLGMMissingLinkedIn(selected.id);
+      await queueForMore(selected.id);
+    } else {
+      await dequeueFromLGM(selected.id);
+      await dequeueFromLGMMissingLinkedIn(selected.id);
+      await dequeueFromMore(selected.id);
+    }
+  }
+
+  function decide(d: Decision) {
     if (!current) return;
-    await saveDecision(current.id, d);
-    setDecisions(prev => ({ ...prev, [current.id]: d }));
+    const selected = current;
+    setDecisions(prev => ({ ...prev, [selected.id]: d }));
     // Auto-queue Keeps to LGM "investors" campaign sync queue
     if (d === "keep") {
-      if (normalizeLinkedInProfileUrl(current.linkedin)) {
-        await queueForLGM(current.id);
-        await dequeueFromLGMMissingLinkedIn(current.id);
-        setLgmQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
-        setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
-        pushToLGM(current);
+      if (normalizeLinkedInProfileUrl(selected.linkedin)) {
+        setLgmQueue(prev => prev.includes(selected.id) ? prev : [...prev, selected.id]);
+        setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== selected.id));
+        pushToLGM(selected);
       } else {
-        await dequeueFromLGM(current.id);
-        await queueForLGMMissingLinkedIn(current.id);
-        setLgmQueue(prev => prev.filter(id => id !== current.id));
-        setLgmMissingLinkedInQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
+        setLgmQueue(prev => prev.filter(id => id !== selected.id));
+        setLgmMissingLinkedInQueue(prev => prev.includes(selected.id) ? prev : [...prev, selected.id]);
         console.warn("Kept investor has no valid LinkedIn profile URL for LGM", {
-          id: current.id,
-          name: current.name,
-          url: current.linkedin,
+          id: selected.id,
+          name: selected.name,
+          url: selected.linkedin,
         });
       }
-      await dequeueFromMore(current.id);
-      setMoreQueue(prev => prev.filter(id => id !== current.id));
+      setMoreQueue(prev => prev.filter(id => id !== selected.id));
     } else if (d === "more") {
-      await dequeueFromLGM(current.id);
-      await dequeueFromLGMMissingLinkedIn(current.id);
-      await queueForMore(current.id);
-      setLgmQueue(prev => prev.filter(id => id !== current.id));
-      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
-      setMoreQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
+      setLgmQueue(prev => prev.filter(id => id !== selected.id));
+      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== selected.id));
+      setMoreQueue(prev => prev.includes(selected.id) ? prev : [...prev, selected.id]);
     } else {
-      await dequeueFromLGM(current.id);
-      await dequeueFromLGMMissingLinkedIn(current.id);
-      await dequeueFromMore(current.id);
-      setLgmQueue(prev => prev.filter(id => id !== current.id));
-      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
-      setMoreQueue(prev => prev.filter(id => id !== current.id));
+      setLgmQueue(prev => prev.filter(id => id !== selected.id));
+      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== selected.id));
+      setMoreQueue(prev => prev.filter(id => id !== selected.id));
     }
     if (filter === "unreviewed") {
       // index stays; the filtered list will shrink and the next item slides in
     } else {
       setIndex(i => Math.min(i + 1, filtered.length - 1));
     }
+    persistDecision(selected, d).catch(err => {
+      console.warn("Failed to persist investor decision", {
+        id: selected.id,
+        decision: d,
+        err,
+      });
+    });
   }
 
   // Keyboard shortcuts
