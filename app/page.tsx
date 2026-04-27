@@ -9,7 +9,9 @@ import { loadRemoteState, saveDecision, clearDecisions, exportCSV, queueForLGM, 
 const ALL_INVESTORS = (investorsData as Investor[])
   .filter(i => !i.israeli)
   .filter(i => Boolean(normalizeLinkedInProfileUrl(i.linkedin)));
-const MESSAGING_INVESTORS = ALL_INVESTORS.filter(i => isRealAngel(i) && isConnectionEligible(i));
+const MESSAGING_INVESTORS = ALL_INVESTORS
+  .filter(i => isRealAngel(i))
+  .sort((a, b) => connectionRank(a) - connectionRank(b) || b.score - a.score);
 const FIT_TOPICS = [
   { label: "SMB tech", words: ["smb", "small business", "seller", "merchant", "payroll", "commerce", "service business", "ops"] },
   { label: "Marketplace", words: ["marketplace", "two-sided", "network effects", "consumer platform"] },
@@ -78,6 +80,7 @@ export default function Page() {
   const [filter, setFilter] = useState<FilterMode>("unreviewed");
   const [view, setView] = useState<ViewMode>("review");
   const [index, setIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [lgmQueue, setLgmQueue] = useState<string[]>([]);
   const [lgmMissingLinkedInQueue, setLgmMissingLinkedInQueue] = useState<string[]>([]);
@@ -100,12 +103,18 @@ export default function Page() {
     else if (filter === "cold_partner") list = list.filter(i => i.bucket === "cold_partner");
     else if (filter === "unreviewed") list = list.filter(i => !decisions[i.id]);
     else if (filter === "skipped") list = list.filter(i => decisions[i.id] === "skip");
+    const q = searchQuery.trim().toLowerCase();
+    if (q) list = list.filter(i => i.name.toLowerCase().includes(q));
     return list;
-  }, [filter, decisions]);
-  const messaging = useMemo(() => MESSAGING_INVESTORS, []);
+  }, [filter, decisions, searchQuery]);
+  const messaging = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return MESSAGING_INVESTORS;
+    return MESSAGING_INVESTORS.filter(i => i.name.toLowerCase().includes(q));
+  }, [searchQuery]);
 
   // Reset index when filter changes
-  useEffect(() => { setIndex(0); }, [filter]);
+  useEffect(() => { setIndex(0); }, [filter, searchQuery]);
 
   const current = filtered[index];
 
@@ -211,6 +220,8 @@ export default function Page() {
         target50={TARGET_KEEPS_50PCT}
         filter={filter}
         setFilter={setFilter}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
         filteredCount={filtered.length}
         currentIndex={index}
         onExport={() => exportCSV(decisions, ALL_INVESTORS)}
@@ -261,11 +272,12 @@ function Header(props: {
   kept: number; cut: number; skipped: number; more: number; total: number; reviewed: number;
   target5x: number; target50: number;
   filter: FilterMode; setFilter: (f: FilterMode) => void;
+  searchQuery: string; setSearchQuery: (q: string) => void;
   filteredCount: number; currentIndex: number;
   onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
   onReset: () => void;
 }) {
-  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
+  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -299,6 +311,42 @@ function Header(props: {
           <FilterBtn onClick={onExportLGMMissingLinkedIn}>LGM retry ({lgmMissingLinkedInSize})</FilterBtn>
           <FilterBtn onClick={onReset}>Reset</FilterBtn>
         </span>
+      </div>
+
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search by name"
+          aria-label="Search by name"
+          style={{
+            width: "100%",
+            padding: "9px 10px",
+            borderRadius: 8,
+            background: "#111116",
+            color: "#fff",
+            border: "1px solid #2a2a31",
+            fontSize: 13,
+            outline: "none",
+          }}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            aria-label="Clear name search"
+            style={{
+              padding: "9px 12px",
+              borderRadius: 8,
+              background: "transparent",
+              color: "#9a9aa3",
+              border: "1px solid #2a2a31",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Clear
+          </button>
+        )}
       </div>
     </div>
   );
@@ -559,7 +607,7 @@ function MessagingTab({ investors }: { investors: Investor[] }) {
 
 function MessageCard({ investor }: { investor: Investor }) {
   const fits = getFits(investor);
-  const copy = buildCopy(investor, fits);
+  const copy = buildProfileCopy(investor, fits);
   return (
     <div style={{ background: "#16161b", border: "1px solid #2a2a31", borderRadius: 12, padding: 16, display: "grid", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -571,9 +619,10 @@ function MessageCard({ investor }: { investor: Investor }) {
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {fits.map(f => <span key={f} style={{ padding: "3px 8px", borderRadius: 999, background: "#202028", fontSize: 11, color: "#d7d7df" }}>{f}</span>)}
-        <span style={{ padding: "3px 8px", borderRadius: 999, background: investor.connection_degree === "1st" ? "#16301f" : "#33261b", fontSize: 11, color: "#eaeaea" }}>{investor.connection_degree === "1st" ? "1st degree" : "2nd degree"}</span>
+        <span style={{ padding: "3px 8px", borderRadius: 999, background: investor.connection_degree === "1st" ? "#16301f" : investor.connection_degree === "2nd" ? "#33261b" : "#24242c", fontSize: 11, color: "#eaeaea" }}>{investor.connection_degree === "1st" ? "1st degree" : investor.connection_degree === "2nd" ? "2nd degree" : "connection unknown"}</span>
       </div>
-      <textarea readOnly value={copy} rows={3} style={{ width: "100%", resize: "none", background: "#101014", color: "#f2f2f7", border: "1px solid #2a2a31", borderRadius: 8, padding: 10, fontSize: 13, lineHeight: 1.4 }} />
+      <div style={{ fontSize: 12, color: "#9a9aa3" }}>Caught my eye: {profileHook(investor)}</div>
+      <textarea readOnly value={copy} rows={4} style={{ width: "100%", resize: "none", background: "#101014", color: "#f2f2f7", border: "1px solid #2a2a31", borderRadius: 8, padding: 10, fontSize: 13, lineHeight: 1.4 }} />
     </div>
   );
 }
@@ -594,12 +643,6 @@ function getFits(i: Investor): string[] {
   return FIT_TOPICS.filter(t => t.words.some(w => haystack.includes(w))).map(t => t.label);
 }
 
-function buildCopy(i: Investor, fits: string[]) {
-  const fitText = fits.length ? fits.slice(0, 2).join(" + ") : "agent-first SMB";
-  const intro = i.connection_degree === "1st" ? "Already connected" : "We’re connected on LinkedIn";
-  return `${intro}. Saw your ${fitText} signal. ${startupLine(fits)} ${normalizeLinkedInProfileUrl(i.linkedin)}`;
-}
-
 function startupLine(fits: string[]) {
   const first = fits[0] || "SMB tech";
   if (first === "Agent applications") return "99 helps service businesses run agent-first ops.";
@@ -607,6 +650,44 @@ function startupLine(fits: string[]) {
   if (first === "Marketplace") return "99 helps operators scale with agent-first workflows.";
   if (first === "Community-led") return "99 helps community-driven operators use agents.";
   return "99 turns service businesses into agent-first ops.";
+}
+
+function buildProfileCopy(i: Investor, fits: string[]) {
+  const hook = profileHook(i);
+  const intro = i.connection_degree === "1st" ? "Already connected here" : i.connection_degree === "2nd" ? "We have a mutual connection" : "Reaching out here";
+  return `${intro}. What caught my eye: ${hook}. ${startupLine(fits)} ${normalizeLinkedInProfileUrl(i.linkedin)}`;
+}
+
+function profileHook(i: Investor): string {
+  const writing = i.writings?.find(w => w.title)?.title;
+  if (writing) return shorten(`your ${writing}`);
+
+  const thesis = cleanSentence(i.thesis_blurb);
+  if (thesis) return shorten(thesis);
+
+  if (i.portfolio?.length) return shorten(`your work around ${i.portfolio.slice(0, 3).join(", ")}`);
+  if (i.sector_focus?.length) return shorten(`your ${i.sector_focus.slice(0, 3).join(", ")} focus`);
+  if (i.stage_focus?.length) return shorten(`your ${i.stage_focus.slice(0, 2).join(" / ")} investing focus`);
+
+  const note = cleanSentence(i.notes);
+  if (note) return shorten(note);
+
+  return shorten(`${i.role} at ${i.firm}`);
+}
+
+function cleanSentence(value?: string): string {
+  return (value || "").replace(/\s+/g, " ").replace(/[.。]+$/, "").trim();
+}
+
+function shorten(value: string): string {
+  const clean = cleanSentence(value);
+  return clean.length > 115 ? `${clean.slice(0, 112).trim()}...` : clean;
+}
+
+function connectionRank(i: Investor) {
+  if (i.connection_degree === "1st") return 0;
+  if (i.connection_degree === "2nd") return 1;
+  return 2;
 }
 
 function isRealAngel(i: Investor) {
