@@ -179,11 +179,16 @@ function shouldMigrateLegacy() {
 }
 
 function mergeState(legacy: RemoteState, remote: RemoteState): RemoteState {
+  const decisions = { ...legacy.decisions, ...remote.decisions };
+  const moreQueue = unique([...legacy.moreQueue, ...remote.moreQueue]);
+  for (const [id, decision] of Object.entries(decisions)) {
+    if (decision === "more" && !moreQueue.includes(id)) moreQueue.push(id);
+  }
   return {
-    decisions: { ...legacy.decisions, ...remote.decisions },
+    decisions,
     lgmQueue: unique([...legacy.lgmQueue, ...remote.lgmQueue]),
     lgmMissingLinkedInQueue: unique([...legacy.lgmMissingLinkedInQueue, ...remote.lgmMissingLinkedInQueue]),
-    moreQueue: unique([...legacy.moreQueue, ...remote.moreQueue]),
+    moreQueue,
     lgmSynced: { ...legacy.lgmSynced, ...remote.lgmSynced },
   };
 }
