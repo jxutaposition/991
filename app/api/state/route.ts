@@ -12,9 +12,12 @@ const QUEUE_KIND: Record<QueueName, string> = {
   more: "queue:more",
 };
 
+const databaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : undefined;
+databaseUrl?.searchParams.delete("sslmode");
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+  connectionString: databaseUrl?.toString(),
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined,
 });
 
 let initialized = false;
