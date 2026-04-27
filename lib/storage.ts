@@ -17,22 +17,37 @@ const EMPTY_STATE: RemoteState = {
   lgmSynced: {},
 };
 
+const LEGACY_DECISIONS_KEY = "lele-investor-decisions-v1";
+const LEGACY_LGM_QUEUE_KEY = "lele-lgm-sync-queue-v1";
+const LEGACY_LGM_MISSING_LINKEDIN_KEY = "lele-lgm-missing-linkedin-v1";
+const LEGACY_MORE_QUEUE_KEY = "lele-more-lookalike-queue-v1";
+const LEGACY_LGM_SYNCED_KEY = "lele-lgm-synced-v1";
+const LEGACY_MIGRATED_KEY = "lele-supabase-state-migrated-v1";
+
 async function stateRequest<T>(body?: unknown): Promise<T> {
+  const payload = body ? JSON.stringify(body) : undefined;
   const res = await fetch("/api/state", {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    body: payload,
+    keepalive: Boolean(body),
   });
   if (!res.ok) throw new Error(`state request failed: ${res.status}`);
   return res.json();
 }
 
 export async function loadRemoteState(): Promise<RemoteState> {
+  const legacy = loadLegacyState();
   try {
-    return await stateRequest<RemoteState>();
+    const remote = await stateRequest<RemoteState>();
+    const merged = mergeState(legacy, remote);
+    if (hasLegacyState(legacy) && shouldMigrateLegacy()) {
+      migrateLegacyState(legacy).catch(err => console.warn("Failed to migrate legacy local state", err));
+    }
+    return merged;
   } catch (err) {
     console.warn("Failed to load remote state", err);
-    return EMPTY_STATE;
+    return hasLegacyState(legacy) ? legacy : EMPTY_STATE;
   }
 }
 
@@ -70,6 +85,64 @@ export async function dequeueFromMore(id: string) {
 
 export async function markLGMSynced(id: string) {
   await stateRequest({ op: "markSynced", id });
+}
+
+function loadLegacyState(): RemoteState {
+  if (typeof window === "undefined") return EMPTY_STATE;
+  return {
+    decisions: readLegacyJson<DecisionMap>(LEGACY_DECISIONS_KEY, {}),
+    lgmQueue: readLegacyJson<string[]>(LEGACY_LGM_QUEUE_KEY, []),
+    lgmMissingLinkedInQueue: readLegacyJson<string[]>(LEGACY_LGM_MISSING_LINKEDIN_KEY, []),
+    moreQueue: readLegacyJson<string[]>(LEGACY_MORE_QUEUE_KEY, []),
+    lgmSynced: readLegacyJson<Record<string, string>>(LEGACY_LGM_SYNCED_KEY, {}),
+  };
+}
+
+function readLegacyJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function hasLegacyState(state: RemoteState) {
+  return Object.keys(state.decisions).length > 0
+    || state.lgmQueue.length > 0
+    || state.lgmMissingLinkedInQueue.length > 0
+    || state.moreQueue.length > 0
+    || Object.keys(state.lgmSynced).length > 0;
+}
+
+function shouldMigrateLegacy() {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(LEGACY_MIGRATED_KEY) !== "1";
+}
+
+function mergeState(legacy: RemoteState, remote: RemoteState): RemoteState {
+  return {
+    decisions: { ...legacy.decisions, ...remote.decisions },
+    lgmQueue: unique([...legacy.lgmQueue, ...remote.lgmQueue]),
+    lgmMissingLinkedInQueue: unique([...legacy.lgmMissingLinkedInQueue, ...remote.lgmMissingLinkedInQueue]),
+    moreQueue: unique([...legacy.moreQueue, ...remote.moreQueue]),
+    lgmSynced: { ...legacy.lgmSynced, ...remote.lgmSynced },
+  };
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+async function migrateLegacyState(state: RemoteState) {
+  for (const [id, decision] of Object.entries(state.decisions)) {
+    await saveDecision(id, decision);
+  }
+  for (const id of state.lgmQueue) await queueForLGM(id);
+  for (const id of state.lgmMissingLinkedInQueue) await queueForLGMMissingLinkedIn(id);
+  for (const id of state.moreQueue) await queueForMore(id);
+  for (const id of Object.keys(state.lgmSynced)) await markLGMSynced(id);
+  if (typeof window !== "undefined") localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
 }
 
 export function exportCSV(decisions: DecisionMap, profiles: { id: string; name: string; firm: string; bucket: string; linkedin?: string }[]) {
