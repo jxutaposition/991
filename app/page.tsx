@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
-import { loadDecisions, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, loadLGMQueue, exportLGMQueue, queueForMore, dequeueFromMore, loadMoreQueue, queueForLGMMissingLinkedIn, dequeueFromLGMMissingLinkedIn, loadLGMMissingLinkedInQueue, exportLGMMissingLinkedInQueue } from "../lib/storage";
+import { loadRemoteState, saveDecision, clearDecisions, exportCSV, queueForLGM, dequeueFromLGM, exportLGMQueue, queueForMore, dequeueFromMore, queueForLGMMissingLinkedIn, dequeueFromLGMMissingLinkedIn, exportLGMMissingLinkedInQueue } from "../lib/storage";
 
 const ALL_INVESTORS = (investorsData as Investor[])
   .filter(i => !i.israeli)
@@ -79,10 +79,18 @@ export default function Page() {
   const [view, setView] = useState<ViewMode>("review");
   const [index, setIndex] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [lgmQueue, setLgmQueue] = useState<string[]>([]);
+  const [lgmMissingLinkedInQueue, setLgmMissingLinkedInQueue] = useState<string[]>([]);
+  const [moreQueue, setMoreQueue] = useState<string[]>([]);
 
   useEffect(() => {
-    setDecisions(loadDecisions());
-    setHydrated(true);
+    loadRemoteState().then(state => {
+      setDecisions(state.decisions);
+      setLgmQueue(state.lgmQueue);
+      setLgmMissingLinkedInQueue(state.lgmMissingLinkedInQueue);
+      setMoreQueue(state.moreQueue);
+      setHydrated(true);
+    });
   }, []);
 
   const filtered = useMemo(() => {
@@ -101,34 +109,45 @@ export default function Page() {
 
   const current = filtered[index];
 
-  function decide(d: Decision) {
+  async function decide(d: Decision) {
     if (!current) return;
-    saveDecision(current.id, d);
+    await saveDecision(current.id, d);
     setDecisions(prev => ({ ...prev, [current.id]: d }));
     // Auto-queue Keeps to LGM "investors" campaign sync queue
     if (d === "keep") {
       if (normalizeLinkedInProfileUrl(current.linkedin)) {
-        queueForLGM(current.id);
-        dequeueFromLGMMissingLinkedIn(current.id);
+        await queueForLGM(current.id);
+        await dequeueFromLGMMissingLinkedIn(current.id);
+        setLgmQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
+        setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
         pushToLGM(current);
       } else {
-        dequeueFromLGM(current.id);
-        queueForLGMMissingLinkedIn(current.id);
+        await dequeueFromLGM(current.id);
+        await queueForLGMMissingLinkedIn(current.id);
+        setLgmQueue(prev => prev.filter(id => id !== current.id));
+        setLgmMissingLinkedInQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
         console.warn("Kept investor has no valid LinkedIn profile URL for LGM", {
           id: current.id,
           name: current.name,
           url: current.linkedin,
         });
       }
-      dequeueFromMore(current.id);
+      await dequeueFromMore(current.id);
+      setMoreQueue(prev => prev.filter(id => id !== current.id));
     } else if (d === "more") {
-      dequeueFromLGM(current.id);
-      dequeueFromLGMMissingLinkedIn(current.id);
-      queueForMore(current.id);
+      await dequeueFromLGM(current.id);
+      await dequeueFromLGMMissingLinkedIn(current.id);
+      await queueForMore(current.id);
+      setLgmQueue(prev => prev.filter(id => id !== current.id));
+      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
+      setMoreQueue(prev => prev.includes(current.id) ? prev : [...prev, current.id]);
     } else {
-      dequeueFromLGM(current.id);
-      dequeueFromLGMMissingLinkedIn(current.id);
-      dequeueFromMore(current.id);
+      await dequeueFromLGM(current.id);
+      await dequeueFromLGMMissingLinkedIn(current.id);
+      await dequeueFromMore(current.id);
+      setLgmQueue(prev => prev.filter(id => id !== current.id));
+      setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== current.id));
+      setMoreQueue(prev => prev.filter(id => id !== current.id));
     }
     if (filter === "unreviewed") {
       // index stays; the filtered list will shrink and the next item slides in
@@ -178,20 +197,23 @@ export default function Page() {
         currentIndex={index}
         onExport={() => exportCSV(decisions, ALL_INVESTORS)}
         onExportLGM={() => {
-          const n = exportLGMQueue(ALL_INVESTORS);
+          const n = exportLGMQueue(ALL_INVESTORS, lgmQueue);
           alert(`Exported ${n} kept investors as LGM-ready CSV. Import into your LGM "investors" campaign as an audience.`);
         }}
-        lgmQueueSize={loadLGMQueue().length}
-        lgmMissingLinkedInSize={loadLGMMissingLinkedInQueue().length}
-        moreQueueSize={loadMoreQueue().length}
+        lgmQueueSize={lgmQueue.length}
+        lgmMissingLinkedInSize={lgmMissingLinkedInQueue.length}
+        moreQueueSize={moreQueue.length}
         onExportLGMMissingLinkedIn={() => {
-          const n = exportLGMMissingLinkedInQueue(ALL_INVESTORS);
+          const n = exportLGMMissingLinkedInQueue(ALL_INVESTORS, lgmMissingLinkedInQueue);
           alert(`Exported ${n} kept investors missing valid LinkedIn profile URLs.`);
         }}
-        onReset={() => {
+        onReset={async () => {
           if (confirm("Clear all decisions?")) {
-            clearDecisions();
+            await clearDecisions();
             setDecisions({});
+            setLgmQueue([]);
+            setLgmMissingLinkedInQueue([]);
+            setMoreQueue([]);
             setIndex(0);
           }
         }}
