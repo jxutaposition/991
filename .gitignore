@@ -54,3 +54,6 @@ _git_result.txt
 # Client work — never commit (contains secrets)
 lele/
 tmp/
+
+.vercel
+deploy-live/
