@@ -1,17 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import investorsData from "../lib/investors.json";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
-import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue } from "../lib/storage";
+import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue, inspectStateDiagnostics } from "../lib/storage";
+import type { StateDiagnostics } from "../lib/storage";
 
-const ALL_INVESTORS = (investorsData as Investor[])
-  .filter(i => !i.israeli)
-  .filter(i => Boolean(normalizeLinkedInProfileUrl(i.linkedin)));
-const MESSAGING_INVESTORS = ALL_INVESTORS
-  .filter(i => isRealAngel(i))
-  .sort((a, b) => connectionRank(a) - connectionRank(b) || b.score - a.score);
 const FIT_TOPICS = [
   { label: "SMB tech", words: ["smb", "small business", "seller", "merchant", "payroll", "commerce", "service business", "ops"] },
   { label: "Marketplace", words: ["marketplace", "two-sided", "network effects", "consumer platform"] },
@@ -25,13 +19,13 @@ const FIT_TOPICS = [
 
 const TARGET_MEETINGS = 52;
 const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260
-const TARGET_KEEPS_50PCT = Math.ceil(ALL_INVESTORS.length / 2);
 
-type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "unreviewed" | "skipped";
+type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "yale_alumni" | "unreviewed" | "skipped";
 type ViewMode = "review" | "message";
 
 function pushToLGM(investor: Investor) {
   const linkedinUrl = normalizeLinkedInProfileUrl(investor.linkedin);
+  const { firstname, lastname } = splitName(investor.name);
   if (!linkedinUrl) {
     console.warn("Skipping LGM add without a valid LinkedIn profile URL", {
       id: investor.id,
@@ -44,7 +38,11 @@ function pushToLGM(investor: Investor) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      firstname,
+      lastname,
       linkedinUrl,
+      companyName: investor.firm,
+      jobTitle: investor.role,
       sourceInvestorId: investor.id,
     }),
   })
@@ -76,6 +74,7 @@ function bucketColor(b: string) {
 }
 
 export default function Page() {
+  const [investors, setInvestors] = useState<Investor[]>([]);
   const [decisions, setDecisions] = useState<DecisionMap>({});
   const [filter, setFilter] = useState<FilterMode>("unreviewed");
   const [view, setView] = useState<ViewMode>("review");
@@ -85,33 +84,55 @@ export default function Page() {
   const [lgmQueue, setLgmQueue] = useState<string[]>([]);
   const [lgmMissingLinkedInQueue, setLgmMissingLinkedInQueue] = useState<string[]>([]);
   const [moreQueue, setMoreQueue] = useState<string[]>([]);
+  const [stateDiagnostics, setStateDiagnostics] = useState<StateDiagnostics | null>(null);
+  const [lastSaveError, setLastSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadRemoteState().then(state => {
+    Promise.all([
+      fetch("/api/investors", { cache: "no-store" }).then(r => {
+        if (!r.ok) throw new Error(`investors request failed: ${r.status}`);
+        return r.json() as Promise<{ investors: Investor[] }>;
+      }),
+      loadRemoteState(),
+    ]).then(([profileState, state]) => {
+      setInvestors(profileState.investors);
       setDecisions(state.decisions);
       setLgmQueue(state.lgmQueue);
       setLgmMissingLinkedInQueue(state.lgmMissingLinkedInQueue);
       setMoreQueue(state.moreQueue);
       setHydrated(true);
+    }).catch(err => {
+      setLastSaveError(err instanceof Error ? err.message : String(err));
+      setHydrated(true);
     });
   }, []);
 
+  async function refreshDiagnostics() {
+    const diagnostics = await inspectStateDiagnostics();
+    setStateDiagnostics(diagnostics);
+    return diagnostics;
+  }
+
   const filtered = useMemo(() => {
-    let list = ALL_INVESTORS;
+    let list = investors;
     if (filter === "warm") list = list.filter(i => i.bucket === "warm");
     else if (filter === "cold_angel") list = list.filter(i => i.bucket === "cold_angel");
     else if (filter === "cold_partner") list = list.filter(i => i.bucket === "cold_partner");
+    else if (filter === "yale_alumni") list = list.filter(isYaleAlum);
     else if (filter === "unreviewed") list = list.filter(i => !decisions[i.id]);
     else if (filter === "skipped") list = list.filter(i => decisions[i.id] === "skip");
     const q = searchQuery.trim().toLowerCase();
     if (q) list = list.filter(i => i.name.toLowerCase().includes(q));
     return list;
-  }, [filter, decisions, searchQuery]);
+  }, [filter, decisions, searchQuery, investors]);
+  const messagingInvestors = useMemo(() => investors
+    .filter(i => isRealAngel(i))
+    .sort((a, b) => connectionRank(a) - connectionRank(b) || b.score - a.score), [investors]);
   const messaging = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return MESSAGING_INVESTORS;
-    return MESSAGING_INVESTORS.filter(i => i.name.toLowerCase().includes(q));
-  }, [searchQuery]);
+    if (!q) return messagingInvestors;
+    return messagingInvestors.filter(i => i.name.toLowerCase().includes(q));
+  }, [searchQuery, messagingInvestors]);
 
   // Reset index when filter changes
   useEffect(() => { setIndex(0); }, [filter, searchQuery]);
@@ -159,7 +180,10 @@ export default function Page() {
     } else {
       setIndex(i => Math.min(i + 1, filtered.length - 1));
     }
-    persistDecision(selected, d).catch(err => {
+    persistDecision(selected, d).then(() => {
+      setLastSaveError(null);
+    }).catch(err => {
+      setLastSaveError(err instanceof Error ? err.message : String(err));
       console.warn("Failed to persist investor decision", {
         id: selected.id,
         decision: d,
@@ -199,26 +223,29 @@ export default function Page() {
         cut={cut}
         skipped={skipped}
         more={more}
-        total={ALL_INVESTORS.length}
+        total={investors.length}
         reviewed={totalReviewed}
         target5x={TARGET_KEEPS_5X}
-        target50={TARGET_KEEPS_50PCT}
+        target50={Math.ceil(investors.length / 2)}
         filter={filter}
         setFilter={setFilter}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         filteredCount={filtered.length}
         currentIndex={index}
-        onExport={() => exportCSV(decisions, ALL_INVESTORS)}
+        onExport={() => exportCSV(decisions, investors)}
         onExportLGM={() => {
-          const n = exportLGMQueue(ALL_INVESTORS, lgmQueue);
+          const n = exportLGMQueue(investors, lgmQueue);
           alert(`Exported ${n} kept investors as LGM-ready CSV. Import into your LGM "investors" campaign as an audience.`);
         }}
         lgmQueueSize={lgmQueue.length}
         lgmMissingLinkedInSize={lgmMissingLinkedInQueue.length}
         moreQueueSize={moreQueue.length}
+        diagnostics={stateDiagnostics}
+        lastSaveError={lastSaveError}
+        onRefreshDiagnostics={refreshDiagnostics}
         onExportLGMMissingLinkedIn={() => {
-          const n = exportLGMMissingLinkedInQueue(ALL_INVESTORS, lgmMissingLinkedInQueue);
+          const n = exportLGMMissingLinkedInQueue(investors, lgmMissingLinkedInQueue);
           alert(`Exported ${n} kept investors missing valid LinkedIn profile URLs.`);
         }}
         onReset={async () => {
@@ -252,6 +279,15 @@ export default function Page() {
   );
 }
 
+function splitName(name: string) {
+  const clean = name.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const parts = clean.split(" ").filter(Boolean);
+  return {
+    firstname: parts[0] || "",
+    lastname: parts.length > 1 ? parts.slice(1).join(" ") : "",
+  };
+}
+
 function Header(props: {
   view: ViewMode; setView: (v: ViewMode) => void;
   kept: number; cut: number; skipped: number; more: number; total: number; reviewed: number;
@@ -260,10 +296,14 @@ function Header(props: {
   searchQuery: string; setSearchQuery: (q: string) => void;
   filteredCount: number; currentIndex: number;
   onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
+  diagnostics: StateDiagnostics | null; lastSaveError: string | null; onRefreshDiagnostics: () => Promise<StateDiagnostics>;
   onReset: () => void;
 }) {
-  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, onReset } = props;
+  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, diagnostics, lastSaveError, onRefreshDiagnostics, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
+  const legacyReviewed = diagnostics ? Object.keys(diagnostics.legacy.decisions).length : null;
+  const remoteReviewed = diagnostics?.remote ? Object.keys(diagnostics.remote.decisions).length : null;
+  const mergedReviewed = diagnostics ? Object.keys(diagnostics.merged.decisions).length : null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -288,15 +328,31 @@ function Header(props: {
         <FilterBtn active={filter === "warm"} onClick={() => setFilter("warm")}>Warm</FilterBtn>
         <FilterBtn active={filter === "cold_angel"} onClick={() => setFilter("cold_angel")}>Angels</FilterBtn>
         <FilterBtn active={filter === "cold_partner"} onClick={() => setFilter("cold_partner")}>Partners</FilterBtn>
+        <FilterBtn active={filter === "yale_alumni"} onClick={() => setFilter("yale_alumni")}>Yale alum</FilterBtn>
         <FilterBtn active={filter === "skipped"} onClick={() => setFilter("skipped")}>Skipped ({skipped})</FilterBtn>
         <FilterBtn active={filter === "all"} onClick={() => setFilter("all")}>All</FilterBtn>
         <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <FilterBtn onClick={onExport}>Export CSV</FilterBtn>
           <FilterBtn onClick={onExportLGM}>LGM queue ({lgmQueueSize})</FilterBtn>
           <FilterBtn onClick={onExportLGMMissingLinkedIn}>LGM retry ({lgmMissingLinkedInSize})</FilterBtn>
+          <FilterBtn onClick={() => { onRefreshDiagnostics(); }}>Debug state</FilterBtn>
           <FilterBtn onClick={onReset}>Reset</FilterBtn>
         </span>
       </div>
+
+      {(diagnostics || lastSaveError) && (
+        <div style={{ border: "1px solid #3a3a44", background: "#111116", borderRadius: 8, padding: 10, fontSize: 12, color: "#c5c5cc", display: "grid", gap: 4 }}>
+          <div style={{ color: "#fff", fontWeight: 600 }}>State debug</div>
+          {diagnostics && (
+            <>
+              <div>LocalStorage reviewed: {legacyReviewed} · keep queue: {diagnostics.legacy.lgmQueue.length} · lookalikes: {diagnostics.legacy.moreQueue.length} · invalid/retry: {diagnostics.legacy.lgmMissingLinkedInQueue.length}</div>
+              <div>Remote reviewed: {remoteReviewed ?? "failed"} · merged reviewed: {mergedReviewed}</div>
+              {diagnostics.remoteError && <div style={{ color: "#fca5a5" }}>Remote error: {diagnostics.remoteError}</div>}
+            </>
+          )}
+          {lastSaveError && <div style={{ color: "#fca5a5" }}>Last save error: {lastSaveError}</div>}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6 }}>
         <input
@@ -681,6 +737,17 @@ function isRealAngel(i: Investor) {
     return false;
   }
   return Boolean(i.leads_rounds && i.leads_rounds !== "unknown") || /angel|invest|checks|portfolio|personal angel|small check|advisor|scout/i.test(notes);
+}
+
+function isYaleAlum(i: Investor) {
+  if (i.sub_bucket === "yale_alumni") return true;
+  const haystack = [
+    i.notes,
+    i.thesis_blurb,
+    i.sub_bucket,
+    ...(i.network_signals || []),
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /\byale\b/.test(haystack);
 }
 
 function hasLinkedIn(i: Investor) {

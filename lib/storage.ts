@@ -9,6 +9,13 @@ export type RemoteState = {
   lgmSynced: Record<string, string>;
 };
 
+export type StateDiagnostics = {
+  legacy: RemoteState;
+  remote?: RemoteState;
+  merged: RemoteState;
+  remoteError?: string;
+};
+
 const EMPTY_STATE: RemoteState = {
   decisions: {},
   lgmQueue: [],
@@ -34,6 +41,24 @@ async function stateRequest<T>(body?: unknown): Promise<T> {
   });
   if (!res.ok) throw new Error(`state request failed: ${res.status}`);
   return res.json();
+}
+
+export async function inspectStateDiagnostics(): Promise<StateDiagnostics> {
+  const legacy = loadLegacyState();
+  try {
+    const remote = await stateRequest<RemoteState>();
+    return {
+      legacy,
+      remote,
+      merged: mergeState(legacy, remote),
+    };
+  } catch (err) {
+    return {
+      legacy,
+      merged: legacy,
+      remoteError: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export async function loadRemoteState(): Promise<RemoteState> {
