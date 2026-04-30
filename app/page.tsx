@@ -346,9 +346,14 @@ function Header(props: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ fontSize: 18, fontWeight: 600 }}>Lele Investor Swipe</h1>
-        <div style={{ fontSize: 12, color: "#9a9aa3" }}>
-          {reviewed}/{total} reviewed · {kept} kept · {cut} cut · {skipped} skipped
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <h1 style={{ fontSize: 18, fontWeight: 600 }}>Lele Investor Swipe</h1>
+          <Link href="/kept" style={{ fontSize: 12, color: "#c7d2fe", textDecoration: "none", cursor: "pointer" }}>Kept profiles</Link>
+        </div>
+        <div style={{ fontSize: 12, color: "#9a9aa3", display: "flex", gap: 5, flexWrap: "wrap" }}>
+          <span>{reviewed}/{total} reviewed ·</span>
+          <Link href="/kept" style={{ color: "#c7d2fe", textDecoration: "none", cursor: "pointer" }}>{kept} kept</Link>
+          <span>· {cut} cut · {skipped} skipped</span>
         </div>
       </div>
 
@@ -502,6 +507,7 @@ function Pill({ children, active, href }: { children: React.ReactNode; active?: 
     color: active ? "#7eeab0" : "#9a9aa3",
     border: `1px solid ${active ? "#22c55e44" : "#2a2a31"}`,
     textDecoration: "none",
+    cursor: href ? "pointer" : "default",
   };
   if (href) return <Link href={href} style={style}>{children}</Link>;
   return <span style={style}>{children}</span>;
