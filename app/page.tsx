@@ -87,6 +87,9 @@ export default function Page() {
   const [moreQueue, setMoreQueue] = useState<string[]>([]);
   const [stateDiagnostics, setStateDiagnostics] = useState<StateDiagnostics | null>(null);
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
+  const [addName, setAddName] = useState("");
+  const [addLinkedIn, setAddLinkedIn] = useState("");
+  const [addingProfile, setAddingProfile] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -112,6 +115,34 @@ export default function Page() {
     const diagnostics = await inspectStateDiagnostics();
     setStateDiagnostics(diagnostics);
     return diagnostics;
+  }
+
+  async function addProfile() {
+    const name = addName.trim();
+    const linkedin = addLinkedIn.trim();
+    if (!name) return;
+    setAddingProfile(true);
+    setLastSaveError(null);
+    try {
+      const res = await fetch("/api/investors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, linkedin }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "profile add failed");
+      const investor = body.investor as Investor;
+      setInvestors(prev => [investor, ...prev.filter(i => i.id !== investor.id)]);
+      setAddName("");
+      setAddLinkedIn("");
+      setFilter("unreviewed");
+      setSearchQuery(investor.name);
+      setIndex(0);
+    } catch (err) {
+      setLastSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingProfile(false);
+    }
   }
 
   const filtered = useMemo(() => {
@@ -245,6 +276,12 @@ export default function Page() {
         diagnostics={stateDiagnostics}
         lastSaveError={lastSaveError}
         onRefreshDiagnostics={refreshDiagnostics}
+        addName={addName}
+        setAddName={setAddName}
+        addLinkedIn={addLinkedIn}
+        setAddLinkedIn={setAddLinkedIn}
+        addingProfile={addingProfile}
+        onAddProfile={addProfile}
         onExportLGMMissingLinkedIn={() => {
           const n = exportLGMMissingLinkedInQueue(investors, lgmMissingLinkedInQueue);
           alert(`Exported ${n} kept investors missing valid LinkedIn profile URLs.`);
@@ -298,9 +335,10 @@ function Header(props: {
   filteredCount: number; currentIndex: number;
   onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
   diagnostics: StateDiagnostics | null; lastSaveError: string | null; onRefreshDiagnostics: () => Promise<StateDiagnostics>;
+  addName: string; setAddName: (value: string) => void; addLinkedIn: string; setAddLinkedIn: (value: string) => void; addingProfile: boolean; onAddProfile: () => void;
   onReset: () => void;
 }) {
-  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, diagnostics, lastSaveError, onRefreshDiagnostics, onReset } = props;
+  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, diagnostics, lastSaveError, onRefreshDiagnostics, addName, setAddName, addLinkedIn, setAddLinkedIn, addingProfile, onAddProfile, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   const legacyReviewed = diagnostics ? Object.keys(diagnostics.legacy.decisions).length : null;
   const remoteReviewed = diagnostics?.remote ? Object.keys(diagnostics.remote.decisions).length : null;
@@ -390,6 +428,49 @@ function Header(props: {
           </button>
         )}
       </div>
+
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          onAddProfile();
+        }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(150px, 1fr) minmax(180px, 1.4fr) auto",
+          gap: 6,
+        }}
+      >
+        <input
+          value={addName}
+          onChange={e => setAddName(e.target.value)}
+          placeholder="Add name"
+          aria-label="Add profile name"
+          style={inputStyle}
+        />
+        <input
+          value={addLinkedIn}
+          onChange={e => setAddLinkedIn(e.target.value)}
+          placeholder="Optional LinkedIn URL"
+          aria-label="Optional LinkedIn URL"
+          style={inputStyle}
+        />
+        <button
+          type="submit"
+          disabled={addingProfile || !addName.trim()}
+          style={{
+            padding: "9px 12px",
+            borderRadius: 8,
+            background: addName.trim() ? "#1e3b29" : "#1a1a1f",
+            color: addName.trim() ? "#86efac" : "#777",
+            border: "1px solid #2a2a31",
+            cursor: addName.trim() ? "pointer" : "not-allowed",
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {addingProfile ? "Adding..." : "Add"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -631,6 +712,17 @@ function btnStyle(bg: string, fg: string, big: boolean): React.CSSProperties {
     cursor: "pointer",
   };
 }
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 10px",
+  borderRadius: 8,
+  background: "#111116",
+  color: "#fff",
+  border: "1px solid #2a2a31",
+  fontSize: 13,
+  outline: "none",
+};
 
 function MessagingTab({ investors }: { investors: Investor[] }) {
   return (
