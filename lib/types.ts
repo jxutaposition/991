@@ -60,3 +60,56 @@ export type Investor = {
 export type Decision = "keep" | "cut" | "skip" | "more";
 
 export type DecisionMap = Record<string, Decision>;
+
+export type DeepDiveSource = {
+  title: string;
+  url: string;
+  evidence: string;
+};
+
+export type DeepDiveFounder = {
+  name: string;
+  background: string;
+  whyRightPerson: string;
+  evidence: string;
+};
+
+export type DeepDiveInvestment = {
+  company: string;
+  oneLine: string;
+  stage: string;
+  roundDate: string;
+  amount: string;
+  investorRole: string;
+  product: string;
+  tractionAtInvestment: string;
+  founders: DeepDiveFounder[];
+  whyInvestorLikelyInvested: string;
+  thesisMatch: string;
+  sources: DeepDiveSource[];
+  confidence: "high" | "medium" | "low";
+};
+
+export type DeepDiveResult = {
+  investor: {
+    name: string;
+    firm: string;
+  };
+  preSeedInvestments: DeepDiveInvestment[];
+  patterns: {
+    founders: string;
+    traction: string;
+    product: string;
+    investorThesis: string;
+  };
+  researchNotes: string;
+  gaps: string[];
+};
+
+export type DeepDiveRecord = {
+  investorId: string;
+  status: "running" | "complete" | "error";
+  result: DeepDiveResult | null;
+  error: string | null;
+  updatedAt: string;
+};

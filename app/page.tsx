@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
 import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue, inspectStateDiagnostics } from "../lib/storage";
@@ -315,7 +316,7 @@ function Header(props: {
 
       <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#9a9aa3", flexWrap: "wrap" }}>
         <Pill active={kept >= target5x}>5× target: {kept}/{target5x}</Pill>
-        <Pill active={kept >= target50}>50% kept: {kept}/{target50}</Pill>
+        <Pill active={kept >= target50} href="/kept">50% kept: {kept}/{target50}</Pill>
         <Pill active={lgmMissingLinkedInSize > 0}>LGM retry: {lgmMissingLinkedInSize}</Pill>
         <Pill active={moreQueueSize > 0}>Lookalikes: {moreQueueSize}</Pill>
         <Pill active>{remaining} left in filter</Pill>
@@ -393,16 +394,17 @@ function Header(props: {
   );
 }
 
-function Pill({ children, active }: { children: React.ReactNode; active?: boolean }) {
-  return (
-    <span style={{
-      padding: "3px 8px",
-      borderRadius: 999,
-      background: active ? "#1a3a25" : "#1a1a1f",
-      color: active ? "#7eeab0" : "#9a9aa3",
-      border: `1px solid ${active ? "#22c55e44" : "#2a2a31"}`,
-    }}>{children}</span>
-  );
+function Pill({ children, active, href }: { children: React.ReactNode; active?: boolean; href?: string }) {
+  const style: React.CSSProperties = {
+    padding: "3px 8px",
+    borderRadius: 999,
+    background: active ? "#1a3a25" : "#1a1a1f",
+    color: active ? "#7eeab0" : "#9a9aa3",
+    border: `1px solid ${active ? "#22c55e44" : "#2a2a31"}`,
+    textDecoration: "none",
+  };
+  if (href) return <Link href={href} style={style}>{children}</Link>;
+  return <span style={style}>{children}</span>;
 }
 
 function FilterBtn({ children, active, onClick }: { children: React.ReactNode; active?: boolean; onClick?: () => void }) {
