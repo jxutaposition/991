@@ -151,6 +151,7 @@ export default function KeptPage() {
                   {runningId === selected.id || selectedDive?.status === "running" ? "Running..." : selectedDive?.status === "complete" ? "Rerun deep dive" : "Deep dive"}
                 </button>
               </div>
+              <ProfileSummary investor={selected} />
               <DeepDiveView record={selectedDive} />
             </>
           ) : (
@@ -160,6 +161,86 @@ export default function KeptPage() {
       </section>
     </main>
   );
+}
+
+function ProfileSummary({ investor }: { investor: Investor }) {
+  return (
+    <section style={{ ...subPanelStyle, gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <Badge>{bucketLabel(investor.bucket)}</Badge>
+        <span style={{ color: "#9a9aa3", fontSize: 12 }}>signal: {investor.score}</span>
+        {investor.confidence && <span style={{ color: "#9a9aa3", fontSize: 12 }}>data: {investor.confidence}</span>}
+        {investor.sub_bucket && <span style={{ color: "#9a9aa3", fontSize: 12 }}>{investor.sub_bucket}</span>}
+      </div>
+
+      {investor.thesis_blurb && (
+        <div>
+          <div style={labelStyle}>Thesis</div>
+          <div style={bodyTextStyle}>{investor.thesis_blurb}</div>
+        </div>
+      )}
+
+      {investor.portfolio?.length > 0 && (
+        <div>
+          <div style={labelStyle}>Portfolio</div>
+          <ChipList values={investor.portfolio} />
+        </div>
+      )}
+
+      {investor.network_signals?.length > 0 && (
+        <div>
+          <div style={labelStyle}>Network signals</div>
+          <ChipList values={investor.network_signals} />
+        </div>
+      )}
+
+      {(investor.sector_focus?.length > 0 || investor.stage_focus?.length > 0 || investor.check_size || investor.leads_rounds) && (
+        <div>
+          <div style={labelStyle}>Individual focus</div>
+          <div style={bodyTextStyle}>
+            {investor.sector_focus?.length > 0 && <div>Sector: {investor.sector_focus.join(", ")}</div>}
+            {investor.stage_focus?.length > 0 && <div>Stage: {investor.stage_focus.join(", ")}</div>}
+            {investor.check_size && <div>Check: {investor.check_size}</div>}
+            {investor.leads_rounds && investor.leads_rounds !== "unknown" && <div>Leads rounds: {investor.leads_rounds}</div>}
+          </div>
+        </div>
+      )}
+
+      {investor.notes && (
+        <div>
+          <div style={labelStyle}>Notes</div>
+          <div style={bodyTextStyle}>{investor.notes}</div>
+        </div>
+      )}
+
+      {investor.linkedin && (
+        <div>
+          <a href={investor.linkedin} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>LinkedIn</a>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ChipList({ values }: { values: string[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {values.map((value, idx) => (
+        <span key={`${value}-${idx}`} style={chipStyle}>{value}</span>
+      ))}
+    </div>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return <span style={badgeStyle}>{children}</span>;
+}
+
+function bucketLabel(bucket: string) {
+  if (bucket === "warm") return "WARM";
+  if (bucket === "cold_angel") return "ANGEL";
+  if (bucket === "cold_partner") return "PARTNER";
+  return bucket.toUpperCase();
 }
 
 function DeepDiveView({ record }: { record?: DeepDiveRecord | null }) {
@@ -351,6 +432,23 @@ const subPanelStyle: React.CSSProperties = {
   background: "#17171d",
   display: "grid",
   gap: 5,
+};
+
+const chipStyle: React.CSSProperties = {
+  padding: "4px 8px",
+  borderRadius: 6,
+  background: "#1d2438",
+  color: "#a8c2ff",
+  fontSize: 12,
+};
+
+const badgeStyle: React.CSSProperties = {
+  padding: "2px 8px",
+  borderRadius: 4,
+  fontSize: 10,
+  fontWeight: 750,
+  background: "#f59e0b",
+  color: "#0b0b0d",
 };
 
 const labelStyle: React.CSSProperties = {
