@@ -393,6 +393,68 @@ function Header(props: {
         </div>
       )}
 
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          padding: 10,
+          borderRadius: 8,
+          border: "1px solid #2a2a31",
+          background: "#141419",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb", textTransform: "uppercase", letterSpacing: 0 }}>
+            Add profile
+          </div>
+          <div style={{ fontSize: 12, color: "#9a9aa3" }}>Name required, LinkedIn optional</div>
+        </div>
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            onAddProfile();
+          }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(160px, 1fr) minmax(190px, 1.4fr) auto",
+            gap: 6,
+            alignItems: "center",
+          }}
+        >
+          <input
+            value={addName}
+            onChange={e => setAddName(e.target.value)}
+            placeholder="Name"
+            aria-label="Add profile name"
+            style={inputStyle}
+          />
+          <input
+            value={addLinkedIn}
+            onChange={e => setAddLinkedIn(e.target.value)}
+            placeholder="Optional LinkedIn URL"
+            aria-label="Optional LinkedIn URL"
+            style={inputStyle}
+          />
+          <button
+            type="submit"
+            disabled={addingProfile || !addName.trim()}
+            style={{
+              padding: "9px 12px",
+              borderRadius: 8,
+              background: addName.trim() ? "#1e3b29" : "#1a1a1f",
+              color: addName.trim() ? "#86efac" : "#777",
+              border: "1px solid #2a2a31",
+              cursor: addName.trim() ? "pointer" : "not-allowed",
+              fontSize: 12,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {addingProfile ? "Adding..." : "Add"}
+          </button>
+        </form>
+      </div>
+
       <div style={{ display: "flex", gap: 6 }}>
         <input
           value={searchQuery}
@@ -428,49 +490,6 @@ function Header(props: {
           </button>
         )}
       </div>
-
-      <form
-        onSubmit={e => {
-          e.preventDefault();
-          onAddProfile();
-        }}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(150px, 1fr) minmax(180px, 1.4fr) auto",
-          gap: 6,
-        }}
-      >
-        <input
-          value={addName}
-          onChange={e => setAddName(e.target.value)}
-          placeholder="Add name"
-          aria-label="Add profile name"
-          style={inputStyle}
-        />
-        <input
-          value={addLinkedIn}
-          onChange={e => setAddLinkedIn(e.target.value)}
-          placeholder="Optional LinkedIn URL"
-          aria-label="Optional LinkedIn URL"
-          style={inputStyle}
-        />
-        <button
-          type="submit"
-          disabled={addingProfile || !addName.trim()}
-          style={{
-            padding: "9px 12px",
-            borderRadius: 8,
-            background: addName.trim() ? "#1e3b29" : "#1a1a1f",
-            color: addName.trim() ? "#86efac" : "#777",
-            border: "1px solid #2a2a31",
-            cursor: addName.trim() ? "pointer" : "not-allowed",
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
-          {addingProfile ? "Adding..." : "Add"}
-        </button>
-      </form>
     </div>
   );
 }
