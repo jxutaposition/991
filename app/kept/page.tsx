@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { DeepDiveRecord, DeepDiveResult, Investor, DecisionMap } from "../../lib/types";
+import { normalizeLinkedInProfileUrl } from "../../lib/linkedin";
 
 type StateResponse = {
   decisions: DecisionMap;
@@ -20,6 +21,9 @@ export default function KeptPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addLinkedIn, setAddLinkedIn] = useState("");
+  const [addingProfile, setAddingProfile] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -54,6 +58,49 @@ export default function KeptPage() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setError(body.error || `failed to cross off ${investor.name}`);
+    }
+  }
+
+  async function addKeptProfile() {
+    const name = addName.trim();
+    const linkedin = addLinkedIn.trim();
+    if (!name) return;
+    setAddingProfile(true);
+    setError(null);
+    try {
+      const profileRes = await fetch("/api/investors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, linkedin }),
+      });
+      const profileBody = await profileRes.json();
+      if (!profileRes.ok) throw new Error(profileBody.error || "profile add failed");
+
+      const investor = profileBody.investor as Investor;
+      setInvestors(prev => [investor, ...prev.filter(i => i.id !== investor.id)]);
+      setDecisions(prev => ({ ...prev, [investor.id]: "keep" }));
+      setSelectedId(investor.id);
+      setAddName("");
+      setAddLinkedIn("");
+
+      const stateRes = await fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          op: "saveSwipe",
+          id: investor.id,
+          decision: "keep",
+          queue: normalizeLinkedInProfileUrl(investor.linkedin) ? "lgm" : "lgmMissingLinkedIn",
+        }),
+      });
+      if (!stateRes.ok) {
+        const stateBody = await stateRes.json().catch(() => ({}));
+        throw new Error(stateBody.error || `failed to keep ${investor.name}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingProfile(false);
     }
   }
 
@@ -111,6 +158,32 @@ export default function KeptPage() {
         <Link href="/" style={buttonLinkStyle}>Back to review</Link>
       </header>
 
+      <form onSubmit={e => { e.preventDefault(); addKeptProfile(); }} style={addPanelStyle}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb", textTransform: "uppercase", letterSpacing: 0 }}>
+            Add kept profile
+          </div>
+          <div style={{ color: "#9a9aa3", fontSize: 12 }}>Name required, LinkedIn optional</div>
+        </div>
+        <input
+          value={addName}
+          onChange={e => setAddName(e.target.value)}
+          placeholder="Name"
+          aria-label="Add kept profile name"
+          style={inputStyle}
+        />
+        <input
+          value={addLinkedIn}
+          onChange={e => setAddLinkedIn(e.target.value)}
+          placeholder="Optional LinkedIn URL"
+          aria-label="Optional LinkedIn URL"
+          style={inputStyle}
+        />
+        <button type="submit" disabled={addingProfile || !addName.trim()} style={addButtonStyle(Boolean(addName.trim()))}>
+          {addingProfile ? "Adding..." : "Add"}
+        </button>
+      </form>
+
       {error && <div style={errorStyle}>{error}</div>}
 
       <section style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: 16, alignItems: "start" }}>
@@ -127,6 +200,11 @@ export default function KeptPage() {
                   <span style={{ color: "#fff", fontWeight: 650 }}>{investor.name}</span>
                   <span style={{ color: "#9a9aa3", fontSize: 12 }}>{investor.firm}</span>
                 </button>
+                {investor.linkedin && (
+                  <a href={investor.linkedin} target="_blank" rel="noopener noreferrer" style={openLinkStyle}>
+                    Open
+                  </a>
+                )}
                 <button
                   onClick={() => runDeepDive(investor)}
                   disabled={runningId === investor.id}
@@ -144,7 +222,13 @@ export default function KeptPage() {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start", marginBottom: 14 }}>
                 <div>
-                  <h2 style={{ fontSize: 22, fontWeight: 650 }}>{selected.name}</h2>
+                  <h2 style={{ fontSize: 22, fontWeight: 650 }}>
+                    {selected.linkedin ? (
+                      <a href={selected.linkedin} target="_blank" rel="noopener noreferrer" style={{ color: "#fff", textDecoration: "none" }}>
+                        {selected.name}
+                      </a>
+                    ) : selected.name}
+                  </h2>
                   <div style={{ color: "#c5c5cc", fontSize: 14 }}>{selected.role} · {selected.firm}</div>
                 </div>
                 <button onClick={() => runDeepDive(selected)} disabled={runningId === selected.id} style={deepDiveButtonStyle}>
@@ -368,9 +452,20 @@ const panelStyle: React.CSSProperties = {
   gap: 10,
 };
 
+const addPanelStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 8,
+  alignItems: "center",
+  background: "#141419",
+  border: "1px solid #2a2a31",
+  borderRadius: 8,
+  padding: 10,
+};
+
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "32px 1fr auto",
+  gridTemplateColumns: "32px 1fr auto auto",
   gap: 8,
   alignItems: "center",
   border: "1px solid #2a2a31",
@@ -398,6 +493,16 @@ const nameStyle: React.CSSProperties = {
   textAlign: "left",
 };
 
+const openLinkStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1px solid #2a2a31",
+  color: "#c7d2fe",
+  fontSize: 12,
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+};
+
 const deepDiveButtonStyle: React.CSSProperties = {
   padding: "8px 10px",
   borderRadius: 8,
@@ -415,6 +520,31 @@ const buttonLinkStyle: React.CSSProperties = {
   border: "1px solid #2a2a31",
   color: "#c5c5cc",
 };
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 10px",
+  borderRadius: 8,
+  background: "#111116",
+  color: "#fff",
+  border: "1px solid #2a2a31",
+  fontSize: 13,
+  outline: "none",
+};
+
+function addButtonStyle(enabled: boolean): React.CSSProperties {
+  return {
+    padding: "9px 12px",
+    borderRadius: 8,
+    background: enabled ? "#1e3b29" : "#1a1a1f",
+    color: enabled ? "#86efac" : "#777",
+    border: "1px solid #2a2a31",
+    cursor: enabled ? "pointer" : "not-allowed",
+    fontSize: 12,
+    fontWeight: 650,
+    whiteSpace: "nowrap",
+  };
+}
 
 const investmentStyle: React.CSSProperties = {
   border: "1px solid #2a2a31",
