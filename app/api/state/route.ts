@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
-import type { Decision, DecisionMap } from "../../../lib/types";
+import type { Decision, DecisionMap, OutreachStatus, OutreachStatusMap } from "../../../lib/types";
 
 export const runtime = "nodejs";
 
 type QueueName = "lgm" | "lgmMissingLinkedIn" | "more";
+const OUTREACH_STATUSES: OutreachStatus[] = ["not started", "first outreach", "bumped", "meeting", "archive"];
 
 const QUEUE_KIND: Record<QueueName, string> = {
   lgm: "queue:lgm",
@@ -44,6 +45,8 @@ export async function GET() {
       "select kind, entity_id, value from investor_swipe_state"
     );
     const decisions: DecisionMap = {};
+    const leleNotes: Record<string, string> = {};
+    const outreachStatuses: OutreachStatusMap = {};
     const lgmQueue: string[] = [];
     const lgmMissingLinkedInQueue: string[] = [];
     const moreQueue: string[] = [];
@@ -51,6 +54,8 @@ export async function GET() {
 
     for (const row of rows) {
       if (row.kind === "decision") decisions[row.entity_id] = row.value as Decision;
+      else if (row.kind === "lele_notes") leleNotes[row.entity_id] = row.value;
+      else if (row.kind === "outreach_status" && isOutreachStatus(row.value)) outreachStatuses[row.entity_id] = row.value;
       else if (row.kind === QUEUE_KIND.lgm) lgmQueue.push(row.entity_id);
       else if (row.kind === QUEUE_KIND.lgmMissingLinkedIn) lgmMissingLinkedInQueue.push(row.entity_id);
       else if (row.kind === QUEUE_KIND.more) moreQueue.push(row.entity_id);
@@ -61,7 +66,7 @@ export async function GET() {
       if (decision === "more" && !moreQueue.includes(id)) moreQueue.push(id);
     }
 
-    return NextResponse.json({ decisions, lgmQueue, lgmMissingLinkedInQueue, moreQueue, lgmSynced });
+    return NextResponse.json({ decisions, leleNotes, outreachStatuses, lgmQueue, lgmMissingLinkedInQueue, moreQueue, lgmSynced });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "state load failed" }, { status: 500 });
   }
@@ -77,6 +82,11 @@ export async function POST(req: Request) {
       await saveSwipe(body.id, body.decision, body.queue);
     } else if (op === "saveDecision") {
       await upsert("decision", body.id, body.decision);
+    } else if (op === "saveLeleNotes") {
+      await saveNullableText("lele_notes", body.id, body.value);
+    } else if (op === "saveOutreachStatus") {
+      if (!isOutreachStatus(body.status)) throw new Error("invalid outreach status");
+      await upsert("outreach_status", body.id, body.status);
     } else if (op === "queue") {
       await upsert(QUEUE_KIND[body.queue as QueueName], body.id, "1");
     } else if (op === "dequeue") {
@@ -141,4 +151,18 @@ async function upsert(kind: string | undefined, id: string | undefined, value: s
 async function remove(kind: string | undefined, id: string | undefined) {
   if (!kind || !id) throw new Error("missing state fields");
   await pool.query("delete from investor_swipe_state where kind = $1 and entity_id = $2", [kind, id]);
+}
+
+async function saveNullableText(kind: string | undefined, id: string | undefined, value: string | undefined) {
+  if (!id) throw new Error("missing state fields");
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) {
+    await remove(kind, id);
+    return;
+  }
+  await upsert(kind, id, trimmed);
+}
+
+function isOutreachStatus(value: unknown): value is OutreachStatus {
+  return typeof value === "string" && OUTREACH_STATUSES.includes(value as OutreachStatus);
 }

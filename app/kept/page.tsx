@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { DeepDiveRecord, DeepDiveResult, Investor, DecisionMap } from "../../lib/types";
+import type { DeepDiveRecord, DeepDiveResult, Investor, DecisionMap, OutreachStatus, OutreachStatusMap } from "../../lib/types";
 import { normalizeLinkedInProfileUrl } from "../../lib/linkedin";
 
 type StateResponse = {
   decisions: DecisionMap;
+  leleNotes?: Record<string, string>;
+  outreachStatuses?: OutreachStatusMap;
 };
 
 type DeepDiveResponse = {
@@ -16,6 +18,8 @@ type DeepDiveResponse = {
 export default function KeptPage() {
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [decisions, setDecisions] = useState<DecisionMap>({});
+  const [leleNotes, setLeleNotes] = useState<Record<string, string>>({});
+  const [outreachStatuses, setOutreachStatuses] = useState<OutreachStatusMap>({});
   const [deepDives, setDeepDives] = useState<Record<string, DeepDiveRecord>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -33,6 +37,8 @@ export default function KeptPage() {
     ]).then(([profileState, state, deepDiveState]) => {
       setInvestors(profileState.investors);
       setDecisions(state.decisions || {});
+      setLeleNotes(state.leleNotes || {});
+      setOutreachStatuses(state.outreachStatuses || {});
       setDeepDives(Object.fromEntries((deepDiveState.deepDives || []).map(d => [d.investorId, d])));
       setLoaded(true);
     }).catch(err => {
@@ -46,6 +52,32 @@ export default function KeptPage() {
     .sort((a, b) => a.name.localeCompare(b.name)), [investors, decisions]);
   const selected = kept.find(i => i.id === selectedId) || kept[0] || null;
   const selectedDive = selected ? deepDives[selected.id] : null;
+
+  async function saveLeleNotes(investor: Investor, value: string) {
+    setLeleNotes(prev => ({ ...prev, [investor.id]: value }));
+    const res = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "saveLeleNotes", id: investor.id, value }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error || `failed to save notes for ${investor.name}`);
+    }
+  }
+
+  async function saveOutreachStatus(investor: Investor, status: OutreachStatus) {
+    setOutreachStatuses(prev => ({ ...prev, [investor.id]: status }));
+    const res = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "saveOutreachStatus", id: investor.id, status }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error || `failed to save status for ${investor.name}`);
+    }
+  }
 
   async function crossOff(investor: Investor) {
     setDecisions(prev => ({ ...prev, [investor.id]: "cut" }));
@@ -198,7 +230,9 @@ export default function KeptPage() {
                 <button onClick={() => crossOff(investor)} aria-label={`Remove ${investor.name} from kept`} style={checkStyle}>×</button>
                 <button onClick={() => setSelectedId(investor.id)} style={nameStyle}>
                   <span style={{ color: "#fff", fontWeight: 650 }}>{investor.name}</span>
-                  <span style={{ color: "#9a9aa3", fontSize: 12 }}>{investor.firm}</span>
+                  <span style={{ color: "#9a9aa3", fontSize: 12 }}>
+                    {investor.firm} · {outreachStatuses[investor.id] || "not started"}
+                  </span>
                 </button>
                 {investor.linkedin && (
                   <a href={investor.linkedin} target="_blank" rel="noopener noreferrer" style={openLinkStyle}>
@@ -235,6 +269,13 @@ export default function KeptPage() {
                   {runningId === selected.id || selectedDive?.status === "running" ? "Running..." : selectedDive?.status === "complete" ? "Rerun deep dive" : "Deep dive"}
                 </button>
               </div>
+              <ProfileTracking
+                notes={leleNotes[selected.id] || ""}
+                status={outreachStatuses[selected.id] || "not started"}
+                onNotesChange={value => setLeleNotes(prev => ({ ...prev, [selected.id]: value }))}
+                onNotesBlur={value => saveLeleNotes(selected, value)}
+                onStatusChange={status => saveOutreachStatus(selected, status)}
+              />
               <ProfileSummary investor={selected} />
               <DeepDiveView record={selectedDive} />
             </>
@@ -244,6 +285,44 @@ export default function KeptPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+const OUTREACH_STATUSES: OutreachStatus[] = ["not started", "first outreach", "bumped", "meeting", "archive"];
+
+function ProfileTracking({
+  notes,
+  status,
+  onNotesChange,
+  onNotesBlur,
+  onStatusChange,
+}: {
+  notes: string;
+  status: OutreachStatus;
+  onNotesChange: (value: string) => void;
+  onNotesBlur: (value: string) => void;
+  onStatusChange: (status: OutreachStatus) => void;
+}) {
+  return (
+    <section style={trackingPanelStyle}>
+      <label style={{ display: "grid", gap: 5 }}>
+        <span style={labelStyle}>Lele notes</span>
+        <textarea
+          value={notes}
+          onChange={e => onNotesChange(e.target.value)}
+          onBlur={e => onNotesBlur(e.target.value)}
+          placeholder="Add notes for this profile"
+          rows={3}
+          style={textareaStyle}
+        />
+      </label>
+      <label style={{ display: "grid", gap: 5 }}>
+        <span style={labelStyle}>Status</span>
+        <select value={status} onChange={e => onStatusChange(e.target.value as OutreachStatus)} style={selectStyle}>
+          {OUTREACH_STATUSES.map(value => <option key={value} value={value}>{value}</option>)}
+        </select>
+      </label>
+    </section>
   );
 }
 
@@ -463,6 +542,18 @@ const addPanelStyle: React.CSSProperties = {
   padding: 10,
 };
 
+const trackingPanelStyle: React.CSSProperties = {
+  border: "1px solid #2a2a31",
+  borderRadius: 8,
+  padding: 10,
+  background: "#121218",
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 10,
+  alignItems: "start",
+  marginBottom: 16,
+};
+
 const rowStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "32px 1fr auto auto",
@@ -526,6 +617,31 @@ const inputStyle: React.CSSProperties = {
   padding: "9px 10px",
   borderRadius: 8,
   background: "#111116",
+  color: "#fff",
+  border: "1px solid #2a2a31",
+  fontSize: 13,
+  outline: "none",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 82,
+  resize: "vertical",
+  padding: "9px 10px",
+  borderRadius: 8,
+  background: "#0f0f14",
+  color: "#fff",
+  border: "1px solid #2a2a31",
+  fontSize: 13,
+  lineHeight: 1.4,
+  outline: "none",
+};
+
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 10px",
+  borderRadius: 8,
+  background: "#0f0f14",
   color: "#fff",
   border: "1px solid #2a2a31",
   fontSize: 13,

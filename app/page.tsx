@@ -136,7 +136,7 @@ export default function Page() {
       setAddName("");
       setAddLinkedIn("");
       setFilter("unreviewed");
-      setSearchQuery(investor.name);
+      setSearchQuery("");
       setIndex(0);
     } catch (err) {
       setLastSaveError(err instanceof Error ? err.message : String(err));

@@ -31,7 +31,11 @@ async function ensureTable() {
 }
 
 function fallbackInvestors() {
-  return (investorsData as Investor[])
+  return visibleInvestors(investorsData as Investor[]);
+}
+
+function visibleInvestors(investors: Investor[]) {
+  return investors
     .filter(i => !i.israeli)
     .filter(isVisibleInvestor);
 }
@@ -42,9 +46,11 @@ export async function GET() {
     const { rows } = await pool.query<{ profile: Investor }>(
       "select profile from investor_profiles order by coalesce((profile->>'score')::int, 0) desc, profile->>'name' asc"
     );
-    const investors = rows.map(r => r.profile)
-      .filter(i => !i.israeli)
-      .filter(isVisibleInvestor);
+    const profilesById = new Map<string, Investor>();
+    for (const investor of investorsData as Investor[]) profilesById.set(investor.id, investor);
+    for (const row of rows) profilesById.set(row.profile.id, row.profile);
+    const investors = visibleInvestors(Array.from(profilesById.values()))
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     return NextResponse.json({ investors });
   } catch (err) {
     console.warn("Falling back to bundled investors", err);

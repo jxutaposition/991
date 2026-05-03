@@ -1,8 +1,10 @@
-import type { Decision, DecisionMap } from "./types";
+import type { Decision, DecisionMap, OutreachStatusMap } from "./types";
 import { normalizeLinkedInProfileUrl } from "./linkedin";
 
 export type RemoteState = {
   decisions: DecisionMap;
+  leleNotes: Record<string, string>;
+  outreachStatuses: OutreachStatusMap;
   lgmQueue: string[];
   lgmMissingLinkedInQueue: string[];
   moreQueue: string[];
@@ -18,6 +20,8 @@ export type StateDiagnostics = {
 
 const EMPTY_STATE: RemoteState = {
   decisions: {},
+  leleNotes: {},
+  outreachStatuses: {},
   lgmQueue: [],
   lgmMissingLinkedInQueue: [],
   moreQueue: [],
@@ -130,6 +134,8 @@ function loadLegacyState(): RemoteState {
   if (typeof window === "undefined") return EMPTY_STATE;
   return {
     decisions: readLegacyJson<DecisionMap>(LEGACY_DECISIONS_KEY, {}),
+    leleNotes: {},
+    outreachStatuses: {},
     lgmQueue: readLegacyJson<string[]>(LEGACY_LGM_QUEUE_KEY, []),
     lgmMissingLinkedInQueue: readLegacyJson<string[]>(LEGACY_LGM_MISSING_LINKEDIN_KEY, []),
     moreQueue: readLegacyJson<string[]>(LEGACY_MORE_QUEUE_KEY, []),
@@ -205,12 +211,16 @@ function shouldMigrateLegacy() {
 
 function mergeState(legacy: RemoteState, remote: RemoteState): RemoteState {
   const decisions = { ...legacy.decisions, ...remote.decisions };
+  const leleNotes = { ...legacy.leleNotes, ...(remote.leleNotes || {}) };
+  const outreachStatuses = { ...legacy.outreachStatuses, ...(remote.outreachStatuses || {}) };
   const moreQueue = unique([...legacy.moreQueue, ...remote.moreQueue]);
   for (const [id, decision] of Object.entries(decisions)) {
     if (decision === "more" && !moreQueue.includes(id)) moreQueue.push(id);
   }
   return {
     decisions,
+    leleNotes,
+    outreachStatuses,
     lgmQueue: unique([...legacy.lgmQueue, ...remote.lgmQueue]),
     lgmMissingLinkedInQueue: unique([...legacy.lgmMissingLinkedInQueue, ...remote.lgmMissingLinkedInQueue]),
     moreQueue,

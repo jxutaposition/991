@@ -61,6 +61,10 @@ export type Decision = "keep" | "cut" | "skip" | "more";
 
 export type DecisionMap = Record<string, Decision>;
 
+export type OutreachStatus = "not started" | "first outreach" | "bumped" | "meeting" | "archive";
+
+export type OutreachStatusMap = Record<string, OutreachStatus>;
+
 export type DeepDiveSource = {
   title: string;
   url: string;
