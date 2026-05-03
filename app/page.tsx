@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Investor, Decision, DecisionMap } from "../lib/types";
 import { normalizeLinkedInProfileUrl } from "../lib/linkedin";
-import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue, inspectStateDiagnostics } from "../lib/storage";
+import { loadRemoteState, saveSwipeDecision, clearDecisions, exportCSV, exportLGMQueue, exportLGMMissingLinkedInQueue, inspectStateDiagnostics, markLGMSynced } from "../lib/storage";
 import type { StateDiagnostics } from "../lib/storage";
 
 const FIT_TOPICS = [
@@ -24,7 +24,7 @@ const TARGET_KEEPS_5X = TARGET_MEETINGS * 5; // 260
 type FilterMode = "all" | "warm" | "cold_angel" | "cold_partner" | "yale_alumni" | "unreviewed" | "skipped";
 type ViewMode = "review" | "message";
 
-function pushToLGM(investor: Investor) {
+async function pushToLGM(investor: Investor) {
   const linkedinUrl = normalizeLinkedInProfileUrl(investor.linkedin);
   const { firstname, lastname } = splitName(investor.name);
   if (!linkedinUrl) {
@@ -33,9 +33,9 @@ function pushToLGM(investor: Investor) {
       name: investor.name,
       url: investor.linkedin,
     });
-    return;
+    return false;
   }
-  fetch("/api/lgm/add", {
+  const res = await fetch("/api/lgm/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -46,12 +46,13 @@ function pushToLGM(investor: Investor) {
       jobTitle: investor.role,
       sourceInvestorId: investor.id,
     }),
-  })
-    .then(r => r.json().then(j => ({ ok: r.ok, j })))
-    .then(({ ok, j }) => {
-      if (!ok) console.warn("LGM add failed", j);
-    })
-    .catch(err => console.warn("LGM add error", err));
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.warn("LGM add failed", body);
+    return false;
+  }
+  return true;
 }
 
 function formatAUM(usd: number): string {
@@ -90,6 +91,7 @@ export default function Page() {
   const [addName, setAddName] = useState("");
   const [addLinkedIn, setAddLinkedIn] = useState("");
   const [addingProfile, setAddingProfile] = useState(false);
+  const [syncingLGM, setSyncingLGM] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -145,6 +147,32 @@ export default function Page() {
     }
   }
 
+  async function syncLGMQueue() {
+    const queued = lgmQueue
+      .map(id => investors.find(i => i.id === id))
+      .filter((investor): investor is Investor => Boolean(investor && normalizeLinkedInProfileUrl(investor.linkedin)));
+    if (queued.length === 0) return;
+    setSyncingLGM(true);
+    setLastSaveError(null);
+    let failed = 0;
+    try {
+      for (const investor of queued) {
+        const synced = await pushToLGM(investor);
+        if (synced) {
+          await markLGMSynced(investor.id);
+          setLgmQueue(prev => prev.filter(id => id !== investor.id));
+        } else {
+          failed++;
+        }
+      }
+      if (failed > 0) setLastSaveError(`${failed} LGM add${failed === 1 ? "" : "s"} failed; still in queue`);
+    } catch (err) {
+      setLastSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncingLGM(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     let list = investors;
     if (filter === "warm") list = list.filter(i => i.bucket === "warm");
@@ -187,7 +215,6 @@ export default function Page() {
       if (normalizeLinkedInProfileUrl(selected.linkedin)) {
         setLgmQueue(prev => prev.includes(selected.id) ? prev : [...prev, selected.id]);
         setLgmMissingLinkedInQueue(prev => prev.filter(id => id !== selected.id));
-        pushToLGM(selected);
       } else {
         setLgmQueue(prev => prev.filter(id => id !== selected.id));
         setLgmMissingLinkedInQueue(prev => prev.includes(selected.id) ? prev : [...prev, selected.id]);
@@ -212,7 +239,14 @@ export default function Page() {
     } else {
       setIndex(i => Math.min(i + 1, filtered.length - 1));
     }
-    persistDecision(selected, d).then(() => {
+    persistDecision(selected, d).then(async () => {
+      if (d === "keep" && normalizeLinkedInProfileUrl(selected.linkedin)) {
+        const synced = await pushToLGM(selected);
+        if (synced) {
+          await markLGMSynced(selected.id);
+          setLgmQueue(prev => prev.filter(id => id !== selected.id));
+        }
+      }
       setLastSaveError(null);
     }).catch(err => {
       setLastSaveError(err instanceof Error ? err.message : String(err));
@@ -270,7 +304,9 @@ export default function Page() {
           const n = exportLGMQueue(investors, lgmQueue);
           alert(`Exported ${n} kept investors as LGM-ready CSV. Import into your LGM "investors" campaign as an audience.`);
         }}
+        onSyncLGM={syncLGMQueue}
         lgmQueueSize={lgmQueue.length}
+        syncingLGM={syncingLGM}
         lgmMissingLinkedInSize={lgmMissingLinkedInQueue.length}
         moreQueueSize={moreQueue.length}
         diagnostics={stateDiagnostics}
@@ -333,12 +369,12 @@ function Header(props: {
   filter: FilterMode; setFilter: (f: FilterMode) => void;
   searchQuery: string; setSearchQuery: (q: string) => void;
   filteredCount: number; currentIndex: number;
-  onExport: () => void; onExportLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; lgmMissingLinkedInSize: number; moreQueueSize: number;
+  onExport: () => void; onExportLGM: () => void; onSyncLGM: () => void; onExportLGMMissingLinkedIn: () => void; lgmQueueSize: number; syncingLGM: boolean; lgmMissingLinkedInSize: number; moreQueueSize: number;
   diagnostics: StateDiagnostics | null; lastSaveError: string | null; onRefreshDiagnostics: () => Promise<StateDiagnostics>;
   addName: string; setAddName: (value: string) => void; addLinkedIn: string; setAddLinkedIn: (value: string) => void; addingProfile: boolean; onAddProfile: () => void;
   onReset: () => void;
 }) {
-  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onExportLGMMissingLinkedIn, lgmQueueSize, lgmMissingLinkedInSize, moreQueueSize, diagnostics, lastSaveError, onRefreshDiagnostics, addName, setAddName, addLinkedIn, setAddLinkedIn, addingProfile, onAddProfile, onReset } = props;
+  const { view, setView, kept, cut, skipped, more, total, reviewed, target5x, target50, filter, setFilter, searchQuery, setSearchQuery, filteredCount, currentIndex, onExport, onExportLGM, onSyncLGM, onExportLGMMissingLinkedIn, lgmQueueSize, syncingLGM, lgmMissingLinkedInSize, moreQueueSize, diagnostics, lastSaveError, onRefreshDiagnostics, addName, setAddName, addLinkedIn, setAddLinkedIn, addingProfile, onAddProfile, onReset } = props;
   const remaining = Math.max(0, filteredCount - currentIndex);
   const legacyReviewed = diagnostics ? Object.keys(diagnostics.legacy.decisions).length : null;
   const remoteReviewed = diagnostics?.remote ? Object.keys(diagnostics.remote.decisions).length : null;
@@ -360,7 +396,7 @@ function Header(props: {
       <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#9a9aa3", flexWrap: "wrap" }}>
         <Pill active={kept >= target5x}>5× target: {kept}/{target5x}</Pill>
         <Pill active={kept >= target50} href="/kept">50% kept: {kept}/{target50}</Pill>
-        <Pill active={lgmMissingLinkedInSize > 0}>LGM retry: {lgmMissingLinkedInSize}</Pill>
+        <Pill active={lgmMissingLinkedInSize > 0}>Missing LinkedIn: {lgmMissingLinkedInSize}</Pill>
         <Pill active={moreQueueSize > 0}>Lookalikes: {moreQueueSize}</Pill>
         <Pill active>{remaining} left in filter</Pill>
       </div>
@@ -378,7 +414,8 @@ function Header(props: {
         <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <FilterBtn onClick={onExport}>Export CSV</FilterBtn>
           <FilterBtn onClick={onExportLGM}>LGM queue ({lgmQueueSize})</FilterBtn>
-          <FilterBtn onClick={onExportLGMMissingLinkedIn}>LGM retry ({lgmMissingLinkedInSize})</FilterBtn>
+          <FilterBtn onClick={onSyncLGM}>{syncingLGM ? "Syncing..." : `Sync LGM (${lgmQueueSize})`}</FilterBtn>
+          <FilterBtn onClick={onExportLGMMissingLinkedIn}>Missing LinkedIn ({lgmMissingLinkedInSize})</FilterBtn>
           <FilterBtn onClick={() => { onRefreshDiagnostics(); }}>Debug state</FilterBtn>
           <FilterBtn onClick={onReset}>Reset</FilterBtn>
         </span>

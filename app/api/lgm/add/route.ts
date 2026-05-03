@@ -37,8 +37,11 @@ export async function POST(req: Request) {
     audience: LGM_AUDIENCE_ID,
     linkedinUrl,
   };
+  if (body.firstname) payload.firstname = body.firstname;
+  if (body.lastname) payload.lastname = body.lastname;
+  if (body.companyName) payload.companyName = body.companyName;
+  if (body.jobTitle) payload.jobTitle = body.jobTitle;
   if (body.sourceInvestorId) payload.crm_id = body.sourceInvestorId;
-  payload.customAttribute1 = linkedinUrl;
 
   const url = `${LGM_ENDPOINT}?apikey=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
