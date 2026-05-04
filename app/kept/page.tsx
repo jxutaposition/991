@@ -5,6 +5,15 @@ import Link from "next/link";
 import type { DeepDiveRecord, DeepDiveResult, Investor, DecisionMap, OutreachStatus, OutreachStatusMap } from "../../lib/types";
 import { normalizeLinkedInProfileUrl } from "../../lib/linkedin";
 
+type EmailEnrichment = {
+  email?: string;
+  status?: string;
+  provider?: string;
+  verification?: string;
+  domain?: string;
+  updatedAt?: string;
+};
+
 type StateResponse = {
   decisions: DecisionMap;
   leleNotes?: Record<string, string>;
@@ -15,11 +24,16 @@ type DeepDiveResponse = {
   deepDives: DeepDiveRecord[];
 };
 
+type EmailEnrichmentResponse = {
+  emails: Record<string, EmailEnrichment>;
+};
+
 export default function KeptPage() {
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [decisions, setDecisions] = useState<DecisionMap>({});
   const [leleNotes, setLeleNotes] = useState<Record<string, string>>({});
   const [outreachStatuses, setOutreachStatuses] = useState<OutreachStatusMap>({});
+  const [emailEnrichment, setEmailEnrichment] = useState<Record<string, EmailEnrichment>>({});
   const [deepDives, setDeepDives] = useState<Record<string, DeepDiveRecord>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -34,11 +48,13 @@ export default function KeptPage() {
       fetch("/api/investors", { cache: "no-store" }).then(r => r.json() as Promise<{ investors: Investor[] }>),
       fetch("/api/state", { cache: "no-store" }).then(r => r.json() as Promise<StateResponse>),
       fetch("/api/deep-dive", { cache: "no-store" }).then(r => r.json() as Promise<DeepDiveResponse>),
-    ]).then(([profileState, state, deepDiveState]) => {
+      fetch("/api/email-enrichment", { cache: "no-store" }).then(r => r.json() as Promise<EmailEnrichmentResponse>),
+    ]).then(([profileState, state, deepDiveState, emailState]) => {
       setInvestors(profileState.investors);
       setDecisions(state.decisions || {});
       setLeleNotes(state.leleNotes || {});
       setOutreachStatuses(state.outreachStatuses || {});
+      setEmailEnrichment(emailState.emails || {});
       setDeepDives(Object.fromEntries((deepDiveState.deepDives || []).map(d => [d.investorId, d])));
       setLoaded(true);
     }).catch(err => {
@@ -52,6 +68,7 @@ export default function KeptPage() {
     .sort((a, b) => a.name.localeCompare(b.name)), [investors, decisions]);
   const selected = kept.find(i => i.id === selectedId) || kept[0] || null;
   const selectedDive = selected ? deepDives[selected.id] : null;
+  const keptWithEmail = useMemo(() => kept.filter(i => getEmailEnrichment(i, emailEnrichment)?.email).length, [kept, emailEnrichment]);
 
   async function saveLeleNotes(investor: Investor, value: string) {
     setLeleNotes(prev => ({ ...prev, [investor.id]: value }));
@@ -185,7 +202,9 @@ export default function KeptPage() {
       <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 650 }}>Kept profiles</h1>
-          <div style={{ color: "#9a9aa3", fontSize: 13 }}>{kept.length} people marked keep</div>
+          <div style={{ color: "#9a9aa3", fontSize: 13 }}>
+            {kept.length} people marked keep · {keptWithEmail} with enriched email
+          </div>
         </div>
         <Link href="/" style={buttonLinkStyle}>Back to review</Link>
       </header>
@@ -225,6 +244,7 @@ export default function KeptPage() {
           ) : kept.map(investor => {
             const dive = deepDives[investor.id];
             const active = selected?.id === investor.id;
+            const email = getEmailEnrichment(investor, emailEnrichment);
             return (
               <div key={investor.id} style={{ ...rowStyle, borderColor: active ? "#7aa7ff" : "#2a2a31" }}>
                 <button onClick={() => crossOff(investor)} aria-label={`Remove ${investor.name} from kept`} style={checkStyle}>×</button>
@@ -234,6 +254,7 @@ export default function KeptPage() {
                     {investor.firm} · {outreachStatuses[investor.id] || "not started"}
                   </span>
                 </button>
+                <EmailBadge enrichment={email} />
                 {investor.linkedin && (
                   <a href={investor.linkedin} target="_blank" rel="noopener noreferrer" style={openLinkStyle}>
                     Open
@@ -276,6 +297,7 @@ export default function KeptPage() {
                 onNotesBlur={value => saveLeleNotes(selected, value)}
                 onStatusChange={status => saveOutreachStatus(selected, status)}
               />
+              <EmailPanel enrichment={getEmailEnrichment(selected, emailEnrichment)} />
               <ProfileSummary investor={selected} />
               <DeepDiveView record={selectedDive} />
             </>
@@ -289,6 +311,59 @@ export default function KeptPage() {
 }
 
 const OUTREACH_STATUSES: OutreachStatus[] = ["not started", "first outreach", "bumped", "meeting", "archive"];
+
+function getEmailEnrichment(investor: Investor, emails: Record<string, EmailEnrichment>): EmailEnrichment | null {
+  const handle = linkedInHandle(investor.linkedin);
+  if (!handle) return null;
+  return emails[handle] || null;
+}
+
+function linkedInHandle(url?: string) {
+  const normalized = normalizeLinkedInProfileUrl(url);
+  const match = normalized?.toLowerCase().match(/linkedin\.com\/in\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]).replace(/\/$/, "") : "";
+}
+
+function EmailBadge({ enrichment }: { enrichment: EmailEnrichment | null }) {
+  const hasEmail = Boolean(enrichment?.email);
+  const attempted = Boolean(enrichment);
+  const label = hasEmail ? "Email" : attempted ? "No email" : "Not checked";
+  return <span style={emailBadgeStyle(hasEmail, attempted)}>{label}</span>;
+}
+
+function EmailPanel({ enrichment }: { enrichment: EmailEnrichment | null }) {
+  if (enrichment?.email) {
+    return (
+      <section style={emailPanelStyle}>
+        <div>
+          <div style={labelStyle}>Email</div>
+          <a href={`mailto:${enrichment.email}`} style={{ color: "#86efac", fontSize: 15, fontWeight: 650 }}>
+            {enrichment.email}
+          </a>
+        </div>
+        <div style={bodyTextStyle}>
+          {enrichment.verification && <span>{enrichment.verification}</span>}
+          {enrichment.provider && <span> · {enrichment.provider}</span>}
+          {enrichment.domain && <span> · {enrichment.domain}</span>}
+        </div>
+      </section>
+    );
+  }
+  if (enrichment) {
+    return (
+      <section style={emailPanelStyle}>
+        <div style={labelStyle}>Email</div>
+        <div style={{ ...bodyTextStyle, color: "#fbbf24" }}>Checked, no email found</div>
+      </section>
+    );
+  }
+  return (
+    <section style={emailPanelStyle}>
+      <div style={labelStyle}>Email</div>
+      <div style={{ ...bodyTextStyle, color: "#9a9aa3" }}>Not checked yet</div>
+    </section>
+  );
+}
 
 function ProfileTracking({
   notes,
@@ -554,9 +629,19 @@ const trackingPanelStyle: React.CSSProperties = {
   marginBottom: 16,
 };
 
+const emailPanelStyle: React.CSSProperties = {
+  border: "1px solid #24452e",
+  borderRadius: 8,
+  padding: 10,
+  background: "#101a13",
+  display: "grid",
+  gap: 5,
+  marginBottom: 16,
+};
+
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "32px 1fr auto auto",
+  gridTemplateColumns: "32px 1fr auto auto auto",
   gap: 8,
   alignItems: "center",
   border: "1px solid #2a2a31",
@@ -696,6 +781,19 @@ const badgeStyle: React.CSSProperties = {
   background: "#f59e0b",
   color: "#0b0b0d",
 };
+
+function emailBadgeStyle(hasEmail: boolean, attempted: boolean): React.CSSProperties {
+  return {
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: hasEmail ? "#16301f" : attempted ? "#33261b" : "#202028",
+    color: hasEmail ? "#86efac" : attempted ? "#fbbf24" : "#9a9aa3",
+    border: `1px solid ${hasEmail ? "#22c55e44" : attempted ? "#f59e0b44" : "#2a2a31"}`,
+    fontSize: 11,
+    fontWeight: 650,
+    whiteSpace: "nowrap",
+  };
+}
 
 const labelStyle: React.CSSProperties = {
   color: "#9a9aa3",
